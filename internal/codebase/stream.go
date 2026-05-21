@@ -1,0 +1,264 @@
+package codebase
+
+import (
+	"bufio"
+	"encoding/json"
+	"io"
+	"strings"
+
+	"cece/internal/chat"
+	"cece/internal/logger"
+)
+
+// OutputEvent represents a single output event from the codebase-api SSE stream.
+type OutputEvent struct {
+	Response         string             `json:"response"`
+	ReasoningContent string             `json:"reasoning_content"`
+	ToolCalls        []CodebaseToolCall `json:"tool_calls"`
+}
+
+// TokenUsageEvent represents a token_usage event from the codebase-api SSE stream.
+type TokenUsageEvent struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+}
+
+// DoneEvent represents a done event from the codebase-api SSE stream.
+type DoneEvent struct {
+	FinishReason string `json:"finish_reason"`
+}
+
+type streamState struct {
+	messageStarted    bool
+	thinkingOpen      bool
+	thinkingIndex     int
+	activeToolIndices map[int]bool
+	textBlockStarted  bool
+	textBlockIndex    int
+	inputTokens       int
+	outputTokens      int
+}
+
+// DecodeStreamEvent reads a codebase-api SSE stream and emits chat.ApiStreamEvent values.
+func DecodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
+	out := make(chan chat.ApiStreamEvent)
+
+	go func() {
+		defer close(out)
+		defer body.Close()
+
+		scanner := bufio.NewScanner(body)
+		scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+
+		state := &streamState{}
+		var currentEvent string
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			logger.Debug("codebase sse raw line", "line", line)
+
+			if line == "" {
+				currentEvent = ""
+				continue
+			}
+
+			if strings.HasPrefix(line, "event:") {
+				currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+				continue
+			}
+
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+
+			dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if dataStr == "" {
+				continue
+			}
+
+			processEvent(currentEvent, dataStr, out, state)
+		}
+
+		if err := scanner.Err(); err != nil {
+			out <- chat.ApiStreamEvent{Err: err}
+		}
+	}()
+
+	return out
+}
+
+func processEvent(eventType, data string, out chan<- chat.ApiStreamEvent, state *streamState) {
+	switch eventType {
+	case "output":
+		var ev OutputEvent
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			out <- chat.ApiStreamEvent{Err: err}
+			return
+		}
+		emitOutput(&ev, out, state)
+
+	case "token_usage":
+		var ev TokenUsageEvent
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			// Non-fatal: just log and skip
+			logger.Debug("codebase token_usage parse error", "error", err)
+			return
+		}
+		state.inputTokens = ev.PromptTokens
+		state.outputTokens = ev.CompletionTokens
+
+	case "done":
+		var ev DoneEvent
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			out <- chat.ApiStreamEvent{Err: err}
+			return
+		}
+		emitDone(&ev, out, state)
+
+	case "metadata":
+		// Ignore metadata events
+	default:
+		logger.Debug("codebase unknown event type", "type", eventType)
+	}
+}
+
+func emitOutput(ev *OutputEvent, out chan<- chat.ApiStreamEvent, state *streamState) {
+	// Synthesize message_start on first output
+	if !state.messageStarted {
+		state.messageStarted = true
+		out <- chat.ApiStreamEvent{
+			EventType:   "message_start",
+			InputTokens: state.inputTokens,
+		}
+	}
+
+	// Reasoning/thinking content
+	if ev.ReasoningContent != "" {
+		if !state.thinkingOpen {
+			state.thinkingOpen = true
+			state.thinkingIndex = 0
+			out <- chat.ApiStreamEvent{
+				EventType:  "content_block_start",
+				Index:      0,
+				IsThinking: true,
+			}
+		}
+		out <- chat.ApiStreamEvent{
+			EventType:     "content_block_delta",
+			Detail:        "thinking_delta",
+			ThinkingDelta: ev.ReasoningContent,
+			Index:         state.thinkingIndex,
+		}
+	}
+
+	// Transition from thinking to text: close thinking block
+	if state.thinkingOpen && ev.Response != "" {
+		out <- chat.ApiStreamEvent{
+			EventType:  "content_block_stop",
+			Index:      state.thinkingIndex,
+			IsThinking: true,
+		}
+		state.thinkingOpen = false
+	}
+
+	// Regular text content
+	if ev.Response != "" {
+		if !state.textBlockStarted {
+			state.textBlockStarted = true
+			state.textBlockIndex = 0
+			if state.thinkingIndex >= 0 && state.thinkingOpen == false && state.messageStarted {
+				state.textBlockIndex = state.thinkingIndex + 1
+			}
+			out <- chat.ApiStreamEvent{
+				EventType: "content_block_start",
+				Index:     state.textBlockIndex,
+			}
+		}
+		out <- chat.ApiStreamEvent{
+			Delta:      ev.Response,
+			EventType:  "content_block_delta",
+			Detail:     "text_delta",
+			Index:      state.textBlockIndex,
+		}
+	}
+
+	// Tool calls
+	for _, tc := range ev.ToolCalls {
+		if state.activeToolIndices == nil {
+			state.activeToolIndices = make(map[int]bool)
+		}
+
+		// First appearance: tool_use start (has id + name)
+		if tc.ID != "" && tc.FunctionCall != nil && tc.FunctionCall.Name != "" {
+			// Close any previously opened tool calls with smaller indices
+			for idx := range state.activeToolIndices {
+				if idx < tc.Index {
+					out <- chat.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+					delete(state.activeToolIndices, idx)
+				}
+			}
+			state.activeToolIndices[tc.Index] = true
+			out <- chat.ApiStreamEvent{
+				EventType:    "content_block_start",
+				ToolCallID:   tc.ID,
+				ToolCallName: tc.FunctionCall.Name,
+				Index:        tc.Index,
+			}
+		}
+
+		// Subsequent: input_json_delta
+		if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
+			out <- chat.ApiStreamEvent{
+				EventType:     "content_block_delta",
+				Detail:        "input_json_delta",
+				ToolCallInput: tc.FunctionCall.Arguments,
+				Index:         tc.Index,
+			}
+		}
+	}
+}
+
+func emitDone(ev *DoneEvent, out chan<- chat.ApiStreamEvent, state *streamState) {
+	// Close thinking block if still open
+	if state.thinkingOpen {
+		out <- chat.ApiStreamEvent{
+			EventType:  "content_block_stop",
+			Index:      state.thinkingIndex,
+			IsThinking: true,
+		}
+		state.thinkingOpen = false
+	}
+
+	// Close text block if open
+	if state.textBlockStarted {
+		out <- chat.ApiStreamEvent{
+			EventType: "content_block_stop",
+			Index:     state.textBlockIndex,
+		}
+	}
+
+	// Close all active tool call blocks
+	for idx := range state.activeToolIndices {
+		out <- chat.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+	}
+
+	out <- chat.ApiStreamEvent{
+		EventType:    "message_delta",
+		StopReason:   mapStopReason(ev.FinishReason),
+		OutputTokens: state.outputTokens,
+	}
+	out <- chat.ApiStreamEvent{Done: true}
+}
+
+func mapStopReason(reason string) string {
+	switch reason {
+	case "stop":
+		return "end_turn"
+	case "tool_calls":
+		return "tool_use"
+	case "length":
+		return "max_tokens"
+	default:
+		return reason
+	}
+}
