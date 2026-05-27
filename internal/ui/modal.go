@@ -8,6 +8,7 @@ import (
 
 	"cece/internal/protocol"
 	"cece/internal/session"
+	"cece/internal/ui/picker"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -33,10 +34,7 @@ type modalState struct {
 	custom    map[int]string
 	textMode  bool
 	textInput string
-	models    []protocol.ModelInfo
-	sessions  []session.Session
-	selectedI int
-	filter    string
+	picker    *picker.Picker
 	planFile  string
 }
 
@@ -44,6 +42,12 @@ func (m modalState) active() bool { return m.kind != modalNone }
 
 func (m *Model) modalHeight() int {
 	if !m.modal.active() {
+		return 0
+	}
+	if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker {
+		if m.modal.picker != nil {
+			return m.modal.picker.Height()
+		}
 		return 0
 	}
 	lines := strings.Count(m.modalView(), "\n") + 1
@@ -62,10 +66,10 @@ func (m *Model) modalView() string {
 		body = fmt.Sprintf("Approve plan %s?\n[y/enter] approve  [n/esc] reject", m.modal.planFile)
 	case modalQuestion:
 		body = m.questionView()
-	case modalModelPicker:
-		body = m.modelPickerView()
-	case modalSessionPicker:
-		body = m.sessionPickerView()
+	case modalModelPicker, modalSessionPicker:
+		if m.modal.picker != nil {
+			body = m.modal.picker.View()
+		}
 	}
 	return body
 }
@@ -78,10 +82,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleApprovePlanKey(msg)
 	case modalQuestion:
 		return m.handleQuestionKey(msg)
-	case modalModelPicker:
-		return m.handleModelPickerKey(msg)
-	case modalSessionPicker:
-		return m.handleSessionPickerKey(msg)
+	case modalModelPicker, modalSessionPicker:
+		return m.handlePickerKey(msg)
 	}
 	return nil
 }
@@ -180,7 +182,12 @@ func (m *Model) questionView() string {
 				if i == m.modal.cursors[m.modal.qIndex] {
 					cursor = ">"
 				}
-				fmt.Fprintf(&b, "%s %s %s\n", cursor, mark, "Type something else...")
+				label := "Type something else..."
+				if custom, ok := m.modal.custom[m.modal.qIndex]; ok && custom != "" {
+					label = custom
+					mark = "[x]"
+				}
+				fmt.Fprintf(&b, "%s %s %s\n", cursor, mark, label)
 			}
 		} else {
 			if i == m.modal.cursors[m.modal.qIndex] && !m.modal.textMode {
@@ -239,11 +246,15 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	case "left", "h":
 		if m.modal.qIndex > 0 {
+			m.saveQuestionText()
 			m.modal.qIndex--
+			m.restoreQuestionText()
 		}
 	case "right", "l":
 		if m.modal.qIndex < len(m.modal.questions)-1 {
+			m.saveQuestionText()
 			m.modal.qIndex++
+			m.restoreQuestionText()
 		}
 	case "space":
 		cursor := m.modal.cursors[m.modal.qIndex]
@@ -269,6 +280,24 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.cancelTurn("Question cancelled")
 	}
 	return nil
+}
+
+// saveQuestionText persists the current textInput into custom map if in textMode.
+func (m *Model) saveQuestionText() {
+	if m.modal.textMode && m.modal.textInput != "" {
+		m.modal.custom[m.modal.qIndex] = m.modal.textInput
+	}
+}
+
+// restoreQuestionText restores textInput and textMode from custom map for the current question.
+func (m *Model) restoreQuestionText() {
+	if custom, ok := m.modal.custom[m.modal.qIndex]; ok && custom != "" {
+		m.modal.textMode = true
+		m.modal.textInput = custom
+	} else {
+		m.modal.textMode = false
+		m.modal.textInput = ""
+	}
 }
 
 func (m *Model) advanceQuestion() tea.Cmd {
@@ -324,112 +353,72 @@ func (m *Model) toggleQuestionSelection(qIdx, optIdx int) {
 }
 
 func (m *Model) openModelPicker(models []protocol.ModelInfo) {
-	m.modal = modalState{kind: modalModelPicker, models: models}
+	items := make([]any, len(models))
 	for i, model := range models {
-		if model.ID == m.modelName {
-			m.modal.selectedI = i
-			break
-		}
+		items[i] = model
 	}
-}
-
-func (m *Model) modelPickerView() string {
-	models := m.filteredModels()
-	var b strings.Builder
-	b.WriteString("Switch model")
-	if m.modal.filter != "" {
-		b.WriteString(" filter: " + m.modal.filter)
-	}
-	b.WriteByte('\n')
-	if len(models) == 0 {
-		b.WriteString("No models\n")
-	} else {
-		for i, model := range models {
-			cursor := " "
-			if i == m.modal.selectedI {
-				cursor = ">"
-			}
-			name := model.DisplayName
-			if name == "" {
-				name = model.ID
-			}
-			provider := model.Provider
-			if provider != "" {
-				provider += "/"
-			}
-			fmt.Fprintf(&b, "%s %s%s\n", cursor, provider, name)
+	p := picker.New("Switch model", items, modalMaxHeight, func(item any, selected bool) string {
+		mi := item.(protocol.ModelInfo)
+		name := mi.DisplayName
+		if name == "" {
+			name = mi.ID
 		}
-	}
-	b.WriteString("[up/down] move  [enter] select  [type] filter  [esc] close")
-	return b.String()
-}
-
-func (m *Model) filteredModels() []protocol.ModelInfo {
-	if m.modal.filter == "" {
-		return m.modal.models
-	}
-	q := strings.ToLower(m.modal.filter)
-	var out []protocol.ModelInfo
-	for _, model := range m.modal.models {
-		text := strings.ToLower(model.ID + " " + model.DisplayName + " " + model.Provider)
-		if strings.Contains(text, q) {
-			out = append(out, model)
+		provider := mi.Provider
+		if provider != "" {
+			provider += "/"
 		}
-	}
-	return out
-}
-
-func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) tea.Cmd {
-	models := m.filteredModels()
-	switch msg.String() {
-	case "esc":
-		m.modal = modalState{}
-	case "up", "ctrl+p":
-		if len(models) > 0 {
-			m.modal.selectedI = (m.modal.selectedI - 1 + len(models)) % len(models)
-		}
-	case "down", "ctrl+n":
-		if len(models) > 0 {
-			m.modal.selectedI = (m.modal.selectedI + 1) % len(models)
-		}
-	case "enter", "tab":
-		if len(models) == 0 {
-			return nil
-		}
-		selected := models[clamp(m.modal.selectedI, 0, len(models)-1)]
-		m.modelName = selected.ID
-		m.statusBar.UpdateModel(selected.ID)
-		if selected.MaxContextWindow > 0 {
-			m.contextWindow = selected.MaxContextWindow
+		return picker.FormatItem(provider+name, selected)
+	})
+	p.SetFilterFn(func(item any, q string) bool {
+		mi := item.(protocol.ModelInfo)
+		return strings.Contains(strings.ToLower(mi.ID+" "+mi.DisplayName+" "+mi.Provider), strings.ToLower(q))
+	})
+	p.SetHelpText("[up/down] move  [enter] select  [type] filter  [esc] close")
+	p.SetOnSelect(func(item any) tea.Cmd {
+		mi := item.(protocol.ModelInfo)
+		m.modelName = mi.ID
+		m.statusBar.UpdateModel(mi.ID)
+		if mi.MaxContextWindow > 0 {
+			m.contextWindow = mi.MaxContextWindow
 			m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
 		}
 		m.modal = modalState{}
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.SwitchModelAction{
-				Model:            selected.ID,
-				MaxContextWindow: selected.MaxContextWindow,
-				APIKey:           selected.APIKey,
-				BaseURL:          selected.BaseURL,
-				AuthMode:         selected.AuthMode,
-				AuthHelper:       selected.AuthHelper,
-				Protocol:         selected.Protocol,
-				ConfigName:       selected.ConfigName,
+				Model:            mi.ID,
+				MaxContextWindow: mi.MaxContextWindow,
+				APIKey:           mi.APIKey,
+				BaseURL:          mi.BaseURL,
+				AuthMode:         mi.AuthMode,
+				AuthHelper:       mi.AuthHelper,
+				Protocol:         mi.Protocol,
+				ConfigName:       mi.ConfigName,
 			})
 		}
 		m.status = "Model switched"
-	case "backspace":
-		if m.modal.filter != "" {
-			_, size := utf8.DecodeLastRuneInString(m.modal.filter)
-			m.modal.filter = m.modal.filter[:len(m.modal.filter)-size]
-			m.modal.selectedI = 0
-		}
-	default:
-		if text := msg.Key().Text; text != "" {
-			m.modal.filter += text
-			m.modal.selectedI = 0
+		return nil
+	})
+	// Pre-select current model
+	for i, model := range models {
+		if model.ID == m.modelName {
+			for j := 0; j < i; j++ {
+				p.Down()
+			}
+			break
 		}
 	}
-	return nil
+	m.modal = modalState{kind: modalModelPicker, picker: p}
+}
+
+func (m *Model) handlePickerKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.modal.picker == nil {
+		return nil
+	}
+	result, cmd := m.modal.picker.HandleKey(msg)
+	if result == picker.ResultClose {
+		m.modal = modalState{}
+	}
+	return cmd
 }
 
 func (m *Model) openSessionsDialog() {
@@ -442,54 +431,28 @@ func (m *Model) openSessionsDialog() {
 		m.status = "Failed to list sessions: " + err.Error()
 		return
 	}
-	m.modal = modalState{kind: modalSessionPicker, sessions: sessions}
-	m.status = "Resume session"
-}
-
-func (m *Model) sessionPickerView() string {
-	var b strings.Builder
-	b.WriteString("Resume session\n")
-	if len(m.modal.sessions) == 0 {
-		b.WriteString("No sessions\n")
-	} else {
-		for i, sess := range m.modal.sessions {
-			cursor := " "
-			if i == m.modal.selectedI {
-				cursor = ">"
-			}
-			title := sess.Title
-			if title == "" {
-				title = sess.ID
-			}
-			fmt.Fprintf(&b, "%s %s  %s\n", cursor, title, sess.UpdatedAt.Format("2006-01-02 15:04"))
-		}
+	items := make([]any, len(sessions))
+	for i, s := range sessions {
+		items[i] = s
 	}
-	b.WriteString("[up/down] move  [enter] load  [esc] close")
-	return b.String()
-}
-
-func (m *Model) handleSessionPickerKey(msg tea.KeyPressMsg) tea.Cmd {
-	switch msg.String() {
-	case "esc":
-		m.modal = modalState{}
-	case "up", "ctrl+p":
-		if len(m.modal.sessions) > 0 {
-			m.modal.selectedI = (m.modal.selectedI - 1 + len(m.modal.sessions)) % len(m.modal.sessions)
+	p := picker.New("Resume session", items, modalMaxHeight, func(item any, selected bool) string {
+		s := item.(session.Session)
+		title := s.Title
+		if title == "" {
+			title = s.ID
 		}
-	case "down", "ctrl+n":
-		if len(m.modal.sessions) > 0 {
-			m.modal.selectedI = (m.modal.selectedI + 1) % len(m.modal.sessions)
-		}
-	case "enter", "tab":
-		if len(m.modal.sessions) == 0 {
-			return nil
-		}
-		selected := m.modal.sessions[clamp(m.modal.selectedI, 0, len(m.modal.sessions)-1)]
+		return picker.FormatItem(title+"  "+s.UpdatedAt.Format("2006-01-02 15:04"), selected)
+	})
+	p.SetHelpText("[up/down] move  [enter] load  [esc] close")
+	p.SetOnSelect(func(item any) tea.Cmd {
+		s := item.(session.Session)
 		m.modal = modalState{}
 		if actor, ok := m.sender.(Actor); ok {
-			actor.Do(protocol.LoadSessionAction{SessionID: selected.ID})
+			actor.Do(protocol.LoadSessionAction{SessionID: s.ID})
 		}
 		m.status = "Loading session"
-	}
-	return nil
+		return nil
+	})
+	m.modal = modalState{kind: modalSessionPicker, picker: p}
+	m.status = "Resume session"
 }
