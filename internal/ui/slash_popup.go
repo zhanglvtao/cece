@@ -16,6 +16,7 @@ var builtinSlashCommands = []struct {
 	{"/model", "Switch model"},
 	{"/resume", "Resume a session"},
 	{"/clear", "Clear conversation history"},
+	{"/compact", "Compress conversation history"},
 	{"/skills", "List available skills"},
 }
 

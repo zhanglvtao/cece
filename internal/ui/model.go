@@ -297,6 +297,15 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.transcript.reset()
 		m.statusBar.ResetToolCounts()
 		m.status = "Cleared"
+	case protocol.CompactingEvent:
+		m.status = "Compacting"
+		m.busy = true
+	case protocol.CompactedEvent:
+		m.busy = false
+		m.status = fmt.Sprintf("Compacted %d→%d msgs, %dK→%dK tokens",
+			e.MessagesBefore, e.MessagesAfter,
+			(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
+		m.statusBar.ResetToolCounts()
 	}
 	// Sync all status bar data from model state.
 	m.statusBar.UpdateStatus(m.status, m.busy)
@@ -339,8 +348,17 @@ func (m *Model) View() tea.View {
 	view.MouseMode = tea.MouseModeCellMotion
 	view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
 
-	// Position cursor at the textarea's actual location.
-	if cur := m.input.Cursor(); cur != nil {
+	// Position cursor.
+	if m.modal.kind == modalQuestion && m.modal.textMode {
+		// Place cursor at the inline text input line inside the question modal.
+		cur := &tea.Cursor{}
+		// The input line is the last option line (before help line) in the modal.
+		// Modal layout: "Question X/Y\n{question}\n{options}\n{help}"
+		modalLines := strings.Count(modal, "\n") + 1
+		cur.Y = m.viewport.Height() + modalLines - 2 // -1 for 0-index, -1 for help line
+		cur.X = 6 + len(m.modal.textInput)            // "> [ ] " prefix (6 chars) + typed text length
+		view.Cursor = cur
+	} else if cur := m.input.Cursor(); cur != nil {
 		rowsAboveInput := m.viewport.Height() // no header
 		if modal != "" {
 			rowsAboveInput += strings.Count(modal, "\n") + 1
@@ -629,6 +647,13 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.ClearHistoryAction{})
 			m.status = "Cleared"
+		}
+		return nil
+	case "/compact":
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.CompactAction{})
+			m.status = "Compacting"
+			m.busy = true
 		}
 		return nil
 	case "/skills":
