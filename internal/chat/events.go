@@ -201,6 +201,21 @@ type UIQueuedInputPromoted struct{}
 
 func (UIQueuedInputPromoted) isEvent() {}
 
+// UICompacting is emitted when compaction starts.
+type UICompacting struct{}
+
+func (UICompacting) isEvent() {}
+
+// UICompacted is emitted when conversation history has been compressed.
+type UICompacted struct {
+	TokensBefore   int
+	TokensAfter    int
+	MessagesBefore int
+	MessagesAfter  int
+}
+
+func (UICompacted) isEvent() {}
+
 // UITurnCompleted is emitted when a full agent turn finishes.
 type UITurnCompleted struct{}
 

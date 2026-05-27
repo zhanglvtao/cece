@@ -124,6 +124,17 @@ func ToDTO(e Event) protocol.Event {
 	case UIQueuedInputPromoted:
 		return protocol.QueuedInputPromoted{}
 
+	case UICompacting:
+		return protocol.CompactingEvent{}
+
+	case UICompacted:
+		return protocol.CompactedEvent{
+			TokensBefore:   v.TokensBefore,
+			TokensAfter:    v.TokensAfter,
+			MessagesBefore: v.MessagesBefore,
+			MessagesAfter:  v.MessagesAfter,
+		}
+
 	case UITurnCompleted:
 		return protocol.TurnCompleted{}
 	}

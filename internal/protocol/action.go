@@ -79,3 +79,9 @@ func (ListModelsAction) isAction() {}
 type ClearHistoryAction struct{}
 
 func (ClearHistoryAction) isAction() {}
+
+// CompactAction requests the runtime to compress conversation history
+// by summarizing older messages and preserving recent turns.
+type CompactAction struct{}
+
+func (CompactAction) isAction() {}

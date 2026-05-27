@@ -196,6 +196,21 @@ type QueuedInputPromoted struct{}
 
 func (QueuedInputPromoted) isEvent() {}
 
+// CompactingEvent is emitted when compaction starts.
+type CompactingEvent struct{}
+
+func (CompactingEvent) isEvent() {}
+
+// CompactedEvent is emitted when conversation history has been compressed.
+type CompactedEvent struct {
+	TokensBefore   int // estimated input tokens before compaction
+	TokensAfter    int // estimated input tokens after compaction
+	MessagesBefore int
+	MessagesAfter  int
+}
+
+func (CompactedEvent) isEvent() {}
+
 // TurnCompleted is emitted when a full agent turn finishes (after all
 // tool executions and assistant responses). Replaces the old channel-close
 // signal so the UI only needs to consume from the single event bus.
