@@ -273,14 +273,18 @@ func (e *Engine) ClearHistory() {
 // most recent turns verbatim.
 func (e *Engine) CompactHistory(ctx context.Context) {
 	e.mu.Lock()
-	if len(e.history) < 4 { // need at least 2 turns to compact
-		e.mu.Unlock()
-		return
-	}
 	snapshot := make([]chat.Message, len(e.history))
 	copy(snapshot, e.history)
 	client := e.client
 	e.mu.Unlock()
+
+	if len(snapshot) < 4 { // need at least 2 turns to compact
+		e.emitEvent(protocol.CompactedEvent{
+			MessagesBefore: len(snapshot),
+			MessagesAfter:  len(snapshot),
+		})
+		return
+	}
 
 	e.emitEvent(protocol.CompactingEvent{})
 

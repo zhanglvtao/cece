@@ -302,9 +302,15 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.busy = true
 	case protocol.CompactedEvent:
 		m.busy = false
-		m.status = fmt.Sprintf("Compacted %d→%d msgs, %dK→%dK tokens",
-			e.MessagesBefore, e.MessagesAfter,
-			(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
+		if e.MessagesBefore == e.MessagesAfter {
+			m.status = "Not enough messages to compact"
+			m.transcript.appendDone(blockInfo, "compact", "Not enough messages to compact. Send a few more messages first.")
+		} else {
+			m.status = fmt.Sprintf("Compacted %d→%d msgs, %dK→%dK tokens",
+				e.MessagesBefore, e.MessagesAfter,
+				(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
+			m.transcript.appendDone(blockInfo, "compact", m.status)
+		}
 		m.statusBar.ResetToolCounts()
 	}
 	// Sync all status bar data from model state.
