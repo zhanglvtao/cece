@@ -68,7 +68,7 @@ func (p *Picker) visibleItems() []any {
 
 // visibleCount is the number of item lines that fit in the viewport.
 func (p *Picker) visibleCount() int {
-	return max(p.maxHeight-2, 1) // title + help = 2 fixed lines
+	return max(p.maxHeight-3, 1) // separator + title + help = 3 fixed lines
 }
 
 // ensureVisible adjusts offset so selectedI is within the viewport.
@@ -93,10 +93,12 @@ func (p *Picker) ensureVisible(total int) {
 }
 
 // View renders the picker as plain text lines. Total lines ≤ maxHeight.
+// A leading blank line separates the picker from the chat viewport above.
 func (p *Picker) View() string {
 	items := p.visibleItems()
 	var b strings.Builder
 
+	b.WriteByte('\n')
 	// Title line
 	b.WriteString(p.title)
 	if p.filterFn != nil && p.filter != "" {
@@ -128,7 +130,7 @@ func (p *Picker) Height() int {
 		return 0
 	}
 	items := p.visibleItems()
-	return min(len(items)+2, p.maxHeight) // +2 for title and help
+	return min(len(items)+3, p.maxHeight) // +3: separator + title + help
 }
 
 // Up moves selection up.
