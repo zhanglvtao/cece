@@ -130,7 +130,7 @@ func (sb *StatusBar) Render(width int) string {
 			remaining = 0
 		}
 		pct := remaining * 100 / sb.contextWindow
-		parts = append(parts, fmt.Sprintf("ctx:%d%%", pct))
+		parts = append(parts, fmt.Sprintf("ctx:%s/%s %d%%", formatTokenK(remaining), formatTokenK(sb.contextWindow), pct))
 	}
 
 	// scroll
