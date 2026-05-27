@@ -46,7 +46,7 @@ func (m *Model) modalHeight() int {
 	}
 	if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker {
 		if m.modal.picker != nil {
-			return m.modal.picker.Height()
+			return m.modal.picker.Height() + 1 // +1 for separator line
 		}
 		return 0
 	}

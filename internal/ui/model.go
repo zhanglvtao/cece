@@ -333,6 +333,10 @@ func (m *Model) View() tea.View {
 	sections := []string{m.viewport.View()}
 	modal := m.modalView()
 	if modal != "" {
+		// Add visual separation between chat and picker
+		if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker {
+			sections = append(sections, "")
+		}
 		sections = append(sections, modal)
 	}
 	popup := m.slashPopup.View(m.width)
