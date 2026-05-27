@@ -108,22 +108,21 @@ func TestCompact_WithMockStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compact failed: %v", err)
 	}
-	if result.MessagesBefore != 6 {
-		t.Errorf("expected MessagesBefore=6, got %d", result.MessagesBefore)
+	// 3 turns, keepRecentTurns=2: summarize turn1(u1,a1), keep turns2+3(u2,a2,u3,a3)
+	if result.SummarizeCount != 2 {
+		t.Errorf("expected SummarizeCount=2, got %d", result.SummarizeCount)
 	}
-	// 1 summary user msg + 4 kept = 5
-	if result.MessagesAfter != 5 {
-		t.Errorf("expected MessagesAfter=5, got %d", result.MessagesAfter)
+	if result.KeepCount != 4 {
+		t.Errorf("expected KeepCount=4, got %d", result.KeepCount)
 	}
-	if result.Messages[0].Role != UserRole {
-		t.Errorf("expected first message role to be user, got %s", result.Messages[0].Role)
+	if result.Boundary.Role != UserRole {
+		t.Errorf("expected boundary role to be user, got %s", result.Boundary.Role)
 	}
-	if !strings.Contains(result.Messages[0].Content, "continued from a previous conversation") {
-		t.Errorf("expected summary message to contain 'continued from a previous conversation', got %s", result.Messages[0].Content)
+	if !result.Boundary.CompactBoundary {
+		t.Error("expected boundary message to have CompactBoundary=true")
 	}
-	// First kept message should be u2 (start of turn 2, keepRecentTurns=2 keeps turns 2+3)
-	if result.Messages[1].Content != "u2" {
-		t.Errorf("expected second message to be u2, got %s", result.Messages[1].Content)
+	if !strings.Contains(result.Boundary.Content, "continued from a previous conversation") {
+		t.Errorf("expected boundary content to contain 'continued from a previous conversation', got %s", result.Boundary.Content)
 	}
 }
 
@@ -138,8 +137,8 @@ func TestCompact_NothingToSummarize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compact failed: %v", err)
 	}
-	if result.MessagesBefore != result.MessagesAfter {
-		t.Errorf("expected same message count when nothing to summarize")
+	if result.SummarizeCount != 0 {
+		t.Errorf("expected SummarizeCount=0 when nothing to summarize, got %d", result.SummarizeCount)
 	}
 }
 
@@ -203,5 +202,53 @@ func TestStripTag(t *testing.T) {
 				t.Errorf("stripTag(%q, %q) = %q, want %q", tt.in, tt.tag, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMessagesAfterCompactBoundary(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "u1"},
+		{Role: AssistantRole, Content: "a1"},
+		{Role: UserRole, Content: "u2", CompactBoundary: true},
+		{Role: AssistantRole, Content: "a2"},
+		{Role: UserRole, Content: "u3"},
+	}
+	result := MessagesAfterCompactBoundary(msgs)
+	if len(result) != 3 {
+		t.Errorf("expected 3 messages after boundary (boundary + a2 + u3), got %d", len(result))
+	}
+	if result[0].Content != "u2" {
+		t.Errorf("expected first message to be boundary u2, got %s", result[0].Content)
+	}
+	if !result[0].CompactBoundary {
+		t.Error("expected first message to be compact boundary")
+	}
+}
+
+func TestMessagesAfterCompactBoundary_NoBoundary(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "u1"},
+		{Role: AssistantRole, Content: "a1"},
+	}
+	result := MessagesAfterCompactBoundary(msgs)
+	if len(result) != 2 {
+		t.Errorf("expected all 2 messages when no boundary, got %d", len(result))
+	}
+}
+
+func TestMessagesAfterCompactBoundary_MultipleBoundaries(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "u1", CompactBoundary: true},
+		{Role: AssistantRole, Content: "a1"},
+		{Role: UserRole, Content: "u2", CompactBoundary: true},
+		{Role: AssistantRole, Content: "a2"},
+		{Role: UserRole, Content: "u3"},
+	}
+	result := MessagesAfterCompactBoundary(msgs)
+	if len(result) != 3 {
+		t.Errorf("expected 3 messages after last boundary, got %d", len(result))
+	}
+	if result[0].Content != "u2" {
+		t.Errorf("expected first message after last boundary to be u2, got %s", result[0].Content)
 	}
 }

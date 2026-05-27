@@ -269,8 +269,9 @@ func (e *Engine) ClearHistory() {
 }
 
 // CompactHistory compresses conversation history by summarizing older messages.
-// It uses the current model client to generate a summary and preserves the
-// most recent turns verbatim.
+// It inserts a CompactBoundary message into history. When building API requests,
+// MessagesAfterCompactBoundary skips everything before the boundary.
+// Old messages are preserved in history for UI scrollback.
 func (e *Engine) CompactHistory(ctx context.Context) {
 	e.mu.Lock()
 	snapshot := make([]chat.Message, len(e.history))
@@ -291,15 +292,25 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 		return
 	}
 
+	if result.SummarizeCount == 0 {
+		e.emitEvent(protocol.CompactedEvent{
+			MessagesBefore: len(snapshot),
+			MessagesAfter:  len(snapshot),
+		})
+		return
+	}
+
+	// Append boundary message to history (old messages preserved for UI scrollback)
 	e.mu.Lock()
-	e.history = result.Messages
+	e.history = append(e.history, result.Boundary)
+	historyLen := len(e.history)
 	e.mu.Unlock()
 
 	e.emitEvent(protocol.CompactedEvent{
 		TokensBefore:   result.TokensBefore,
 		TokensAfter:    result.TokensAfter,
-		MessagesBefore: result.MessagesBefore,
-		MessagesAfter:  result.MessagesAfter,
+		MessagesBefore: len(snapshot),
+		MessagesAfter:  historyLen - result.SummarizeCount + 1, // boundary replaces summarized messages
 	})
 }
 
@@ -453,8 +464,10 @@ func (e *Engine) beginInputTurn(user chat.Message) []chat.Message {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.history = append(e.history, user)
-	snapshot := make([]chat.Message, len(e.history))
-	copy(snapshot, e.history)
+	// Build snapshot: only messages after the last compact boundary
+	raw := chat.MessagesAfterCompactBoundary(e.history)
+	snapshot := make([]chat.Message, len(raw))
+	copy(snapshot, raw)
 	// Inject plan mode reminder if active.
 	if e.planState != nil && e.planState.Mode() == tool.PermissionModePlan {
 		reminderType := e.planState.ReminderType()

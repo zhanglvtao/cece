@@ -20,6 +20,11 @@ type Message struct {
 	Role          Role              `json:"role"`
 	Content       string            `json:"content,omitempty"`
 	ContentBlocks []ApiContentBlock `json:"content_blocks,omitempty"`
+
+	// CompactBoundary marks this message as a compact boundary marker.
+	// When building API requests, only messages after the last boundary
+	// (plus the boundary's summary) are sent to the model.
+	CompactBoundary bool `json:"compact_boundary,omitempty"`
 }
 
 // TextContent returns the concatenated text from all text-type content blocks.
@@ -152,11 +157,29 @@ func AssembleResultToSystemPrompt(r prompt.AssembleResult) SystemPrompt {
 }
 
 func ProjectMessagesForRequest(messages []Message) []Message {
+	// Only send messages from the last compact boundary onward.
 	projected := make([]Message, len(messages))
 	for i, message := range messages {
 		projected[i] = projectMessageForRequest(message)
 	}
 	return projected
+}
+
+// MessagesAfterCompactBoundary returns messages from the last compact boundary
+// onward (including the boundary's summary message). If no boundary exists,
+// returns all messages. This ensures the API only sees post-compaction context.
+func MessagesAfterCompactBoundary(messages []Message) []Message {
+	boundaryIdx := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].CompactBoundary {
+			boundaryIdx = i
+			break
+		}
+	}
+	if boundaryIdx == -1 {
+		return messages
+	}
+	return messages[boundaryIdx:]
 }
 
 func projectMessageForRequest(message Message) Message {

@@ -12,11 +12,15 @@ const defaultKeepRecentTurns = 2
 
 // CompactResult holds the outcome of a history compaction.
 type CompactResult struct {
-	Messages       []Message
-	MessagesBefore int
-	MessagesAfter  int
-	TokensBefore   int
-	TokensAfter    int
+	// Boundary is the compact boundary + summary message to insert into history.
+	// It has CompactBoundary=true and contains the conversation summary.
+	Boundary Message
+	// SummarizeCount is the number of older messages that were summarized.
+	SummarizeCount int
+	// KeepCount is the number of recent messages preserved verbatim.
+	KeepCount int
+	TokensBefore int
+	TokensAfter  int
 }
 
 // Compactor compresses conversation history by summarizing older messages.
@@ -36,18 +40,17 @@ func NewCompactor(client ModelClient, keepRecentTurns int) *Compactor {
 	}
 }
 
-// Compact summarizes older messages and returns a new, shorter message list.
-// All messages (including complete tool_result content) are sent to the LLM
-// for summarization — no truncation. The LLM decides what's important.
+// Compact summarizes older messages and returns a boundary message to insert
+// into history. All messages (including complete tool_result content) are sent
+// to the LLM for summarization — no truncation. The LLM decides what's important.
+//
+// The caller should append the Boundary message to history. When building API
+// requests, MessagesAfterCompactBoundary will skip everything before the boundary.
 func (c *Compactor) Compact(ctx context.Context, messages []Message) (CompactResult, error) {
 	summarize, keep := splitMessagesForCompact(messages, c.keepRecentTurns)
 
 	if len(summarize) == 0 {
-		return CompactResult{
-			Messages:       messages,
-			MessagesBefore: len(messages),
-			MessagesAfter:  len(messages),
-		}, nil
+		return CompactResult{SummarizeCount: 0, KeepCount: len(messages)}, nil
 	}
 
 	tokensBefore := estimateMessagesTokens(messages)
@@ -57,25 +60,23 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message) (CompactRes
 		return CompactResult{}, fmt.Errorf("generate compact summary: %w", err)
 	}
 
-	// Build new history: summary user message + preserved recent messages
-	summaryMsg := Message{
+	// Build boundary message with summary
+	boundary := Message{
 		Role: UserRole,
 		Content: fmt.Sprintf(
 			"This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\n%s\n\nRecent messages are preserved verbatim.",
 			summary,
 		),
+		CompactBoundary: true,
 	}
 
-	result := make([]Message, 0, 1+len(keep))
-	result = append(result, summaryMsg)
-	result = append(result, keep...)
-
-	tokensAfter := estimateMessagesTokens(result)
+	// Estimate tokens after: boundary + keep messages
+	tokensAfter := estimateMessagesTokens(append([]Message{boundary}, keep...))
 
 	return CompactResult{
-		Messages:       result,
-		MessagesBefore: len(messages),
-		MessagesAfter:  len(result),
+		Boundary:       boundary,
+		SummarizeCount: len(summarize),
+		KeepCount:      len(keep),
 		TokensBefore:   tokensBefore,
 		TokensAfter:    tokensAfter,
 	}, nil
