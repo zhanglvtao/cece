@@ -4,25 +4,23 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 )
 
 // StatusBar holds all data displayed in the bottom status line.
 // It renders as plain text with "|" separators.
 type StatusBar struct {
 	// data
-	modelName    string
-	status       string
-	busy         bool
-	busyStart    time.Time // when busy started
-	statusFrame  int
-	apiCalls     int
-	toolCounts   map[string]int
-	inputTokens  int
-	outputTokens int
-	contextUsed  int
+	modelName     string
+	status        string
+	busy          bool
+	statusFrame   int
+	apiCalls      int
+	toolCounts    map[string]int
+	inputTokens   int
+	outputTokens  int
+	contextUsed   int
 	contextWindow int
-	scrollPct    int
+	scrollPct     int
 }
 
 var statusSpinnerFrames = []rune{'-', '\\', '|', '/'}
@@ -40,9 +38,6 @@ func (sb *StatusBar) UpdateModel(name string) { sb.modelName = name }
 // UpdateStatus updates the status text and busy flag.
 func (sb *StatusBar) UpdateStatus(status string, busy bool) {
 	sb.status = status
-	if busy && !sb.busy {
-		sb.busyStart = time.Now()
-	}
 	sb.busy = busy
 }
 
@@ -82,13 +77,9 @@ func (sb *StatusBar) ResetToolCounts() {
 func (sb *StatusBar) Render(width int) string {
 	var parts []string
 
-	// status (with spinner + elapsed time if busy)
+	// status (with spinner if busy)
 	if sb.status != "" {
-		if sb.busy && !sb.busyStart.IsZero() {
-			frame := string(statusSpinnerFrames[sb.statusFrame%len(statusSpinnerFrames)])
-			elapsed := time.Since(sb.busyStart).Truncate(time.Second)
-			parts = append(parts, fmt.Sprintf("%s %s %s", frame, sb.status, elapsed))
-		} else if sb.busy {
+		if sb.busy {
 			frame := string(statusSpinnerFrames[sb.statusFrame%len(statusSpinnerFrames)])
 			parts = append(parts, frame+" "+sb.status)
 		} else {

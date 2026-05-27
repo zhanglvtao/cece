@@ -388,8 +388,10 @@ func (m *Model) handleModelPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		selected := models[clamp(m.modal.selectedI, 0, len(models)-1)]
 		m.modelName = selected.ID
+		m.statusBar.UpdateModel(selected.ID)
 		if selected.MaxContextWindow > 0 {
 			m.contextWindow = selected.MaxContextWindow
+			m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
 		}
 		m.modal = modalState{}
 		if actor, ok := m.sender.(Actor); ok {

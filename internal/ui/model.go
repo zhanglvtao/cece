@@ -195,6 +195,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case tea.PasteMsg:
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.checkSlashPopup()
+		return m, cmd
 	case tea.MouseWheelMsg:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
