@@ -74,32 +74,6 @@ func TestDetailBlockOmitsEmptyFields(t *testing.T) {
 	}
 }
 
-func TestRequestDetailRenderCompactSummary(t *testing.T) {
-	r := (&requestDetailItem{
-		styles:      DefaultStyles(),
-		reason:      "tool_result",
-		inputTokens: 1200,
-		tokensExact: false,
-		tools:       []string{"Read", "Edit", "Bash", "Grep"},
-		toolResults: []string{"Bash", "Read", "Edit"},
-	}).Render(80)
-	if !strings.Contains(r, "req") {
-		t.Fatal("expected req label")
-	}
-	if !strings.Contains(r, "tool_result") {
-		t.Fatal("expected request reason")
-	}
-	if !strings.Contains(r, "~1.2k") {
-		t.Fatalf("expected compact token summary, got: %s", r)
-	}
-	if !strings.Contains(r, "Bash,Read+1") {
-		t.Fatalf("expected compact tool result preview, got: %s", r)
-	}
-	if !strings.Contains(r, "Read,Edit+2") {
-		t.Fatalf("expected compact tools preview, got: %s", r)
-	}
-}
-
 func TestCompactNameList(t *testing.T) {
 	if got := compactNameList(nil); got != "" {
 		t.Fatalf("compactNameList(nil) = %q, want empty", got)

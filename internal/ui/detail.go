@@ -24,6 +24,16 @@ func compactNameList(names []string) string {
 	return strings.Join(names[:2], ",") + fmt.Sprintf("+%d", len(names)-2)
 }
 
+func formatDuration(d time.Duration) string {
+	secs := d.Seconds()
+	if secs < 60 {
+		return fmt.Sprintf("%.1fs", secs)
+	}
+	mins := int(secs) / 60
+	remainSecs := int(secs) % 60
+	return fmt.Sprintf("%dm%ds", mins, remainSecs)
+}
+
 // DetailBlock holds response metadata for one assistant turn.
 type DetailBlock struct {
 	InputTokens         int
