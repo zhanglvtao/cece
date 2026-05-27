@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"cece/internal/protocol"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -290,52 +289,10 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		text = renderThinkingPreview(text)
 	}
 	if text == "" {
-		return blockLabel(block.kind, sty).Render("[" + label + "]")
+		return sty.Status.Render("[" + label + "]")
 	}
 	text = ansi.Wrap(text, max(20, width-4), "")
-	contentStyle := blockContent(block.kind, sty)
-	rendered := contentStyle.Render(text)
-	return blockLabel(block.kind, sty).Render("["+label+"]") + "\n" + indent(rendered, "  ")
-}
-
-// blockLabel returns the lipgloss style for the block label line.
-func blockLabel(kind blockKind, sty Styles) lipgloss.Style {
-	switch kind {
-	case blockUser:
-		return sty.Chat.UserMsgBg.Width(80).Inline(true)
-	case blockAssistant:
-		return sty.Chat.Assistant
-	case blockThinking:
-		return sty.Chat.ThinkingLabel
-	case blockTool:
-		return sty.Chat.ToolCallName
-	case blockError:
-		return sty.Chat.ToolCallErr
-	case blockSystem, blockInfo:
-		return sty.Detail
-	case blockPlan:
-		return sty.Chat.ToolCallOk
-	default:
-		return sty.Chat.Assistant
-	}
-}
-
-// blockContent returns the lipgloss style for the block text body.
-func blockContent(kind blockKind, sty Styles) lipgloss.Style {
-	switch kind {
-	case blockUser:
-		return sty.Chat.UserMsg
-	case blockAssistant:
-		return sty.Chat.Assistant
-	case blockThinking:
-		return sty.Chat.ThinkingContent
-	case blockTool:
-		return sty.Chat.ToolCallOutput
-	case blockError:
-		return sty.Chat.ToolCallErr
-	default:
-		return sty.Chat.Assistant
-	}
+	return sty.Status.Render("["+label+"]") + "\n" + indent(text, "  ")
 }
 
 func renderThinkingPreview(text string) string {
