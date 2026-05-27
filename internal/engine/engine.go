@@ -15,8 +15,6 @@ import (
 	"cece/internal/tool"
 )
 
-
-
 const defaultKeepRecentTurns = 2
 
 // Engine is the core agent engine. It manages conversation state, dispatches
@@ -38,17 +36,17 @@ type Engine struct {
 	maxTokens         int           // configurable max output tokens
 	toolResultPolicy  chat.ToolResultPolicy
 	ContextWindowFor  func(model string) int // returns context window for a model ID
-	store             session.Store           // optional persistence backend
-	sessionID         string                  // current session ID, empty = not yet created
-	sessionCreated    bool                    // true after first Input creates a session
-	modelName         string                  // current model name for meta persistence
-	contextWindow     int                     // current context window size for meta persistence
-	protocol          string                  // current protocol (anthropic, aiden, codebase, etc.)
-	configName        string                  // current provider config name
-	lastInputTokens   int                     // last request input tokens for resume water level
-	totalInputTokens  int                     // cumulative input tokens across turns
-	totalOutputTokens int                     // cumulative output tokens across turns
-	inputQueue        *userInputQueue         // queued user inputs while agent is busy
+	store             session.Store          // optional persistence backend
+	sessionID         string                 // current session ID, empty = not yet created
+	sessionCreated    bool                   // true after first Input creates a session
+	modelName         string                 // current model name for meta persistence
+	contextWindow     int                    // current context window size for meta persistence
+	protocol          string                 // current protocol (anthropic, aiden, codebase, etc.)
+	configName        string                 // current provider config name
+	lastInputTokens   int                    // last request input tokens for resume water level
+	totalInputTokens  int                    // cumulative input tokens across turns
+	totalOutputTokens int                    // cumulative output tokens across turns
+	inputQueue        *userInputQueue        // queued user inputs while agent is busy
 	questionAnswers   []tool.QuestionAnswer
 	eventCh           chan protocol.Event // global event channel for async responses
 }
@@ -70,13 +68,13 @@ func NewEngine(client chat.ModelClient, registry *tool.Registry, yolo bool, maxT
 
 // ── TurnEngine interface implementation ───────────────────────────────────
 
-func (e *Engine) ProjectDir() string                     { return e.projectDir }
+func (e *Engine) ProjectDir() string                      { return e.projectDir }
 func (e *Engine) Assembler() *prompt.ContextAssembler     { return e.assembler }
-func (e *Engine) Client() chat.ModelClient               { return e.client }
-func (e *Engine) Registry() *tool.Registry               { return e.registry }
+func (e *Engine) Client() chat.ModelClient                { return e.client }
+func (e *Engine) Registry() *tool.Registry                { return e.registry }
 func (e *Engine) PlanState() *tool.PlanModeState          { return e.planState }
-func (e *Engine) Yolo() bool                             { return e.yolo }
-func (e *Engine) MaxTokens() int                         { return e.maxTokens }
+func (e *Engine) Yolo() bool                              { return e.yolo }
+func (e *Engine) MaxTokens() int                          { return e.maxTokens }
 func (e *Engine) ToolResultPolicy() chat.ToolResultPolicy { return e.toolResultPolicy }
 func (e *Engine) SessionID() string {
 	e.mu.Lock()
@@ -279,11 +277,15 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 	client := e.client
 	e.mu.Unlock()
 
-	slog.Info("compact started", "history_len", len(snapshot))
+	// Only compact messages after the last boundary.
+	// Pre-boundary messages were already summarized and shouldn't be re-sent.
+	compactable := chat.MessagesAfterCompactBoundary(snapshot)
+
+	slog.Info("compact started", "history_len", len(snapshot), "compactable", len(compactable))
 	e.emitEvent(protocol.CompactingEvent{})
 
 	compactor := chat.NewCompactor(client, defaultKeepRecentTurns)
-	result, err := compactor.Compact(ctx, snapshot)
+	result, err := compactor.Compact(ctx, compactable)
 	if err != nil {
 		slog.Error("compact failed", "error", err)
 		e.emitEvent(protocol.CompactedEvent{
@@ -392,7 +394,32 @@ func (e *Engine) Do(action protocol.Action) {
 		e.QueueInput(a.Text)
 	case protocol.ClearHistoryAction:
 		e.ClearHistory()
+	case protocol.SetPermissionModeAction:
+		e.setMode(a.Mode)
 	}
+}
+
+func (e *Engine) setMode(mode protocol.PermissionMode) {
+	ps := e.PlanModeState()
+	if ps == nil {
+		ps = tool.NewPlanModeState()
+		e.SetPlanModeState(ps)
+	}
+	nextMode := ps.SetMode(tool.PermissionMode(mode))
+	e.emitModeChanged(nextMode)
+}
+
+func (e *Engine) emitModeChanged(mode tool.PermissionMode) {
+	var displayText string
+	switch mode {
+	case tool.PermissionModeAutoAccept:
+		displayText = "Auto-accept mode"
+	case tool.PermissionModePlan:
+		displayText = "Entered plan mode"
+	default:
+		displayText = "Default mode"
+	}
+	e.emitEvent(protocol.ModeChangedEvent{Mode: protocol.PermissionMode(mode), Message: displayText})
 }
 
 // AnswerQuestion stores the user's answers and signals the agent loop to continue.
