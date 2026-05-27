@@ -166,21 +166,31 @@ func (m *Model) questionView() string {
 	optionCount := len(q.Options) + 1
 	for i := 0; i < optionCount; i++ {
 		cursor := " "
-		if i == m.modal.cursors[m.modal.qIndex] && !m.modal.textMode {
-			cursor = ">"
-		}
 		mark := "[ ]"
-		if m.questionSelected(m.modal.qIndex, i) {
-			mark = "[x]"
+		if i == len(q.Options) {
+			// "Type something else..." — inline text input
+			if m.modal.textMode {
+				cursor = ">"
+				displayLabel := m.modal.textInput
+				if displayLabel == "" {
+					displayLabel = "Type something else..."
+				}
+				fmt.Fprintf(&b, "%s %s %s\n", cursor, mark, displayLabel)
+			} else {
+				if i == m.modal.cursors[m.modal.qIndex] {
+					cursor = ">"
+				}
+				fmt.Fprintf(&b, "%s %s %s\n", cursor, mark, "Type something else...")
+			}
+		} else {
+			if i == m.modal.cursors[m.modal.qIndex] && !m.modal.textMode {
+				cursor = ">"
+			}
+			if m.questionSelected(m.modal.qIndex, i) {
+				mark = "[x]"
+			}
+			fmt.Fprintf(&b, "%s %s %s\n", cursor, mark, q.Options[i].Label)
 		}
-		label := "Type something else..."
-		if i < len(q.Options) {
-			label = q.Options[i].Label
-		}
-		fmt.Fprintf(&b, "%s %s %s\n", cursor, mark, label)
-	}
-	if m.modal.textMode {
-		b.WriteString("> " + m.modal.textInput + "\n")
 	}
 	b.WriteString("[up/down] move  [space] toggle  [enter] next  [esc] cancel")
 	return b.String()

@@ -30,7 +30,6 @@ type Styles struct {
 		ThinkingContent lipgloss.Style // expanded thinking content area
 		ThinkingBg      lipgloss.Style // background fill for thinking block lines
 		Box             lipgloss.Style // rounded border for chat area (idle/static)
-		Diff            DiffStyles
 	}
 	Input struct {
 		Prompt            lipgloss.Style
@@ -98,16 +97,6 @@ func BuildStyles(p theme.Palette) Styles {
 		BorderForeground(p.Separator)
 	s.Chat.Logo = base.Foreground(p.Primary).Bold(true)
 
-	// Diff
-	s.Chat.Diff.DeleteLine = base.
-		Foreground(p.Destructive).
-		Background(lipgloss.Color("#3b1111"))
-	s.Chat.Diff.InsertLine = base.
-		Foreground(p.SuccessMuted).
-		Background(lipgloss.Color("#113b1b"))
-	s.Chat.Diff.ContextLine = faint
-	s.Chat.Diff.Summary = base.Foreground(p.Secondary).Bold(true)
-
 	// Input — floating rounded box style.
 	inputBase := lipgloss.NewStyle()
 	s.Input.Prompt = lipgloss.NewStyle().Foreground(p.Primary)
@@ -146,9 +135,6 @@ func BuildStyles(p theme.Palette) Styles {
 	// Detail & Status
 	s.Detail = muted.Italic(true).Faint(true)
 	s.Status = muted.Faint(true)
-
-	// Markdown renderer uses no background to blend into the terminal.
-	SetMarkdownBackground("")
 
 	return s
 }
