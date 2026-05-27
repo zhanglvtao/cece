@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"cece/internal/protocol"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -84,19 +85,13 @@ func (t *transcript) apply(event protocol.Event) {
 	case protocol.UserMessageAdded:
 		t.currentAssistant = -1
 		t.currentThinking = -1
-		if e.Message.Content != "" {
-			t.appendDone(blockUser, "you", e.Message.Content)
-		} else {
-			t.addMessage(e.Message)
-		}
+		t.appendDone(blockUser, "you", e.Message.Content)
 	case protocol.SystemReminderAdded:
 		t.appendDone(blockSystem, "system", e.Content)
 	case protocol.ModelRequestStarted:
-		t.currentAssistant = -1
-		t.currentThinking = -1
 		label := "request"
 		if e.Reason != "" {
-			label = "request: " + e.Reason
+			label = e.Reason
 		}
 		parts := []string{}
 		if e.EstimatedInputTokens > 0 {
@@ -199,22 +194,18 @@ func (t *transcript) apply(event protocol.Event) {
 		} else {
 			t.blocks[idx].text = beforeOutput + "\n---\n" + prefix + ":\n" + result
 		}
+		t.blocks[idx].title = "tool: " + e.Name
 		t.blocks[idx].done = true
-	case protocol.PlanApprovalRequested:
-		title := "plan"
-		if e.PlanFile != "" {
-			title = "plan: " + e.PlanFile
-		}
-		t.appendDone(blockPlan, title, e.PlanContent)
 	case protocol.RunFailed:
-		t.appendDone(blockError, "error", e.Err)
-	case protocol.TurnCompleted:
-		if t.currentAssistant >= 0 && t.currentAssistant < len(t.blocks) {
-			t.blocks[t.currentAssistant].done = true
+		errMsg := "interrupted"
+		if e.Err != "" && e.Err != "context canceled" {
+			errMsg = e.Err
 		}
-		if t.currentThinking >= 0 && t.currentThinking < len(t.blocks) {
-			t.blocks[t.currentThinking].done = true
-		}
+		t.appendDone(blockError, "error", errMsg)
+	case protocol.PlanApprovalRequested:
+		t.appendDone(blockPlan, "plan: "+e.PlanFile, e.PlanContent)
+	case protocol.QuestionAsked:
+		// Handled by modal; no transcript block needed.
 	case protocol.SessionLoadedEvent:
 		if e.Err == "" {
 			t.reset()
@@ -222,13 +213,19 @@ func (t *transcript) apply(event protocol.Event) {
 			t.outputTokens = e.TotalOutput
 			t.contextUsed = e.LastInput
 			for _, msg := range e.History {
-				t.addMessage(msg)
+				t.loadMessage(msg)
 			}
 		}
 	}
 }
 
-func (t *transcript) addMessage(msg protocol.Message) {
+func (t *transcript) loadHistory(messages []protocol.Message) {
+	for _, msg := range messages {
+		t.loadMessage(msg)
+	}
+}
+
+func (t *transcript) loadMessage(msg protocol.Message) {
 	switch msg.Role {
 	case "user":
 		if msg.Content != "" {
@@ -263,7 +260,7 @@ func (t *transcript) addMessage(msg protocol.Message) {
 	}
 }
 
-func (t *transcript) render(width int) string {
+func (t *transcript) render(width int, sty Styles) string {
 	if width <= 0 {
 		width = 80
 	}
@@ -272,7 +269,7 @@ func (t *transcript) render(width int) string {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
-		b.WriteString(renderBlock(block, width))
+		b.WriteString(renderBlock(block, width, sty))
 	}
 	if len(t.blocks) == 0 {
 		b.WriteString("Cece ready. Type a message and press Enter.")
@@ -280,7 +277,7 @@ func (t *transcript) render(width int) string {
 	return b.String()
 }
 
-func renderBlock(block transcriptBlock, width int) string {
+func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	label := string(block.kind)
 	if block.title != "" {
 		label = block.title
@@ -293,10 +290,52 @@ func renderBlock(block transcriptBlock, width int) string {
 		text = renderThinkingPreview(text)
 	}
 	if text == "" {
-		return "[" + label + "]"
+		return blockLabel(block.kind, sty).Render("[" + label + "]")
 	}
 	text = ansi.Wrap(text, max(20, width-4), "")
-	return "[" + label + "]\n" + indent(text, "  ")
+	contentStyle := blockContent(block.kind, sty)
+	rendered := contentStyle.Render(text)
+	return blockLabel(block.kind, sty).Render("["+label+"]") + "\n" + indent(rendered, "  ")
+}
+
+// blockLabel returns the lipgloss style for the block label line.
+func blockLabel(kind blockKind, sty Styles) lipgloss.Style {
+	switch kind {
+	case blockUser:
+		return sty.Chat.UserMsgBg.Width(80).Inline(true)
+	case blockAssistant:
+		return sty.Chat.Assistant
+	case blockThinking:
+		return sty.Chat.ThinkingLabel
+	case blockTool:
+		return sty.Chat.ToolCallName
+	case blockError:
+		return sty.Chat.ToolCallErr
+	case blockSystem, blockInfo:
+		return sty.Detail
+	case blockPlan:
+		return sty.Chat.ToolCallOk
+	default:
+		return sty.Chat.Assistant
+	}
+}
+
+// blockContent returns the lipgloss style for the block text body.
+func blockContent(kind blockKind, sty Styles) lipgloss.Style {
+	switch kind {
+	case blockUser:
+		return sty.Chat.UserMsg
+	case blockAssistant:
+		return sty.Chat.Assistant
+	case blockThinking:
+		return sty.Chat.ThinkingContent
+	case blockTool:
+		return sty.Chat.ToolCallOutput
+	case blockError:
+		return sty.Chat.ToolCallErr
+	default:
+		return sty.Chat.Assistant
+	}
 }
 
 func renderThinkingPreview(text string) string {

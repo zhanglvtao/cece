@@ -45,8 +45,8 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	if m.busy {
 		t.Fatal("busy = true after TurnCompleted")
 	}
-	view := m.transcript.render(80)
-	if !containsAll(view, "[you]", "hi", "[assistant]", "hello there") {
+	view := m.transcript.render(80, m.styles)
+	if !containsAll(view, "[you]", "hi", "assistant", "hello there") {
 		t.Fatalf("transcript missing expected content:\n%s", view)
 	}
 }
@@ -80,7 +80,7 @@ func TestPlanApprovalDispatchesActions(t *testing.T) {
 	if m.modal.kind != modalApprovePlan {
 		t.Fatalf("modal = %v, want approve plan", m.modal.kind)
 	}
-	if !containsAll(m.transcript.render(80), "plan.md", "# Plan") {
+	if !containsAll(m.transcript.render(80, m.styles), "plan.md", "# Plan") {
 		t.Fatal("plan content not rendered")
 	}
 	m.handleModalKey(keyMsg("y"))
@@ -160,8 +160,8 @@ func TestSessionLoadedRebuildsTranscript(t *testing.T) {
 	if m.transcript.inputTokens != 20 || m.transcript.outputTokens != 5 || m.transcript.contextUsed != 10 {
 		t.Fatalf("tokens = %d/%d context=%d", m.transcript.inputTokens, m.transcript.outputTokens, m.transcript.contextUsed)
 	}
-	if !containsAll(m.transcript.render(80), "hi", "answer") {
-		t.Fatalf("history not rendered:\n%s", m.transcript.render(80))
+	if !containsAll(m.transcript.render(80, m.styles), "hi", "answer") {
+		t.Fatalf("history not rendered:\n%s", m.transcript.render(80, m.styles))
 	}
 }
 

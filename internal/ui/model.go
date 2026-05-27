@@ -396,7 +396,7 @@ func (m *Model) resize() {
 
 func (m *Model) refreshViewport(gotoBottom bool) {
 	atBottom := m.viewport.AtBottom()
-	m.viewport.SetContent(m.transcript.render(m.width))
+	m.viewport.SetContent(m.transcript.render(m.width, m.styles))
 	if gotoBottom || atBottom {
 		m.viewport.GotoBottom()
 	}
