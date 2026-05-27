@@ -1,103 +1,107 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 )
 
-func TestStatusBarModelPill(t *testing.T) {
-	sb := NewStatusBar(DefaultStyles())
+func TestStatusBarRender(t *testing.T) {
+	sb := NewStatusBar()
 	sb.UpdateModel("sonnet")
-	h := sb.Layout(80)
-	if h != 1 {
-		t.Fatalf("expected height 1, got %d", h)
-	}
-	// Verify model cell exists
-	c, ok := sb.cellMap["model"]
-	if !ok {
-		t.Fatal("model cell not found")
-	}
-	if c.width == 0 {
-		t.Fatal("model cell has zero width")
-	}
-}
-
-func TestStatusBarToolCounts(t *testing.T) {
-	sb := NewStatusBar(DefaultStyles())
-	sb.UpdateModel("sonnet")
-
+	sb.UpdateStatus("Ready", false)
+	sb.IncrementAPICalls()
 	sb.IncrementTool("Grep")
 	sb.IncrementTool("Read")
-	sb.IncrementTool("Grep") // Grep:2
-	sb.ReorderToolCells()
+	sb.IncrementTool("Grep")
+	sb.UpdateTokens(5000, 2000)
+	sb.UpdateContext(30000, 200000)
 
-	h := sb.Layout(80)
-	if h != 1 {
-		t.Fatalf("expected height 1, got %d", h)
+	got := sb.Render(120)
+	// Should contain all sections separated by " | "
+	if !strings.Contains(got, "Ready") {
+		t.Fatalf("missing status: %q", got)
 	}
-
-	if sb.toolCounts["Grep"] != 2 {
-		t.Fatalf("Grep count = %d, want 2", sb.toolCounts["Grep"])
+	if !strings.Contains(got, "sonnet") {
+		t.Fatalf("missing model: %q", got)
 	}
-	if sb.toolCounts["Read"] != 1 {
-		t.Fatalf("Read count = %d, want 1", sb.toolCounts["Read"])
+	if !strings.Contains(got, "calls:1") {
+		t.Fatalf("missing calls: %q", got)
 	}
-}
-
-func TestStatusBarFlowLayout(t *testing.T) {
-	sb := NewStatusBar(DefaultStyles())
-	sb.UpdateModel("sonnet")
-
-	// Add many tools to force wrapping
-	for i := 0; i < 20; i++ {
-		sb.IncrementTool("Tool" + string(rune('A'+i)))
+	if !strings.Contains(got, "Grep:2") {
+		t.Fatalf("missing Grep:2: %q", got)
 	}
-	sb.ReorderToolCells()
-
-	h := sb.Layout(40) // narrow width to force wrap
-	if h < 2 {
-		t.Fatalf("expected multi-line layout, got height %d", h)
+	if !strings.Contains(got, "Read:1") {
+		t.Fatalf("missing Read:1: %q", got)
+	}
+	if !strings.Contains(got, "in:5K") {
+		t.Fatalf("missing tokens: %q", got)
+	}
+	if !strings.Contains(got, "ctx:") {
+		t.Fatalf("missing context: %q", got)
 	}
 }
 
 func TestStatusBarScroll(t *testing.T) {
-	sb := NewStatusBar(DefaultStyles())
+	sb := NewStatusBar()
 	sb.UpdateModel("sonnet")
+	sb.UpdateStatus("Ready", false)
+
+	got := sb.Render(80)
+	if strings.Contains(got, "scroll:") {
+		t.Fatalf("scroll should not appear when 0: %q", got)
+	}
+
 	sb.UpdateScroll(42)
-
-	h := sb.Layout(80)
-	if h != 1 {
-		t.Fatalf("expected height 1, got %d", h)
-	}
-
-	c, ok := sb.cellMap["scroll"]
-	if !ok {
-		t.Fatal("scroll cell not found")
-	}
-	if c.width == 0 {
-		t.Fatal("scroll cell has zero width")
-	}
-
-	// Zero scroll should hide the cell
-	sb.UpdateScroll(0)
-	sb.Layout(80)
-	if c.width != 0 {
-		t.Fatal("scroll cell should have zero width when scroll is 0")
+	got = sb.Render(80)
+	if !strings.Contains(got, "scroll:42%") {
+		t.Fatalf("missing scroll: %q", got)
 	}
 }
 
-func TestStatusBarResetToolCounts(t *testing.T) {
-	sb := NewStatusBar(DefaultStyles())
+func TestStatusBarReset(t *testing.T) {
+	sb := NewStatusBar()
 	sb.UpdateModel("sonnet")
+	sb.IncrementAPICalls()
 	sb.IncrementTool("Grep")
-	sb.IncrementTool("Read")
-	sb.ReorderToolCells()
-
 	sb.ResetToolCounts()
 
-	if len(sb.toolCounts) != 0 {
-		t.Fatal("tool counts should be empty after reset")
+	if sb.apiCalls != 0 {
+		t.Fatalf("apiCalls = %d, want 0", sb.apiCalls)
 	}
-	if _, ok := sb.cellMap["tool_Grep"]; ok {
-		t.Fatal("tool_Grep cell should be removed after reset")
+	if len(sb.toolCounts) != 0 {
+		t.Fatalf("toolCounts should be empty after reset")
+	}
+}
+
+func TestStatusBarBusy(t *testing.T) {
+	sb := NewStatusBar()
+	sb.UpdateStatus("Streaming", true)
+	got := sb.Render(80)
+	if !strings.Contains(got, "- Streaming") {
+		t.Fatalf("busy status should show spinner: %q", got)
+	}
+
+	sb.TickStatusSpinner()
+	got = sb.Render(80)
+	if !strings.Contains(got, "\\ Streaming") {
+		t.Fatalf("spinner should advance: %q", got)
+	}
+}
+
+func TestFormatTokenK(t *testing.T) {
+	tests := []struct {
+		in   int
+		want string
+	}{
+		{0, "0K"},
+		{999, "1K"},
+		{1000, "1K"},
+		{1500, "2K"},
+		{12000, "12K"},
+	}
+	for _, tt := range tests {
+		if got := formatTokenK(tt.in); got != tt.want {
+			t.Fatalf("formatTokenK(%d) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }

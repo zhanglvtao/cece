@@ -93,7 +93,7 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 		cw = contextWindow[0]
 	}
 
-	sb := NewStatusBar(styles)
+	sb := NewStatusBar()
 	sb.UpdateModel(modelName)
 
 	return Model{
@@ -179,6 +179,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusFrame++
+		m.statusBar.TickStatusSpinner()
 		return m, statusSpinnerTickCmd()
 	case globalEventMsg:
 		for _, ev := range msg.events {
@@ -218,6 +219,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.ModelRequestStarted:
 		m.busy = true
 		m.status = "Requesting"
+		m.statusBar.IncrementAPICalls()
 	case protocol.AssistantStarted:
 		m.busy = true
 		m.status = "Streaming"
@@ -236,7 +238,6 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.status = "Retrying"
 	case protocol.ToolCallCompleted:
 		m.statusBar.IncrementTool(e.Name)
-		m.statusBar.ReorderToolCells()
 	case protocol.ToolCallsReady:
 		m.openToolConfirm(e.Calls)
 		m.status = "Confirm tools"
@@ -281,6 +282,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.statusBar.ResetToolCounts()
 		m.status = "Cleared"
 	}
+	// Sync all status bar data from model state.
+	m.statusBar.UpdateStatus(m.status, m.busy)
+	m.statusBar.UpdateTokens(m.transcript.inputTokens, m.transcript.outputTokens)
+	m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
 	m.refreshViewport(eventPinsViewportToBottom(event))
 }
 
@@ -350,7 +355,7 @@ func (m *Model) resize() {
 	} else {
 		m.statusBar.UpdateScroll(0)
 	}
-	statusH := m.statusBar.Layout(m.width)
+	statusH := m.statusBar.Height()
 	viewportH := m.height - modalH - popupH - inputH - statusH
 	if viewportH < 3 {
 		viewportH = 3

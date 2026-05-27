@@ -48,11 +48,7 @@ type Styles struct {
 		SlashPopupDesc    lipgloss.Style
 		SlashPopupSelected lipgloss.Style
 	}
-	StatusBar struct {
-		ModelPill lipgloss.Style // model name in pill style
-		ToolCount lipgloss.Style // tool call count (e.g. Grep:3)
-		Scroll    lipgloss.Style // scroll position indicator
-	}
+	StatusBar struct{}
 	Detail lipgloss.Style
 	Status lipgloss.Style
 }
@@ -140,15 +136,6 @@ func BuildStyles(p theme.Palette) Styles {
 	s.Input.SlashCommandMatch = base.Foreground(p.Keyword).Underline(true)
 	s.Input.SlashPopup = base.Foreground(p.FgMuted)
 	s.Input.SlashPopupSelected = base.Bold(true)
-
-	// StatusBar — model pill, tool counts, scroll indicator.
-	s.StatusBar.ModelPill = lipgloss.NewStyle().
-		Foreground(p.Primary).
-		Background(lipgloss.Color("#2a2a3a")).
-		Bold(true).
-		Padding(0, 1)
-	s.StatusBar.ToolCount = base.Foreground(p.InfoMuted)
-	s.StatusBar.Scroll = base.Foreground(p.FgFaint)
 
 	// Detail & Status
 	s.Detail = muted.Italic(true).Faint(true)
