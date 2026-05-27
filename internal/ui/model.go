@@ -299,9 +299,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.status = "Cleared"
 	case protocol.CompactingEvent:
 		m.status = "Compacting"
-		m.busy = true
 	case protocol.CompactedEvent:
-		m.busy = false
 		if e.MessagesBefore == e.MessagesAfter {
 			m.status = "Not enough messages to compact"
 			m.transcript.appendDone(blockInfo, "compact", "Not enough messages to compact. Send a few more messages first.")
@@ -317,6 +315,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 	m.statusBar.UpdateStatus(m.status, m.busy)
 	m.statusBar.UpdateTokens(m.transcript.inputTokens, m.transcript.outputTokens)
 	m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
+	m.statusBar.UpdateCache(m.transcript.cacheReadTokens, m.transcript.cacheCreationTokens)
 	m.refreshViewport(eventPinsViewportToBottom(event))
 }
 
@@ -659,7 +658,6 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.CompactAction{})
 			m.status = "Compacting"
-			m.busy = true
 		}
 		return nil
 	case "/skills":
