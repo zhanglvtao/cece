@@ -59,6 +59,7 @@ type Model struct {
 	width               int
 	height              int
 
+	styles      Styles
 	transcript  transcript
 	viewport    viewport.Model
 	input       textarea.Model
@@ -95,6 +96,8 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 
 	sb := NewStatusBar()
 	sb.UpdateModel(modelName)
+	sb.UpdateStatus("Ready", false)
+	sb.UpdateContext(0, cw)
 
 	return Model{
 		sender:        sender,
@@ -105,6 +108,7 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 		gitBranch:     gitBranch(projectDir),
 		contextWindow: cw,
 		status:        "Ready",
+		styles:        styles,
 		slashPopup:   NewSlashPopup(styles),
 		transcript:   newTranscript(),
 		viewport:     viewport.New(viewport.WithWidth(80), viewport.WithHeight(20)),
@@ -333,7 +337,8 @@ func (m *Model) View() tea.View {
 		if popup != "" {
 			rowsAboveInput += strings.Count(popup, "\n") + 1
 		}
-		cur.Y += rowsAboveInput
+		cur.Y += rowsAboveInput + m.styles.Input.Box.GetBorderTopSize() + m.styles.Input.Box.GetPaddingTop()
+		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft()
 		view.Cursor = cur
 	}
 
@@ -361,13 +366,15 @@ func (m *Model) resize() {
 		m.statusBar.UpdateScroll(0)
 	}
 	statusH := m.statusBar.Height()
-	viewportH := m.height - modalH - popupH - inputH - statusH
+	vFrame := m.styles.Input.Box.GetVerticalFrameSize()
+	hFrame := m.styles.Input.Box.GetHorizontalFrameSize()
+	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH
 	if viewportH < 3 {
 		viewportH = 3
 	}
 	m.viewport.SetWidth(m.width)
 	m.viewport.SetHeight(viewportH)
-	m.input.SetWidth(max(1, m.width))
+	m.input.SetWidth(max(1, m.width-hFrame))
 	m.input.SetHeight(inputH)
 	m.refreshViewport(wasAtBottom)
 }
@@ -381,7 +388,7 @@ func (m *Model) refreshViewport(gotoBottom bool) {
 }
 
 func (m *Model) inputView() string {
-	return m.input.View()
+	return m.styles.Input.Box.Width(m.width).Render(m.input.View())
 }
 
 func (m *Model) statusShowsSpinner() bool {

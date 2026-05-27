@@ -92,10 +92,21 @@ func (sb *StatusBar) Render(width int) string {
 		parts = append(parts, sb.modelName)
 	}
 
-	// api calls
-	if sb.apiCalls > 0 {
-		parts = append(parts, fmt.Sprintf("calls:%d", sb.apiCalls))
+	// context
+	if sb.contextWindow > 0 {
+		remaining := sb.contextWindow - sb.contextUsed
+		if remaining < 0 {
+			remaining = 0
+		}
+		pct := remaining * 100 / sb.contextWindow
+		parts = append(parts, fmt.Sprintf("ctx:%s/%s %d%%", formatTokenK(remaining), formatTokenK(sb.contextWindow), pct))
 	}
+
+	// tokens
+	parts = append(parts, fmt.Sprintf("in/out:%s/%s", formatTokenK(sb.inputTokens), formatTokenK(sb.outputTokens)))
+
+	// api calls
+	parts = append(parts, fmt.Sprintf("calls:%d", sb.apiCalls))
 
 	// tool counts (sorted by name)
 	if len(sb.toolCounts) > 0 {
@@ -107,21 +118,6 @@ func (sb *StatusBar) Render(width int) string {
 		for _, n := range names {
 			parts = append(parts, fmt.Sprintf("%s:%d", n, sb.toolCounts[n]))
 		}
-	}
-
-	// tokens
-	if sb.inputTokens > 0 || sb.outputTokens > 0 {
-		parts = append(parts, fmt.Sprintf("in:%s out:%s", formatTokenK(sb.inputTokens), formatTokenK(sb.outputTokens)))
-	}
-
-	// context
-	if sb.contextWindow > 0 && sb.contextUsed > 0 {
-		remaining := sb.contextWindow - sb.contextUsed
-		if remaining < 0 {
-			remaining = 0
-		}
-		pct := remaining * 100 / sb.contextWindow
-		parts = append(parts, fmt.Sprintf("ctx:%s/%s %d%%", formatTokenK(remaining), formatTokenK(sb.contextWindow), pct))
 	}
 
 	// scroll
