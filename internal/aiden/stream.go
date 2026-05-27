@@ -30,8 +30,8 @@ type Delta struct {
 }
 
 type ToolCallDelta struct {
-	Index   int           `json:"index"`
-	ID      string        `json:"id"`
+	Index    int           `json:"index"`
+	ID       string        `json:"id"`
 	Function FunctionDelta `json:"function"`
 }
 
@@ -44,6 +44,33 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+type ResponsesEvent struct {
+	Type        string              `json:"type"`
+	Delta       string              `json:"delta"`
+	OutputIndex int                 `json:"output_index"`
+	Item        ResponsesOutputItem `json:"item"`
+	Response    ResponsesPayload    `json:"response"`
+}
+
+type ResponsesOutputItem struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	CallID    string `json:"call_id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type ResponsesPayload struct {
+	Status string         `json:"status"`
+	Usage  ResponsesUsage `json:"usage"`
+}
+
+type ResponsesUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
 }
 
 type parserState struct {
@@ -83,6 +110,19 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 				return
 			}
 
+			var envelope struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal([]byte(dataStr), &envelope); err == nil && strings.HasPrefix(envelope.Type, "response.") {
+				var event ResponsesEvent
+				if err := json.Unmarshal([]byte(dataStr), &event); err != nil {
+					out <- chat.ApiStreamEvent{Err: err}
+					continue
+				}
+				emitResponsesEvent(&event, out, state)
+				continue
+			}
+
 			var chunk Chunk
 			if err := json.Unmarshal([]byte(dataStr), &chunk); err != nil {
 				out <- chat.ApiStreamEvent{Err: err}
@@ -98,6 +138,90 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 	}()
 
 	return out
+}
+
+func emitResponsesEvent(event *ResponsesEvent, out chan<- chat.ApiStreamEvent, state *parserState) {
+	switch event.Type {
+	case "response.created":
+		if !state.messageStarted {
+			state.messageStarted = true
+			out <- chat.ApiStreamEvent{EventType: "message_start"}
+		}
+	case "response.output_text.delta":
+		if !state.messageStarted {
+			state.messageStarted = true
+			out <- chat.ApiStreamEvent{EventType: "message_start"}
+		}
+		if !state.textBlockStarted {
+			state.textBlockStarted = true
+			out <- chat.ApiStreamEvent{EventType: "content_block_start", Index: event.OutputIndex}
+		}
+		if event.Delta != "" {
+			out <- chat.ApiStreamEvent{
+				Delta:     event.Delta,
+				EventType: "content_block_delta",
+				Detail:    "text_delta",
+				Index:     event.OutputIndex,
+			}
+		}
+	case "response.output_item.added":
+		if event.Item.Type != "function_call" {
+			return
+		}
+		if !state.messageStarted {
+			state.messageStarted = true
+			out <- chat.ApiStreamEvent{EventType: "message_start"}
+		}
+		if state.activeToolIndices == nil {
+			state.activeToolIndices = make(map[int]bool)
+		}
+		state.activeToolIndices[event.OutputIndex] = true
+		out <- chat.ApiStreamEvent{
+			EventType:    "content_block_start",
+			ToolCallID:   event.Item.CallID,
+			ToolCallName: event.Item.Name,
+			Index:        event.OutputIndex,
+		}
+		if event.Item.Arguments != "" {
+			out <- chat.ApiStreamEvent{
+				EventType:     "content_block_delta",
+				Detail:        "input_json_delta",
+				ToolCallInput: event.Item.Arguments,
+				Index:         event.OutputIndex,
+			}
+		}
+	case "response.function_call_arguments.delta":
+		if event.Delta != "" {
+			out <- chat.ApiStreamEvent{
+				EventType:     "content_block_delta",
+				Detail:        "input_json_delta",
+				ToolCallInput: event.Delta,
+				Index:         event.OutputIndex,
+			}
+		}
+	case "response.completed":
+		hadTools := len(state.activeToolIndices) > 0
+		for idx := range state.activeToolIndices {
+			out <- chat.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+		}
+		state.activeToolIndices = nil
+		stopReason := "end_turn"
+		if event.Response.Status != "" {
+			stopReason = mapResponsesStopReason(event.Response.Status)
+		}
+		if hadTools {
+			stopReason = "tool_use"
+		}
+		if event.Response.Usage.InputTokens > 0 {
+			out <- chat.ApiStreamEvent{EventType: "message_start", InputTokens: event.Response.Usage.InputTokens}
+		}
+		out <- chat.ApiStreamEvent{
+			EventType:    "message_delta",
+			StopReason:   stopReason,
+			OutputTokens: event.Response.Usage.OutputTokens,
+		}
+		out <- chat.ApiStreamEvent{Done: true}
+	}
 }
 
 func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState) {
@@ -155,7 +279,7 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 			}
 		}
 		out <- chat.ApiStreamEvent{
-			Delta:      delta.Content,
+			Delta:     delta.Content,
 			EventType: "content_block_delta",
 			Detail:    "text_delta",
 		}
@@ -231,5 +355,16 @@ func mapStopReason(reason string) string {
 		return "max_tokens"
 	default:
 		return reason
+	}
+}
+
+func mapResponsesStopReason(status string) string {
+	switch status {
+	case "completed", "":
+		return "end_turn"
+	case "incomplete":
+		return "max_tokens"
+	default:
+		return status
 	}
 }

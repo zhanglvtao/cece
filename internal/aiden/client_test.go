@@ -34,7 +34,7 @@ func TestStreamSendsCorrectPayload(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", "gpt-4o", server.URL)
+	client := NewClient("test-key", "glm-5.1", server.URL)
 	ch, err := client.Stream(context.Background(),
 		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
 		chat.SystemPrompt{Blocks: []chat.SystemBlock{{Text: "You are helpful."}}},
@@ -48,8 +48,8 @@ func TestStreamSendsCorrectPayload(t *testing.T) {
 	for range ch {
 	}
 
-	if gotBody.Model != "gpt-4o" {
-		t.Errorf("expected model 'gpt-4o', got %q", gotBody.Model)
+	if gotBody.Model != "glm-5.1" {
+		t.Errorf("expected model 'glm-5.1', got %q", gotBody.Model)
 	}
 	if !gotBody.Stream {
 		t.Error("expected stream=true")
@@ -74,6 +74,178 @@ func TestStreamSendsCorrectPayload(t *testing.T) {
 	}
 }
 
+func TestStreamGPT54UsesResponsesPayload(t *testing.T) {
+	var gotBody map[string]any
+	var gotPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n")
+		fmt.Fprintf(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\",\"output_index\":0,\"content_index\":0}\n\n")
+		fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":1}}}\n\n")
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "gpt-5.4", server.URL)
+	ch, err := client.Stream(context.Background(),
+		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
+		chat.SystemPrompt{Blocks: []chat.SystemBlock{{Text: "You are helpful."}}},
+		[]tool.Definition{{Name: "Read", Description: "Read file", InputSchema: map[string]any{"type": "object"}}},
+		1024,
+	)
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	var text string
+	var doneSeen bool
+	for e := range ch {
+		if e.Err != nil {
+			t.Fatalf("stream event error: %v", e.Err)
+		}
+		if e.Done {
+			doneSeen = true
+		}
+		text += e.Delta
+	}
+
+	if gotPath != "/v1/responses" {
+		t.Fatalf("path = %q, want /v1/responses", gotPath)
+	}
+	if gotBody["model"] != "gpt-5.4" {
+		t.Fatalf("model = %v, want gpt-5.4", gotBody["model"])
+	}
+	if gotBody["instructions"] != "You are helpful." {
+		t.Fatalf("instructions = %v, want system prompt", gotBody["instructions"])
+	}
+	if gotBody["max_output_tokens"] != float64(1024) {
+		t.Fatalf("max_output_tokens = %v, want 1024", gotBody["max_output_tokens"])
+	}
+	tools := gotBody["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("tools len = %d, want 1", len(tools))
+	}
+	tool := tools[0].(map[string]any)
+	if tool["type"] != "function" || tool["name"] != "Read" {
+		t.Fatalf("tool = %+v, want function Read", tool)
+	}
+	if tool["description"] != "Read file" {
+		t.Fatalf("tool description = %v, want Read file", tool["description"])
+	}
+	input := gotBody["input"].([]any)
+	if len(input) != 1 {
+		t.Fatalf("input len = %d, want 1", len(input))
+	}
+	msg := input[0].(map[string]any)
+	if msg["type"] != "message" || msg["role"] != "user" {
+		t.Fatalf("input[0] = %+v, want user message", msg)
+	}
+	content := msg["content"].([]any)
+	part := content[0].(map[string]any)
+	if part["type"] != "input_text" || part["text"] != "hi" {
+		t.Fatalf("content[0] = %+v, want input_text hi", part)
+	}
+	if text != "ok" {
+		t.Fatalf("stream text = %q, want ok", text)
+	}
+	if !doneSeen {
+		t.Fatal("expected Done event from response.completed")
+	}
+}
+
+func TestStreamGPT54SerializesAssistantHistoryAsOutputText(t *testing.T) {
+	var gotBody map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n")
+		fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n\n")
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "gpt-5.4", server.URL)
+	ch, err := client.Stream(context.Background(), []chat.Message{
+		{Role: chat.UserRole, Content: "first"},
+		{
+			Role:    chat.AssistantRole,
+			Content: "answer",
+			ContentBlocks: []chat.ApiContentBlock{
+				{Type: chat.ApiTextContentType, Text: "answer"},
+			},
+		},
+		{Role: chat.UserRole, Content: "second"},
+	}, chat.SystemPrompt{}, nil, 256)
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	var doneSeen bool
+	for e := range ch {
+		if e.Err != nil {
+			t.Fatalf("stream event error: %v", e.Err)
+		}
+		if e.Done {
+			doneSeen = true
+		}
+	}
+	if !doneSeen {
+		t.Fatal("expected Done event from response.completed")
+	}
+
+	input := gotBody["input"].([]any)
+	if len(input) != 3 {
+		t.Fatalf("input len = %d, want 3", len(input))
+	}
+	assistant := input[1].(map[string]any)
+	if assistant["role"] != "assistant" {
+		t.Fatalf("input[1].role = %v, want assistant", assistant["role"])
+	}
+	content := assistant["content"].([]any)
+	part := content[0].(map[string]any)
+	if part["type"] != "output_text" {
+		t.Fatalf("assistant content type = %v, want output_text", part["type"])
+	}
+	if part["text"] != "answer" {
+		t.Fatalf("assistant text = %v, want answer", part["text"])
+	}
+}
+
+func TestStreamUppercaseGPTPrefixUsesResponsesPayload(t *testing.T) {
+	var gotPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("content-type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{}}}\n\n")
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "GPT-5.4", server.URL)
+	ch, err := client.Stream(context.Background(),
+		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
+		chat.SystemPrompt{},
+		nil,
+		256,
+	)
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for e := range ch {
+		if e.Err != nil {
+			t.Fatalf("stream event error: %v", e.Err)
+		}
+	}
+
+	if gotPath != "/v1/responses" {
+		t.Fatalf("path = %q, want /v1/responses", gotPath)
+	}
+}
+
 func TestStreamSetsBearerAuth(t *testing.T) {
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +255,7 @@ func TestStreamSetsBearerAuth(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("sk-test-token", "gpt-4o", server.URL)
+	client := NewClient("sk-test-token", "glm-5.1", server.URL)
 	ch, err := client.Stream(context.Background(),
 		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
 		chat.SystemPrompt{},
@@ -133,7 +305,7 @@ func TestStreamWithNoTools(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("key", "gpt-4o", server.URL)
+	client := NewClient("key", "glm-5.1", server.URL)
 	ch, _ := client.Stream(context.Background(),
 		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
 		chat.SystemPrompt{},
@@ -169,7 +341,7 @@ func TestStreamRetriesOn401WithTokenCache(t *testing.T) {
 	defer server.Close()
 
 	// Use a tokenCache with a helper that returns different tokens on each call
-	client := NewClient("", "gpt-4o", server.URL)
+	client := NewClient("", "glm-5.1", server.URL)
 	client.SetAuthHelper("echo refreshed-token")
 
 	ch, err := client.Stream(context.Background(),
@@ -206,7 +378,7 @@ func TestStreamNoRetryOn401WithoutTokenCache(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("static-key", "gpt-4o", server.URL)
+	client := NewClient("static-key", "glm-5.1", server.URL)
 	// No SetAuthHelper → no tokenCache → should NOT retry
 
 	_, err := client.Stream(context.Background(),
@@ -234,7 +406,7 @@ func TestStreamStripsThinkingFromPayload(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", "gpt-4o", server.URL)
+	client := NewClient("test-key", "glm-5.1", server.URL)
 	ch, err := client.Stream(context.Background(), []chat.Message{{
 		Role:    chat.AssistantRole,
 		Content: "Visible answer.",
@@ -307,7 +479,7 @@ func TestStreamNoRetryOnNon401Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "gpt-4o", server.URL)
+	client := NewClient("", "glm-5.1", server.URL)
 	client.SetAuthHelper("echo token")
 
 	_, err := client.Stream(context.Background(),

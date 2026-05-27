@@ -198,6 +198,61 @@ func TestDecodeToolCallStartAndDelta(t *testing.T) {
 	}
 }
 
+func TestDecodeResponsesFunctionCallStartAndDelta(t *testing.T) {
+	body := sseBody(
+		`data: {"type":"response.created","response":{"id":"resp_1"}}`,
+		``,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"Read","arguments":""}}`,
+		``,
+		`data: {"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"file_path"}`,
+		``,
+		`data: {"type":"response.function_call_arguments.delta","output_index":0,"delta":"\":\"/tmp/x\"}"}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":8,"output_tokens":3}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var toolName, toolID string
+	var inputParts []string
+	var stopReason string
+	var doneSeen bool
+	for _, e := range events {
+		if e.EventType == "content_block_start" && e.ToolCallID != "" {
+			toolID = e.ToolCallID
+			toolName = e.ToolCallName
+		}
+		if e.Detail == "input_json_delta" {
+			inputParts = append(inputParts, e.ToolCallInput)
+		}
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+		if e.Done {
+			doneSeen = true
+		}
+	}
+
+	if toolID != "call_1" {
+		t.Fatalf("tool id = %q, want call_1", toolID)
+	}
+	if toolName != "Read" {
+		t.Fatalf("tool name = %q, want Read", toolName)
+	}
+	if got := strings.Join(inputParts, ""); got != `{"file_path":"/tmp/x"}` {
+		t.Fatalf("tool input = %q, want file_path payload", got)
+	}
+	if stopReason != "tool_use" {
+		t.Fatalf("stop reason = %q, want tool_use", stopReason)
+	}
+	if !doneSeen {
+		t.Fatal("expected Done event")
+	}
+}
+
 func TestDecodeReasoningContent(t *testing.T) {
 	body := sseBody(
 		`data: {"id":"1","choices":[{"index":0,"delta":{"reasoning_content":"let me think"}}]}`,

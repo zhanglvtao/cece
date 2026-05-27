@@ -123,6 +123,10 @@ func extractRequestID(resp *http.Response) string {
 
 func (c *Client) Stream(ctx context.Context, messages []chat.Message, system chat.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan chat.ApiStreamEvent, error) {
 	projectedMessages := chat.ProjectMessagesForRequest(messages)
+	if usesResponsesAPI(c.model) {
+		return c.streamResponses(ctx, projectedMessages, system, tools, maxTokens)
+	}
+
 	payload := ChatCompletionRequest{
 		Model:     c.model,
 		Messages:  SerializeMessages(projectedMessages, system),
@@ -150,6 +154,41 @@ func (c *Client) Stream(ctx context.Context, messages []chat.Message, system cha
 
 	slog.Info("aiden stream connected", "status", resp.StatusCode)
 	return DecodeStreamEvent(resp.Body), nil
+}
+
+func (c *Client) streamResponses(ctx context.Context, messages []chat.Message, system chat.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan chat.ApiStreamEvent, error) {
+	payload := ResponsesRequest{
+		Model:           c.model,
+		Instructions:    serializeSystemInstructions(system),
+		Input:           SerializeResponsesInput(messages),
+		Stream:          true,
+		MaxOutputTokens: maxTokens,
+	}
+
+	if len(tools) > 0 {
+		payload.Tools = ConvertResponsesTools(tools)
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	url := strings.TrimRight(c.baseURL, "/") + "/v1/responses"
+	logger.Debug("aiden responses api request", "url", url, "body", string(body))
+	slog.Info("aiden responses stream request", "url", url, "model", c.model, "input", len(payload.Input))
+
+	resp, err := c.doRequestWithRetry(ctx, http.MethodPost, url, body, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("aiden responses stream connected", "status", resp.StatusCode)
+	return DecodeStreamEvent(resp.Body), nil
+}
+
+func usesResponsesAPI(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt")
 }
 
 type aidenModel struct {
