@@ -17,6 +17,8 @@ import (
 
 
 
+const defaultKeepRecentTurns = 2
+
 // Engine is the core agent engine. It manages conversation state, dispatches
 // user input to the agent loop, and emits protocol.Events on a channel.
 //
@@ -266,6 +268,45 @@ func (e *Engine) ClearHistory() {
 	e.emitEvent(protocol.HistoryClearedEvent{})
 }
 
+// CompactHistory compresses conversation history by summarizing older messages.
+// It uses the current model client to generate a summary and preserves the
+// most recent turns verbatim.
+func (e *Engine) CompactHistory(ctx context.Context) {
+	e.mu.Lock()
+	if len(e.history) < 4 { // need at least 2 turns to compact
+		e.mu.Unlock()
+		return
+	}
+	snapshot := make([]chat.Message, len(e.history))
+	copy(snapshot, e.history)
+	client := e.client
+	e.mu.Unlock()
+
+	e.emitEvent(protocol.CompactingEvent{})
+
+	compactor := chat.NewCompactor(client, defaultKeepRecentTurns)
+	result, err := compactor.Compact(ctx, snapshot)
+	if err != nil {
+		slog.Error("compact failed", "error", err)
+		e.emitEvent(protocol.CompactedEvent{
+			MessagesBefore: len(snapshot),
+			MessagesAfter:  len(snapshot),
+		})
+		return
+	}
+
+	e.mu.Lock()
+	e.history = result.Messages
+	e.mu.Unlock()
+
+	e.emitEvent(protocol.CompactedEvent{
+		TokensBefore:   result.TokensBefore,
+		TokensAfter:    result.TokensAfter,
+		MessagesBefore: result.MessagesBefore,
+		MessagesAfter:  result.MessagesAfter,
+	})
+}
+
 func (e *Engine) isSessionCreated() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -343,6 +384,8 @@ func (e *Engine) Do(action protocol.Action) {
 		e.QueueInput(a.Text)
 	case protocol.ClearHistoryAction:
 		e.ClearHistory()
+	case protocol.CompactAction:
+		go e.CompactHistory(context.Background())
 	}
 }
 
