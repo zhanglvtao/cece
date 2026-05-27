@@ -279,6 +279,7 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 	client := e.client
 	e.mu.Unlock()
 
+	slog.Info("compact started", "history_len", len(snapshot))
 	e.emitEvent(protocol.CompactingEvent{})
 
 	compactor := chat.NewCompactor(client, defaultKeepRecentTurns)
@@ -391,8 +392,6 @@ func (e *Engine) Do(action protocol.Action) {
 		e.QueueInput(a.Text)
 	case protocol.ClearHistoryAction:
 		e.ClearHistory()
-	case protocol.CompactAction:
-		go e.CompactHistory(context.Background())
 	}
 }
 

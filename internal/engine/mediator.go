@@ -58,6 +58,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		m.Engine.QueueInput(a.Text)
 	case protocol.ClearHistoryAction:
 		m.Engine.ClearHistory()
+	case protocol.CompactAction:
+		go m.Engine.CompactHistory(context.Background())
 
 	// B-class — mediator handles
 	case protocol.SwitchModelAction:
