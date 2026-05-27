@@ -118,8 +118,8 @@ func TestCompact_WithMockStream(t *testing.T) {
 	if result.Messages[0].Role != UserRole {
 		t.Errorf("expected first message role to be user, got %s", result.Messages[0].Role)
 	}
-	if !strings.Contains(result.Messages[0].Content, "Previous conversation summary") {
-		t.Errorf("expected summary message to contain 'Previous conversation summary', got %s", result.Messages[0].Content)
+	if !strings.Contains(result.Messages[0].Content, "continued from a previous conversation") {
+		t.Errorf("expected summary message to contain 'continued from a previous conversation', got %s", result.Messages[0].Content)
 	}
 	// First kept message should be u2 (start of turn 2, keepRecentTurns=2 keeps turns 2+3)
 	if result.Messages[1].Content != "u2" {
@@ -147,5 +147,61 @@ func TestBuildCompactSystemPrompt(t *testing.T) {
 	prompt := buildCompactSystemPrompt()
 	if !strings.Contains(prompt, "summary") && !strings.Contains(prompt, "Summary") {
 		t.Error("compact prompt should mention summary")
+	}
+	if !strings.Contains(prompt, "<analysis>") {
+		t.Error("compact prompt should instruct <analysis> block")
+	}
+	if !strings.Contains(prompt, "All user messages") {
+		t.Error("compact prompt should include 'All user messages' section")
+	}
+}
+
+func TestFormatCompactSummary(t *testing.T) {
+	input := `<analysis>
+Let me think about what happened...
+The user asked for X and I did Y.
+</analysis>
+
+1. Primary Request and Intent: The user asked for X
+2. Key Technical Concepts: Go, HTTP
+3. Files and Code Sections: main.go - added handler`
+
+	expected := `1. Primary Request and Intent: The user asked for X
+2. Key Technical Concepts: Go, HTTP
+3. Files and Code Sections: main.go - added handler`
+
+	result := formatCompactSummary(input)
+	if result != expected {
+		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, result)
+	}
+}
+
+func TestFormatCompactSummary_NoAnalysisBlock(t *testing.T) {
+	input := "1. Primary Request: something\n2. Key Details: none"
+	result := formatCompactSummary(input)
+	if result != input {
+		t.Errorf("expected unchanged when no analysis block, got: %s", result)
+	}
+}
+
+func TestStripTag(t *testing.T) {
+	tests := []struct {
+		name string
+		tag  string
+		in   string
+		want string
+	}{
+		{"simple", "analysis", "<analysis>think</analysis>\nresult", "result"},
+		{"with surrounding", "analysis", "before\n<analysis>think</analysis>\nafter", "before\n\nafter"},
+		{"no tag", "analysis", "no tag here", "no tag here"},
+		{"summary tag", "summary", "<summary>text</summary>", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripTag(tt.in, tt.tag)
+			if got != tt.want {
+				t.Errorf("stripTag(%q, %q) = %q, want %q", tt.in, tt.tag, got, tt.want)
+			}
+		})
 	}
 }
