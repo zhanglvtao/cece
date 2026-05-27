@@ -14,8 +14,6 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -66,6 +64,7 @@ type Model struct {
 	input       textarea.Model
 	modal       modalState
 	slashPopup  *SlashPopup
+	statusBar   *StatusBar
 
 	sessions                session.Store
 	currentSessionID        string
@@ -77,8 +76,9 @@ type Model struct {
 }
 
 func NewModel(sender Sender, modelName string, projectDir string, contextWindow ...int) Model {
+	styles := DefaultStyles()
 	input := textarea.New()
-	input.Placeholder = "Send a message... (Enter send, Ctrl+J newline)"
+	input.Placeholder = "Send a message…"
 	input.ShowLineNumbers = false
 	input.CharLimit = -1
 	input.DynamicHeight = true
@@ -93,6 +93,9 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 		cw = contextWindow[0]
 	}
 
+	sb := NewStatusBar(styles)
+	sb.UpdateModel(modelName)
+
 	return Model{
 		sender:        sender,
 		modelName:     modelName,
@@ -102,10 +105,11 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 		gitBranch:     gitBranch(projectDir),
 		contextWindow: cw,
 		status:        "Ready",
-		slashPopup:   NewSlashPopup(DefaultStyles()),
+		slashPopup:   NewSlashPopup(styles),
 		transcript:   newTranscript(),
 		viewport:     viewport.New(viewport.WithWidth(80), viewport.WithHeight(20)),
 		input:        input,
+		statusBar:    sb,
 		historyIndex: -1,
 	}
 }
@@ -230,6 +234,9 @@ func (m *Model) applyEvent(event protocol.Event) {
 		}
 	case protocol.TruncationRetry:
 		m.status = "Retrying"
+	case protocol.ToolCallCompleted:
+		m.statusBar.IncrementTool(e.Name)
+		m.statusBar.ReorderToolCells()
 	case protocol.ToolCallsReady:
 		m.openToolConfirm(e.Calls)
 		m.status = "Confirm tools"
@@ -262,6 +269,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 			m.currentSessionEphemeral = false
 			if e.Model != "" {
 				m.modelName = e.Model
+				m.statusBar.UpdateModel(e.Model)
 			}
 			if e.ContextWindow > 0 {
 				m.contextWindow = e.ContextWindow
@@ -270,6 +278,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		}
 	case protocol.HistoryClearedEvent:
 		m.transcript.reset()
+		m.statusBar.ResetToolCounts()
 		m.status = "Cleared"
 	}
 	m.refreshViewport(eventPinsViewportToBottom(event))
@@ -286,7 +295,7 @@ func eventPinsViewportToBottom(event protocol.Event) bool {
 
 func (m *Model) View() tea.View {
 	m.resize()
-	sections := []string{m.headerView(), m.viewport.View()}
+	sections := []string{m.viewport.View()}
 	modal := m.modalView()
 	if modal != "" {
 		sections = append(sections, modal)
@@ -295,7 +304,11 @@ func (m *Model) View() tea.View {
 	if popup != "" {
 		sections = append(sections, popup)
 	}
-	sections = append(sections, m.inputView(), m.statusView())
+	sections = append(sections, m.inputView())
+	statusBarView := m.statusBar.Render(m.width)
+	if statusBarView != "" {
+		sections = append(sections, statusBarView)
+	}
 	content := strings.Join(sections, "\n")
 	view := tea.NewView(content)
 	view.MouseMode = tea.MouseModeCellMotion
@@ -303,7 +316,7 @@ func (m *Model) View() tea.View {
 
 	// Position cursor at the textarea's actual location.
 	if cur := m.input.Cursor(); cur != nil {
-		rowsAboveInput := 1 + m.viewport.Height() // header + viewport
+		rowsAboveInput := m.viewport.Height() // no header
 		if modal != "" {
 			rowsAboveInput += strings.Count(modal, "\n") + 1
 		}
@@ -331,7 +344,14 @@ func (m *Model) resize() {
 		popupH = m.slashPopup.Height()
 	}
 	inputH := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
-	viewportH := m.height - 1 - modalH - popupH - inputH - 1
+	// Update scroll cell in statusbar before layout
+	if !m.viewport.AtBottom() {
+		m.statusBar.UpdateScroll(int(m.viewport.ScrollPercent() * 100))
+	} else {
+		m.statusBar.UpdateScroll(0)
+	}
+	statusH := m.statusBar.Layout(m.width)
+	viewportH := m.height - modalH - popupH - inputH - statusH
 	if viewportH < 3 {
 		viewportH = 3
 	}
@@ -350,56 +370,8 @@ func (m *Model) refreshViewport(gotoBottom bool) {
 	}
 }
 
-func (m *Model) headerView() string {
-	parts := []string{"Cece"}
-	if m.modelName != "" {
-		parts = append(parts, m.modelName)
-	}
-	parts = append(parts, string(m.mode))
-	if m.workDir != "" {
-		parts = append(parts, m.workDir)
-	}
-	if m.gitBranch != "" {
-		parts = append(parts, "git:"+m.gitBranch)
-	}
-	return lipgloss.NewStyle().Bold(true).Render(ansi.Truncate(strings.Join(parts, " | "), m.width, "..."))
-}
-
 func (m *Model) inputView() string {
 	return m.input.View()
-}
-
-func (m *Model) statusView() string {
-	parts := []string{m.statusLabel(), "[" + modeLabel(string(m.mode)) + "]"}
-	if m.modelName != "" {
-		parts = append(parts, m.modelName)
-	}
-	if len(m.queued) > 0 {
-		parts = append(parts, fmt.Sprintf("queued:%d", len(m.queued)))
-	}
-	if m.transcript.inputTokens > 0 || m.transcript.outputTokens > 0 {
-		parts = append(parts, fmt.Sprintf("tok:%d/%d", m.transcript.inputTokens, m.transcript.outputTokens))
-	}
-	if m.contextWindow > 0 && m.transcript.contextUsed > 0 {
-		remaining := m.contextWindow - m.transcript.contextUsed
-		if remaining < 0 {
-			remaining = 0
-		}
-		pct := remaining * 100 / m.contextWindow
-		parts = append(parts, fmt.Sprintf("ctx:%d/%d %d%%", remaining, m.contextWindow, pct))
-	}
-	if !m.viewport.AtBottom() {
-		parts = append(parts, fmt.Sprintf("scroll:%d%%", int(m.viewport.ScrollPercent()*100)))
-	}
-	parts = append(parts, "Enter send | Ctrl+J newline | Ctrl+Up/Down line | PgUp/PgDn page | Esc cancel | /model /resume")
-	return ansi.Truncate(strings.Join(parts, "  "), m.width, "...")
-}
-
-func (m *Model) statusLabel() string {
-	if !m.statusShowsSpinner() {
-		return m.status
-	}
-	return fmt.Sprintf("%s %s", string(statusSpinnerFrames[m.statusFrame%len(statusSpinnerFrames)]), m.status)
 }
 
 func (m *Model) statusShowsSpinner() bool {

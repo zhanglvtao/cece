@@ -32,7 +32,7 @@ type promptHistory struct {
 // NewInput creates a new Input component.
 func NewInput(styles Styles) *Input {
 	ta := textarea.New()
-	ta.Placeholder = "Send a message… (enter to send, ctrl+j for newline)"
+	ta.Placeholder = "Send a message…"
 	ta.ShowLineNumbers = false
 	ta.CharLimit = -1
 	ta.SetVirtualCursor(false)

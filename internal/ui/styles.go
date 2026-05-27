@@ -49,21 +49,9 @@ type Styles struct {
 		SlashPopupSelected lipgloss.Style
 	}
 	StatusBar struct {
-		PillIdle      lipgloss.Style // status pill (idle, subtle bg)
-		PillActive    lipgloss.Style // status pill (busy)
-		Box           lipgloss.Style // rounded border box
-		Model         lipgloss.Style // model name text
-		GitBranch     lipgloss.Style // git branch name
-		WorkDir       lipgloss.Style // working directory name
-		Separator     lipgloss.Style // section separator │
-		ContextInfo   lipgloss.Style // context/token usage
-		ContextGood   lipgloss.Style // healthy remaining context
-		ContextWarn   lipgloss.Style // low remaining context
-		ContextDanger lipgloss.Style // critical remaining context
-		ContextEmpty  lipgloss.Style // consumed context cells
-		TokenIn       lipgloss.Style // input token count
-		TokenOut      lipgloss.Style // output token count
-		KeyHint       lipgloss.Style // keyboard shortcut hints
+		ModelPill lipgloss.Style // model name in pill style
+		ToolCount lipgloss.Style // tool call count (e.g. Grep:3)
+		Scroll    lipgloss.Style // scroll position indicator
 	}
 	Detail lipgloss.Style
 	Status lipgloss.Style
@@ -153,22 +141,14 @@ func BuildStyles(p theme.Palette) Styles {
 	s.Input.SlashPopup = base.Foreground(p.FgMuted)
 	s.Input.SlashPopupSelected = base.Bold(true)
 
-	// StatusBar — minimal per-section colors.
-	s.StatusBar.PillIdle = lipgloss.NewStyle().Foreground(p.FgMuted)
-	s.StatusBar.PillActive = lipgloss.NewStyle().Foreground(p.Primary).Bold(true)
-
-	s.StatusBar.Model = base.Foreground(p.Info)
-	s.StatusBar.GitBranch = base.Foreground(p.Accent)
-	s.StatusBar.WorkDir = base.Foreground(p.Secondary)
-	s.StatusBar.Separator = lipgloss.NewStyle().Foreground(p.Separator)
-	s.StatusBar.ContextInfo = muted
-	s.StatusBar.ContextGood = base.Foreground(p.Success)
-	s.StatusBar.ContextWarn = base.Foreground(p.Warning)
-	s.StatusBar.ContextDanger = base.Foreground(p.Destructive)
-	s.StatusBar.ContextEmpty = faint
-	s.StatusBar.TokenIn = base.Foreground(p.InfoMuted)
-	s.StatusBar.TokenOut = base.Foreground(p.WarningMuted)
-	s.StatusBar.KeyHint = base.Foreground(p.Keyword).Italic(true)
+	// StatusBar — model pill, tool counts, scroll indicator.
+	s.StatusBar.ModelPill = lipgloss.NewStyle().
+		Foreground(p.Primary).
+		Background(lipgloss.Color("#2a2a3a")).
+		Bold(true).
+		Padding(0, 1)
+	s.StatusBar.ToolCount = base.Foreground(p.InfoMuted)
+	s.StatusBar.Scroll = base.Foreground(p.FgFaint)
 
 	// Detail & Status
 	s.Detail = muted.Italic(true).Faint(true)

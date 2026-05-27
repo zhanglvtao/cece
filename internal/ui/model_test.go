@@ -245,8 +245,10 @@ func TestViewportScrollKeysMoveByLineAndPage(t *testing.T) {
 	if afterLine != bottom-1 {
 		t.Fatalf("ctrl+up offset = %d, want %d", afterLine, bottom-1)
 	}
-	if !strings.Contains(m.statusView(), "scroll:") {
-		t.Fatalf("status should show scroll position while not at bottom: %q", m.statusView())
+	m.resize()
+	scrollCell := m.statusBar.cellMap["scroll"]
+	if scrollCell == nil || !strings.Contains(scrollCell.cached, "scroll:") {
+		t.Fatalf("statusbar should show scroll position while not at bottom")
 	}
 
 	m.handleKey(keyMsg("pgup"))

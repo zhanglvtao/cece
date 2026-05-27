@@ -1,97 +1,103 @@
 package ui
 
-import "testing"
+import (
+	"testing"
+)
 
-func TestContextGaugeState(t *testing.T) {
-	tests := []struct {
-		name      string
-		used      int
-		window    int
-		remaining int
-		percent   int
-		filled    int
-		level     contextGaugeLevel
-	}{
-		{name: "full", used: 0, window: 200000, remaining: 200000, percent: 100, filled: 10, level: contextGaugeGreen},
-		{name: "green", used: 54000, window: 200000, remaining: 146000, percent: 73, filled: 7, level: contextGaugeGreen},
-		{name: "yellow", used: 162000, window: 200000, remaining: 38000, percent: 19, filled: 2, level: contextGaugeYellow},
-		{name: "red", used: 192000, window: 200000, remaining: 8000, percent: 4, filled: 1, level: contextGaugeRed},
-		{name: "empty", used: 200000, window: 200000, remaining: 0, percent: 0, filled: 0, level: contextGaugeEmpty},
+func TestStatusBarModelPill(t *testing.T) {
+	sb := NewStatusBar(DefaultStyles())
+	sb.UpdateModel("sonnet")
+	h := sb.Layout(80)
+	if h != 1 {
+		t.Fatalf("expected height 1, got %d", h)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := contextGaugeState(tt.used, tt.window)
-			if got.remaining != tt.remaining {
-				t.Fatalf("remaining = %d, want %d", got.remaining, tt.remaining)
-			}
-			if got.percent != tt.percent {
-				t.Fatalf("percent = %d, want %d", got.percent, tt.percent)
-			}
-			if got.filled != tt.filled {
-				t.Fatalf("filled = %d, want %d", got.filled, tt.filled)
-			}
-			if got.level != tt.level {
-				t.Fatalf("level = %v, want %v", got.level, tt.level)
-			}
-		})
+	// Verify model cell exists
+	c, ok := sb.cellMap["model"]
+	if !ok {
+		t.Fatal("model cell not found")
+	}
+	if c.width == 0 {
+		t.Fatal("model cell has zero width")
 	}
 }
 
-func TestModeLabel(t *testing.T) {
-	if got := modeLabel("plan"); got != "Plan" {
-		t.Fatalf("modeLabel(plan) = %q, want Plan", got)
+func TestStatusBarToolCounts(t *testing.T) {
+	sb := NewStatusBar(DefaultStyles())
+	sb.UpdateModel("sonnet")
+
+	sb.IncrementTool("Grep")
+	sb.IncrementTool("Read")
+	sb.IncrementTool("Grep") // Grep:2
+	sb.ReorderToolCells()
+
+	h := sb.Layout(80)
+	if h != 1 {
+		t.Fatalf("expected height 1, got %d", h)
 	}
-	if got := modeLabel("auto-accept"); got != "Auto" {
-		t.Fatalf("modeLabel(auto-accept) = %q, want Auto", got)
+
+	if sb.toolCounts["Grep"] != 2 {
+		t.Fatalf("Grep count = %d, want 2", sb.toolCounts["Grep"])
 	}
-	if got := modeLabel("default"); got != "Default" {
-		t.Fatalf("modeLabel(default) = %q, want Default", got)
-	}
-	if got := modeLabel(""); got != "Default" {
-		t.Fatalf("modeLabel(empty) = %q, want Default", got)
+	if sb.toolCounts["Read"] != 1 {
+		t.Fatalf("Read count = %d, want 1", sb.toolCounts["Read"])
 	}
 }
 
-func TestFormatTokenK(t *testing.T) {
-	tests := []struct {
-		name string
-		in   int
-		want string
-	}{
-		{name: "zero", in: 0, want: "0K"},
-		{name: "under 1K rounds up", in: 999, want: "1K"},
-		{name: "exact K", in: 1000, want: "1K"},
-		{name: "rounds up", in: 1500, want: "2K"},
-		{name: "large", in: 12000, want: "12K"},
-	}
+func TestStatusBarFlowLayout(t *testing.T) {
+	sb := NewStatusBar(DefaultStyles())
+	sb.UpdateModel("sonnet")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := formatTokenK(tt.in); got != tt.want {
-				t.Fatalf("formatTokenK(%d) = %q, want %q", tt.in, got, tt.want)
-			}
-		})
+	// Add many tools to force wrapping
+	for i := 0; i < 20; i++ {
+		sb.IncrementTool("Tool" + string(rune('A'+i)))
+	}
+	sb.ReorderToolCells()
+
+	h := sb.Layout(40) // narrow width to force wrap
+	if h < 2 {
+		t.Fatalf("expected multi-line layout, got height %d", h)
 	}
 }
 
-func TestStatusLabelShowsSpinnerOnlyWhileRequestingOrStreaming(t *testing.T) {
-	m := NewModel(nil, "sonnet", "/tmp")
+func TestStatusBarScroll(t *testing.T) {
+	sb := NewStatusBar(DefaultStyles())
+	sb.UpdateModel("sonnet")
+	sb.UpdateScroll(42)
 
-	m.status = "Ready"
-	if got := m.statusLabel(); got != "Ready" {
-		t.Fatalf("statusLabel ready = %q, want Ready", got)
+	h := sb.Layout(80)
+	if h != 1 {
+		t.Fatalf("expected height 1, got %d", h)
 	}
 
-	m.status = "Requesting"
-	m.statusFrame = 0
-	if got, want := m.statusLabel(), "- Requesting"; got != want {
-		t.Fatalf("statusLabel requesting = %q, want %q", got, want)
+	c, ok := sb.cellMap["scroll"]
+	if !ok {
+		t.Fatal("scroll cell not found")
+	}
+	if c.width == 0 {
+		t.Fatal("scroll cell has zero width")
 	}
 
-	m.status = "Streaming"
-	m.statusFrame = 1
-	if got, want := m.statusLabel(), "\\ Streaming"; got != want {
-		t.Fatalf("statusLabel streaming = %q, want %q", got, want)
+	// Zero scroll should hide the cell
+	sb.UpdateScroll(0)
+	sb.Layout(80)
+	if c.width != 0 {
+		t.Fatal("scroll cell should have zero width when scroll is 0")
+	}
+}
+
+func TestStatusBarResetToolCounts(t *testing.T) {
+	sb := NewStatusBar(DefaultStyles())
+	sb.UpdateModel("sonnet")
+	sb.IncrementTool("Grep")
+	sb.IncrementTool("Read")
+	sb.ReorderToolCells()
+
+	sb.ResetToolCounts()
+
+	if len(sb.toolCounts) != 0 {
+		t.Fatal("tool counts should be empty after reset")
+	}
+	if _, ok := sb.cellMap["tool_Grep"]; ok {
+		t.Fatal("tool_Grep cell should be removed after reset")
 	}
 }
