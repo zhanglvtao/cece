@@ -1,11 +1,8 @@
 package ui
 
 import (
-	"strings"
-
 	"cece/internal/skill"
-	"cece/internal/ui/list"
-	"github.com/sahilm/fuzzy"
+	"cece/internal/ui/picker"
 )
 
 const slashPopupMaxHeight = 8
@@ -20,181 +17,166 @@ var builtinSlashCommands = []struct {
 	{"/skills", "List available skills"},
 }
 
-// slashItem is a single candidate in the slash command popup.
-type slashItem struct {
-	*list.Versioned
+// slashEntry is a single slash command candidate.
+type slashEntry struct {
 	command     string
 	description string
 	source      string // "builtin" | "skill"
-	focused     bool
-	match       fuzzy.Match
 }
 
-var (
-	_ list.Item           = (*slashItem)(nil)
-	_ list.FilterableItem = (*slashItem)(nil)
-	_ list.MatchSettable  = (*slashItem)(nil)
-	_ list.Focusable      = (*slashItem)(nil)
-)
-
-func newSlashItem(cmd, desc, source string) *slashItem {
-	return &slashItem{
-		Versioned:   list.NewVersioned(),
-		command:     cmd,
-		description: desc,
-		source:      source,
-	}
-}
-
-func (s *slashItem) Render(width int) string {
-	prefix := "  "
-	if s.focused {
-		prefix = "> "
-	}
-	text := s.command
-	if s.description != "" {
-		text += "  " + s.description
-	}
-	return prefix + text
-}
-
-func (s *slashItem) Finished() bool  { return true }
-func (s *slashItem) Filter() string   { return strings.TrimPrefix(s.command, "/") }
-func (s *slashItem) SetMatch(m fuzzy.Match) { s.match = m; s.Bump() }
-func (s *slashItem) SetFocused(focused bool) { s.focused = focused; s.Bump() }
-
-// SlashPopup is the slash command completion popup component.
+// SlashPopup wraps a compact Picker for slash command completion.
 type SlashPopup struct {
-	open  bool
-	flist *list.FilterableList
-	items []*slashItem
+	picker *picker.Picker
+	entries []slashEntry
+	open   bool
 }
 
 // NewSlashPopup creates a new SlashPopup component.
-func NewSlashPopup(_ Styles) *SlashPopup { return &SlashPopup{} }
+func NewSlashPopup(_ Styles) *SlashPopup {
+	return &SlashPopup{}
+}
 
 // SetSkills rebuilds the candidate list from builtin commands + skills.
 func (p *SlashPopup) SetSkills(skills []*skill.Skill) {
-	var items []*slashItem
+	var entries []slashEntry
 	for _, b := range builtinSlashCommands {
-		items = append(items, newSlashItem(b.cmd, b.desc, "builtin"))
+		entries = append(entries, slashEntry{command: b.cmd, description: b.desc, source: "builtin"})
 	}
 	for _, s := range skills {
-		items = append(items, newSlashItem("/"+s.Name, s.Description, "skill"))
+		entries = append(entries, slashEntry{command: "/" + s.Name, description: s.Description, source: "skill"})
 	}
-	p.items = items
-	fitems := make([]list.FilterableItem, len(items))
-	for i, item := range items {
-		fitems[i] = item
+	p.entries = entries
+}
+
+// buildPicker creates the internal picker with the current entries.
+func (p *SlashPopup) buildPicker() {
+	items := make([]any, len(p.entries))
+	for i, e := range p.entries {
+		items[i] = e
 	}
-	if p.flist == nil {
-		p.flist = list.NewFilterableList(fitems...)
-		p.flist.SetSize(0, slashPopupMaxHeight)
-		p.flist.Focus()
-	} else {
-		p.flist.SetItems(fitems...)
+	pk := picker.New("", items, slashPopupMaxHeight, func(item any, selected bool) string {
+		e := item.(slashEntry)
+		text := e.command
+		if e.description != "" {
+			text += "  " + e.description
+		}
+		return picker.FormatItem(text, selected)
+	})
+	pk.SetCompact(true)
+	pk.SetFilterFn(func(item any, q string) bool {
+		e := item.(slashEntry)
+		return containsAny(e, q)
+	})
+	p.picker = pk
+}
+
+// containsAny does simple substring matching on a slashEntry.
+func containsAny(e slashEntry, q string) bool {
+	return containsFold(e.command, q) || containsFold(e.description, q)
+}
+
+func containsFold(s, substr string) bool {
+	slen := len(s)
+	sublen := len(substr)
+	if sublen > slen {
+		return false
 	}
+	for i := 0; i <= slen-sublen; i++ {
+		if stringsEqualFold(s[i:i+sublen], substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func stringsEqualFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		ca, cb := a[i], b[i]
+		if ca == cb {
+			continue
+		}
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 32
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 32
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
 }
 
 // Open shows the popup with the given query filter.
 func (p *SlashPopup) Open(query string) {
-	if p.flist == nil {
-		return
-	}
 	p.open = true
-	p.flist.SetFilter(query)
-	if p.flist.Len() > 0 {
-		p.flist.SetSelected(0)
-	}
+	p.buildPicker()
+	p.picker.SetFilter(query)
 }
 
 // Close hides the popup.
-func (p *SlashPopup) Close() { p.open = false }
+func (p *SlashPopup) Close() {
+	p.open = false
+	p.picker = nil
+}
 
 // Active returns whether the popup is visible.
 func (p *SlashPopup) Active() bool { return p.open }
 
-// UpdateFilter updates the fuzzy filter query.
-func (p *SlashPopup) UpdateFilter(query string) {
-	if p.flist == nil {
-		return
-	}
-	p.flist.SetFilter(query)
-	if p.flist.Len() > 0 && p.flist.Selected() < 0 {
-		p.flist.SetSelected(0)
-	}
-}
-
 // SelectUp moves the selection up.
 func (p *SlashPopup) SelectUp() {
-	if p.flist == nil {
-		return
+	if p.picker != nil {
+		p.picker.Up()
 	}
-	p.flist.SelectPrev()
 }
 
 // SelectDown moves the selection down.
 func (p *SlashPopup) SelectDown() {
-	if p.flist == nil {
-		return
+	if p.picker != nil {
+		p.picker.Down()
 	}
-	p.flist.SelectNext()
 }
 
 // SelectedCommand returns the currently selected command string.
 func (p *SlashPopup) SelectedCommand() (string, bool) {
-	if p.flist == nil {
+	if p.picker == nil {
 		return "", false
 	}
-	item := p.flist.SelectedItem()
+	item := p.picker.Selected()
 	if item == nil {
 		return "", false
 	}
-	si, ok := item.(*slashItem)
+	e, ok := item.(slashEntry)
 	if !ok {
 		return "", false
 	}
-	return si.command, true
+	return e.command, true
+}
+
+// UpdateFilter sets the filter query and rebuilds the filtered list.
+func (p *SlashPopup) UpdateFilter(query string) {
+	if p.picker == nil {
+		return
+	}
+	p.picker.SetFilter(query)
 }
 
 // View renders the popup as plain lines.
 func (p *SlashPopup) View(_ int) string {
-	if !p.open || p.flist == nil {
+	if !p.open || p.picker == nil {
 		return ""
 	}
-	items := p.flist.FilteredItems()
-	if len(items) == 0 {
-		return ""
-	}
-	selectedIdx := p.flist.Selected()
-	maxItems := min(len(items), slashPopupMaxHeight)
-	var b strings.Builder
-	for i := 0; i < maxItems; i++ {
-		si, ok := items[i].(*slashItem)
-		if !ok {
-			continue
-		}
-		prefix := "  "
-		text := si.command
-		if si.description != "" {
-			text += "  " + si.description
-		}
-		if i == selectedIdx {
-			prefix = "> "
-		}
-		b.WriteString(prefix + text)
-		if i < maxItems-1 {
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
+	return p.picker.View()
 }
 
 // Height returns the rendered height of the popup (0 if not open).
 func (p *SlashPopup) Height() int {
-	if !p.open {
+	if !p.open || p.picker == nil {
 		return 0
 	}
-	items := p.flist.FilteredItems()
-	return min(len(items), slashPopupMaxHeight)
+	return p.picker.Height()
 }

@@ -58,8 +58,8 @@ func TestEmptyItems(t *testing.T) {
 		t.Fatalf("Height() = %d, want 0 for empty items", p.Height())
 	}
 	view := p.View()
-	if !strings.Contains(view, "No items") {
-		t.Fatalf("empty picker should show 'No items':\n%s", view)
+	if view != "" {
+		t.Fatalf("empty picker should return empty view, got:\n%s", view)
 	}
 }
 

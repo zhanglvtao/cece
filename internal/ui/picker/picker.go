@@ -13,10 +13,11 @@ type Result int
 
 const (
 	ResultNone    Result = iota // key consumed, no further action
-	ResultClose                 // esc pressed, caller should close the picker
+	ResultClose                 // esc or enter/tab pressed, caller should close
 )
 
-// Picker is a minimal, scrollable list picker for modal dialogs.
+// Picker is a minimal, scrollable list picker.
+// In compact mode (SetCompact), it renders only item lines without title or help.
 type Picker struct {
 	title     string
 	items     []any
@@ -28,10 +29,12 @@ type Picker struct {
 	offset    int
 	filter    string
 	maxHeight int
+	compact   bool // no title/help when true
 }
 
 // New creates a Picker with the given title, items, max rendered height,
-// and render function. maxHeight includes the title line and help line.
+// and render function. maxHeight includes the title line and help line
+// (unless compact mode is enabled).
 func New(title string, items []any, maxHeight int, render func(any, bool) string) *Picker {
 	return &Picker{
 		title:     title,
@@ -42,6 +45,9 @@ func New(title string, items []any, maxHeight int, render func(any, bool) string
 	}
 }
 
+// SetCompact enables compact mode: no title line, no help line, just items.
+func (p *Picker) SetCompact(v bool) { p.compact = v }
+
 // SetFilterFn sets an optional filter predicate. When set, the picker
 // supports text filtering via keyboard input.
 func (p *Picker) SetFilterFn(fn func(any, string) bool) { p.filterFn = fn }
@@ -51,6 +57,32 @@ func (p *Picker) SetOnSelect(fn func(any) tea.Cmd) { p.onSelect = fn }
 
 // SetHelpText overrides the bottom help line.
 func (p *Picker) SetHelpText(s string) { p.helpText = s }
+
+// SetFilter sets the filter string directly (for external filter sources).
+func (p *Picker) SetFilter(q string) {
+	p.filter = q
+	p.selectedI = 0
+	p.offset = 0
+}
+
+// SetItems replaces the item list.
+func (p *Picker) SetItems(items []any) {
+	p.items = items
+	p.selectedI = 0
+	p.offset = 0
+}
+
+// Active returns true if the picker has items to show.
+func (p *Picker) Active() bool {
+	return len(p.visibleItems()) > 0
+}
+
+// Close resets the picker state (filter, selection, offset).
+func (p *Picker) Close() {
+	p.filter = ""
+	p.selectedI = 0
+	p.offset = 0
+}
 
 // visibleItems returns items after applying the current filter.
 func (p *Picker) visibleItems() []any {
@@ -66,9 +98,17 @@ func (p *Picker) visibleItems() []any {
 	return out
 }
 
+// fixedLines returns the number of non-item lines (title + help).
+func (p *Picker) fixedLines() int {
+	if p.compact {
+		return 0
+	}
+	return 2 // title + help
+}
+
 // visibleCount is the number of item lines that fit in the viewport.
 func (p *Picker) visibleCount() int {
-	return max(p.maxHeight-2, 1) // title + help = 2 fixed lines
+	return max(p.maxHeight-p.fixedLines(), 1)
 }
 
 // ensureVisible adjusts offset so selectedI is within the viewport.
@@ -95,40 +135,46 @@ func (p *Picker) ensureVisible(total int) {
 // View renders the picker as plain text lines. Total lines ≤ maxHeight.
 func (p *Picker) View() string {
 	items := p.visibleItems()
+	if len(items) == 0 {
+		return ""
+	}
 	var b strings.Builder
 
-	// Title line
-	b.WriteString(p.title)
-	if p.filterFn != nil && p.filter != "" {
-		b.WriteString(" filter: " + p.filter)
+	// Title line (compact: skip)
+	if !p.compact {
+		b.WriteString(p.title)
+		if p.filterFn != nil && p.filter != "" {
+			b.WriteString(" filter: " + p.filter)
+		}
+		b.WriteByte('\n')
 	}
-	b.WriteByte('\n')
 
 	// Item lines (virtual scroll window)
-	if len(items) == 0 {
-		b.WriteString("No items\n")
-	} else {
-		p.ensureVisible(len(items))
-		vc := p.visibleCount()
-		end := min(p.offset+vc, len(items))
-		for i := p.offset; i < end; i++ {
-			b.WriteString(p.render(items[i], i == p.selectedI))
+	p.ensureVisible(len(items))
+	vc := p.visibleCount()
+	end := min(p.offset+vc, len(items))
+	for i := p.offset; i < end; i++ {
+		b.WriteString(p.render(items[i], i == p.selectedI))
+		if i < end-1 || !p.compact {
 			b.WriteByte('\n')
 		}
 	}
 
-	// Help line
-	b.WriteString(p.helpText)
+	// Help line (compact: skip)
+	if !p.compact {
+		b.WriteString(p.helpText)
+	}
+
 	return b.String()
 }
 
-// Height returns the rendered height in lines (0 if no items).
+// Height returns the rendered height in lines (0 if no visible items).
 func (p *Picker) Height() int {
-	if len(p.items) == 0 {
+	items := p.visibleItems()
+	if len(items) == 0 {
 		return 0
 	}
-	items := p.visibleItems()
-	return min(len(items)+2, p.maxHeight) // +2 for title and help
+	return min(len(items)+p.fixedLines(), p.maxHeight)
 }
 
 // Up moves selection up.
