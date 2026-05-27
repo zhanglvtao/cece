@@ -59,6 +59,8 @@ type Model struct {
 	width               int
 	height              int
 
+	streamHeadline      string // latest assistant text for inline indicator
+
 	styles      Styles
 	transcript  transcript
 	viewport    viewport.Model
@@ -232,13 +234,18 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.AssistantStarted:
 		m.busy = true
 		m.status = "Streaming"
+		m.streamHeadline = ""
+	case protocol.AssistantDelta:
+		m.streamHeadline += e.Text
 	case protocol.RunFailed:
 		m.busy = false
 		m.queued = nil
 		m.status = "Failed"
+		m.streamHeadline = ""
 	case protocol.TurnCompleted:
 		m.busy = false
 		m.status = "Ready"
+		m.streamHeadline = ""
 	case protocol.QueuedInputPromoted:
 		if len(m.queued) > 0 {
 			m.queued = m.queued[1:]
@@ -318,6 +325,10 @@ func (m *Model) View() tea.View {
 	if popup != "" {
 		sections = append(sections, popup)
 	}
+	// Headline indicator: show latest assistant text above input during streaming
+	if headline := m.headlineView(); headline != "" {
+		sections = append(sections, headline)
+	}
 	sections = append(sections, m.inputView())
 	statusBarView := m.statusBar.Render(m.width)
 	if statusBarView != "" {
@@ -368,7 +379,11 @@ func (m *Model) resize() {
 	statusH := m.statusBar.Height()
 	vFrame := m.styles.Input.Box.GetVerticalFrameSize()
 	hFrame := m.styles.Input.Box.GetHorizontalFrameSize()
-	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH
+	headlineH := 0
+	if m.busy && m.streamHeadline != "" {
+		headlineH = 1
+	}
+	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH - headlineH
 	if viewportH < 3 {
 		viewportH = 3
 	}
@@ -389,6 +404,32 @@ func (m *Model) refreshViewport(gotoBottom bool) {
 
 func (m *Model) inputView() string {
 	return m.styles.Input.Box.Width(m.width).Render(m.input.View())
+}
+
+// headlineView renders a one-line indicator above the input box showing the
+// latest assistant text delta while streaming. Includes a rotating spinner.
+func (m *Model) headlineView() string {
+	if !m.busy || m.streamHeadline == "" {
+		return ""
+	}
+	frame := string(statusSpinnerFrames[m.statusFrame%len(statusSpinnerFrames)])
+	// Take the last non-empty line of accumulated text
+	text := m.streamHeadline
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	text = lines[len(lines)-1]
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	// Truncate to fit
+	maxLen := m.width - 4 // spinner + spaces
+	if maxLen < 10 {
+		maxLen = 10
+	}
+	if len(text) > maxLen {
+		text = text[:maxLen-3] + "..."
+	}
+	return m.styles.Status.Render(frame + " " + text)
 }
 
 func (m *Model) statusShowsSpinner() bool {

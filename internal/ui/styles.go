@@ -11,6 +11,7 @@ import (
 type Styles struct {
 	Chat struct {
 		UserMsg         lipgloss.Style
+		UserMsgBg       lipgloss.Style // background fill for user message area
 		Assistant       lipgloss.Style
 		AssistantBg     lipgloss.Style // background fill for assistant message area
 		AssistantPrefix lipgloss.Style
@@ -62,14 +63,16 @@ func DefaultStyles() Styles {
 // All color assignments are semantic — swap the palette and the entire UI adapts.
 func BuildStyles(p theme.Palette) Styles {
 	var (
-		base  = lipgloss.NewStyle().Foreground(p.FgBase)
-		muted = lipgloss.NewStyle().Foreground(p.FgMuted)
-		faint = lipgloss.NewStyle().Foreground(p.FgFaint)
-		s     Styles
+		base   = lipgloss.NewStyle().Foreground(p.FgBase)
+		subtle = lipgloss.NewStyle().Foreground(p.FgSubtle)
+		muted  = lipgloss.NewStyle().Foreground(p.FgMuted)
+		faint  = lipgloss.NewStyle().Foreground(p.FgFaint)
+		s      Styles
 	)
 
 	// Chat — user message, no padding.
 	s.Chat.UserMsg = base
+	s.Chat.UserMsgBg = lipgloss.NewStyle().Background(p.BgHighlight)
 	s.Chat.Assistant = base
 	s.Chat.AssistantBg = lipgloss.NewStyle()
 	s.Chat.AssistantPrefix = base.Foreground(p.Success)
@@ -77,16 +80,16 @@ func BuildStyles(p theme.Palette) Styles {
 	s.Chat.RequestLabel = base.Foreground(p.SuccessMuted)
 	s.Chat.ResponseLabel = base.Foreground(p.WarningMuted)
 	s.Chat.ToolCallName = base.Foreground(p.Info).Bold(true)
-	s.Chat.ToolCallArgs = muted
+	s.Chat.ToolCallArgs = subtle
 	s.Chat.ToolCallRun = base.Foreground(p.Busy)
 	s.Chat.ToolCallOk = base.Foreground(p.Success)
 	s.Chat.ToolCallErr = base.Foreground(p.Destructive)
-	s.Chat.ToolCallSummary = muted
-	s.Chat.ToolCallOutput = muted
+	s.Chat.ToolCallSummary = subtle
+	s.Chat.ToolCallOutput = subtle
 
-	// Thinking — collapsible block, no background; content uses faint color.
-	s.Chat.ThinkingLabel = faint.Foreground(p.SuccessMuted).Italic(true)
-	s.Chat.ThinkingContent = lipgloss.NewStyle().Foreground(p.FgFaint).Italic(true)
+	// Thinking — collapsible block, no background; content uses subtle color.
+	s.Chat.ThinkingLabel = base.Foreground(p.SuccessMuted).Italic(true)
+	s.Chat.ThinkingContent = lipgloss.NewStyle().Foreground(p.FgSubtle).Italic(true)
 	s.Chat.ThinkingBg = lipgloss.NewStyle()
 
 	// Chat box — rounded border for idle/static state.
@@ -131,6 +134,9 @@ func BuildStyles(p theme.Palette) Styles {
 		},
 	}
 	s.Input.Separator = lipgloss.NewStyle().Foreground(p.Separator)
+
+	// Input box — simple normal border, no color.
+	s.Input.Box = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
 
 	s.Input.SlashCommand = base.Foreground(p.Primary)
 	s.Input.SlashCommandMatch = base.Foreground(p.Keyword).Underline(true)

@@ -27,7 +27,7 @@ type userMessageItem struct {
 var _ list.Item = (*userMessageItem)(nil)
 
 func (u *userMessageItem) Render(width int) string {
-	rendered := u.styles.Chat.UserMsg.Width(width).Render(u.content)
+	rendered := u.styles.Chat.UserMsgBg.Width(width).Render(u.styles.Chat.UserMsg.Render(u.content))
 	if u.request != nil {
 		rendered += "\n" + u.request.Render(width)
 	}

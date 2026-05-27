@@ -33,7 +33,7 @@ func TestStatusBarRender(t *testing.T) {
 	if !strings.Contains(got, "Read:1") {
 		t.Fatalf("missing Read:1: %q", got)
 	}
-	if !strings.Contains(got, "in:5K") {
+	if !strings.Contains(got, "in/out:5K") {
 		t.Fatalf("missing tokens: %q", got)
 	}
 	if !strings.Contains(got, "ctx:") {
