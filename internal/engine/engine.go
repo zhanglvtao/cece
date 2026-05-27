@@ -278,14 +278,6 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 	client := e.client
 	e.mu.Unlock()
 
-	if len(snapshot) < 4 { // need at least 2 turns to compact
-		e.emitEvent(protocol.CompactedEvent{
-			MessagesBefore: len(snapshot),
-			MessagesAfter:  len(snapshot),
-		})
-		return
-	}
-
 	e.emitEvent(protocol.CompactingEvent{})
 
 	compactor := chat.NewCompactor(client, defaultKeepRecentTurns)
