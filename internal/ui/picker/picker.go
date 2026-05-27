@@ -178,10 +178,11 @@ func (p *Picker) HandleKey(msg tea.KeyPressMsg) (Result, tea.Cmd) {
 			return ResultNone, nil
 		}
 		selected := p.Selected()
+		var cmd tea.Cmd
 		if p.onSelect != nil {
-			return ResultNone, p.onSelect(selected)
+			cmd = p.onSelect(selected)
 		}
-		return ResultNone, nil
+		return ResultClose, cmd
 	default:
 		// Filter input (only if filterFn is set)
 		if p.filterFn != nil {

@@ -382,7 +382,6 @@ func (m *Model) openModelPicker(models []protocol.ModelInfo) {
 			m.contextWindow = mi.MaxContextWindow
 			m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
 		}
-		m.modal = modalState{}
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.SwitchModelAction{
 				Model:            mi.ID,
