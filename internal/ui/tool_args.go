@@ -2,15 +2,29 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
+const defaultBashTimeoutSeconds = 10
+
+func resolveBashTimeoutSeconds(timeout int) (int, error) {
+	switch {
+	case timeout < 0:
+		return 0, fmt.Errorf("must be >= 0")
+	case timeout == 0:
+		return defaultBashTimeoutSeconds, nil
+	default:
+		return timeout, nil
+	}
+}
+
 // formatToolArgs renders tool call arguments in a human-readable format
 // instead of raw JSON. Each tool type has specific display logic:
-//   - Bash: shows the command only
-//   - Read: shows file_path, plus offset/limit if present
-//   - Edit: shows file_path, plus replace_all if true
-//   - Write: shows file_path only (content is too large)
+//   - Bash: shows the command plus effective timeout
+//   - Read: shows path, plus offset/limit if present
+//   - Edit: shows path, plus replace_all if true
+//   - Write: shows path only (content is too large)
 //   - Glob: shows pattern, plus path if present
 //   - Grep: shows pattern, plus include/path if present
 //   - Unknown: shows all key:value pairs
@@ -21,16 +35,16 @@ func formatToolArgs(name string, args map[string]any) string {
 
 	switch name {
 	case "Bash":
-		return strVal(args, "command")
+		return bashArgs(args)
 
 	case "Read":
-		return filePathWithOpts(args, "file_path", "offset", "limit")
+		return filePathWithOpts(args, "path", "offset", "limit")
 
 	case "Edit":
-		return filePathWithBoolOpt(args, "file_path", "replace_all")
+		return filePathWithBoolOpt(args, "path", "replace_all")
 
 	case "Write":
-		return strVal(args, "file_path")
+		return strVal(args, "path")
 
 	case "Glob":
 		return patternWithPath(args, "pattern", "path")
@@ -43,6 +57,28 @@ func formatToolArgs(name string, args map[string]any) string {
 	}
 }
 
+func bashArgs(args map[string]any) string {
+	command := strVal(args, "command")
+	if command == "" {
+		return genericArgs(args)
+	}
+
+	timeout := defaultBashTimeoutSeconds
+	if raw, ok := args["timeout"]; ok {
+		requested, ok := intVal(raw)
+		if !ok {
+			return genericArgs(args)
+		}
+		resolved, err := resolveBashTimeoutSeconds(requested)
+		if err != nil {
+			return genericArgs(args)
+		}
+		timeout = resolved
+	}
+
+	return fmt.Sprintf("%s  timeout=%ds", command, timeout)
+}
+
 // strVal returns the string value for a single key, or "" if missing.
 func strVal(args map[string]any, key string) string {
 	v, ok := args[key]
@@ -52,7 +88,23 @@ func strVal(args map[string]any, key string) string {
 	return fmt.Sprintf("%v", v)
 }
 
-// filePathWithOpts shows the primary file_path followed by optional numeric keys.
+func intVal(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		if math.Trunc(n) != n {
+			return 0, false
+		}
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+// filePathWithOpts shows the primary path followed by optional numeric keys.
 // e.g. "/foo/bar.go  offset:10  limit:20"
 func filePathWithOpts(args map[string]any, primary string, opts ...string) string {
 	path := strVal(args, primary)
@@ -69,7 +121,7 @@ func filePathWithOpts(args map[string]any, primary string, opts ...string) strin
 	return strings.Join(parts, "  ")
 }
 
-// filePathWithBoolOpt shows the primary file_path followed by a boolean key
+// filePathWithBoolOpt shows the primary path followed by a boolean key
 // only when its value is true.
 func filePathWithBoolOpt(args map[string]any, primary string, boolKey string) string {
 	path := strVal(args, primary)

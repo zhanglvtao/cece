@@ -32,6 +32,12 @@ func TestStylesExist(t *testing.T) {
 		t.Fatalf("Chat.Divider.Render(\"─\") = %q, want to contain \"─\"", got)
 	}
 
+	// Chat.Logo style should render
+	got = s.Chat.Logo.Render("Cece")
+	if !strings.Contains(got, "Cece") {
+		t.Fatalf("Chat.Logo.Render(\"Cece\") = %q, want to contain \"Cece\"", got)
+	}
+
 	// Input.Prompt style should render
 	got = s.Input.Prompt.Render("> ")
 	if !strings.Contains(got, ">") {
@@ -39,7 +45,7 @@ func TestStylesExist(t *testing.T) {
 	}
 }
 
-func TestDetailStyleIsItalicAndFaint(t *testing.T) {
+func TestDetailStyleIsFaint(t *testing.T) {
 	s := DefaultStyles()
 	if !s.Detail.GetItalic() {
 		t.Fatal("Detail style should be italic")

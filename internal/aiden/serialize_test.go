@@ -1,4 +1,4 @@
-package openai
+package aiden
 
 import (
 	"encoding/json"
@@ -20,6 +20,27 @@ func TestSerializePlainTextUserMessage(t *testing.T) {
 	}
 	if result[0].Content != "hello" {
 		t.Errorf("expected content 'hello', got %q", result[0].Content)
+	}
+}
+
+func TestSerializePlainTextAssistantMessageUsesStringContent(t *testing.T) {
+	msgs := []chat.Message{
+		{Role: chat.AssistantRole, Content: "hi"},
+	}
+
+	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	if result[0].Role != "assistant" {
+		t.Fatalf("expected role 'assistant', got %q", result[0].Role)
+	}
+	content, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected assistant content as string, got %T", result[0].Content)
+	}
+	if content != "hi" {
+		t.Fatalf("unexpected assistant content: %q", content)
 	}
 }
 
@@ -72,8 +93,12 @@ func TestSerializeAssistantWithTextAndToolUse(t *testing.T) {
 	if got.Role != "assistant" {
 		t.Errorf("expected role 'assistant', got %q", got.Role)
 	}
-	if got.Content != "I'll run that command." {
-		t.Errorf("expected content, got %q", got.Content)
+	content, ok := got.Content.(string)
+	if !ok {
+		t.Fatalf("expected assistant content as string, got %T", got.Content)
+	}
+	if content != "I'll run that command." {
+		t.Fatalf("unexpected assistant content: %q", content)
 	}
 	if len(got.ToolCalls) != 1 {
 		t.Fatalf("expected 1 tool call, got %d", len(got.ToolCalls))
@@ -175,28 +200,134 @@ func TestSerializeDropsThinkingBlocks(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
-	if result[0].Content != "Here is the answer." {
-		t.Errorf("expected only text content (thinking dropped), got %q", result[0].Content)
+	content, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected assistant content as string, got %T", result[0].Content)
+	}
+	if content != "Here is the answer." {
+		t.Fatalf("unexpected assistant content: %q", content)
+	}
+}
+
+func TestSerializeAssistantThinkingAndLegacyContentKeepsVisibleText(t *testing.T) {
+	msgs := []chat.Message{
+		{
+			Role:    chat.AssistantRole,
+			Content: "Visible answer.",
+			ContentBlocks: []chat.ApiContentBlock{
+				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+			},
+		},
+	}
+
+	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	content, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected assistant content as string, got %T", result[0].Content)
+	}
+	if content != "Visible answer." {
+		t.Fatalf("unexpected assistant content: %q", content)
+	}
+}
+
+func TestSerializeAssistantThinkingOnlyUsesEmptyContent(t *testing.T) {
+	msgs := []chat.Message{
+		{
+			Role: chat.AssistantRole,
+			ContentBlocks: []chat.ApiContentBlock{
+				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+			},
+		},
+	}
+
+	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	content, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected assistant content as string, got %T", result[0].Content)
+	}
+	if content != "" {
+		t.Fatalf("unexpected assistant content: %q", content)
+	}
+}
+
+func TestSerializeAssistantThinkingAndToolUseKeepsEmptyContent(t *testing.T) {
+	msgs := []chat.Message{
+		{
+			Role: chat.AssistantRole,
+			ContentBlocks: []chat.ApiContentBlock{
+				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+				{
+					Type: chat.ApiToolUseContentType,
+					ToolUse: &chat.ApiToolUseBlock{
+						ID:    "call_1",
+						Name:  "Bash",
+						Input: json.RawMessage(`{"command":"ls"}`),
+					},
+				},
+			},
+		},
+	}
+
+	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	content, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected assistant content as string, got %T", result[0].Content)
+	}
+	if content != "" {
+		t.Fatalf("unexpected assistant content: %q", content)
+	}
+	if len(result[0].ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(result[0].ToolCalls))
+	}
+}
+
+func TestSerializeAssistantToolOnlyKeepsEmptyContent(t *testing.T) {
+	msgs := []chat.Message{
+		{
+			Role: chat.AssistantRole,
+			ContentBlocks: []chat.ApiContentBlock{
+				{
+					Type: chat.ApiToolUseContentType,
+					ToolUse: &chat.ApiToolUseBlock{
+						ID:    "call_1",
+						Name:  "Bash",
+						Input: json.RawMessage(`{"command":"ls"}`),
+					},
+				},
+			},
+		},
+	}
+
+	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	content, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected assistant content as string, got %T", result[0].Content)
+	}
+	if content != "" {
+		t.Fatalf("unexpected assistant content: %q", content)
+	}
+	if len(result[0].ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(result[0].ToolCalls))
 	}
 }
 
 func TestSerializeJSONRoundTrip(t *testing.T) {
 	msgs := []chat.Message{
-		{Role: chat.UserRole, Content: "list files"},
-		{
-			Role: chat.AssistantRole,
-			ContentBlocks: []chat.ApiContentBlock{
-				{Type: chat.ApiTextContentType, Text: "Running ls"},
-				{
-					Type: chat.ApiToolUseContentType,
-					ToolUse: &chat.ApiToolUseBlock{
-						ID:    "call_abc",
-						Name:  "Bash",
-						Input: json.RawMessage(`{"command":"ls -la"}`),
-					},
-				},
-			},
-		},
+		{Role: chat.UserRole, Content: "hi"},
+		{Role: chat.AssistantRole, Content: "hi"},
+		{Role: chat.UserRole, Content: "了解下项目结构"},
 	}
 
 	result := SerializeMessages(msgs, chat.SystemPrompt{})
@@ -209,17 +340,17 @@ func TestSerializeJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(parsed) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(parsed))
-	}
-	if parsed[0]["role"] != "user" {
-		t.Errorf("first message role: %v", parsed[0]["role"])
+	if len(parsed) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(parsed))
 	}
 	if parsed[1]["role"] != "assistant" {
 		t.Errorf("second message role: %v", parsed[1]["role"])
 	}
-	toolCalls := parsed[1]["tool_calls"].([]any)
-	if len(toolCalls) != 1 {
-		t.Fatalf("expected 1 tool_call, got %d", len(toolCalls))
+	content, ok := parsed[1]["content"].(string)
+	if !ok {
+		t.Fatalf("expected assistant content string, got %T", parsed[1]["content"])
+	}
+	if content != "hi" {
+		t.Fatalf("expected assistant text 'hi', got %v", content)
 	}
 }

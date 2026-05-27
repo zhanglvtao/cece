@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"image/color"
+	"strings"
+
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -185,19 +189,59 @@ func (i *Input) AddHistory(msg string) {
 }
 
 // Draw renders the floating input box onto the screen.
-func (i *Input) Draw(scr uv.Screen, area uv.Rectangle) {
-	// Choose border style based on focus state
+// busy controls the border style: thick line when busy, thin line when idle.
+// borderColor overrides the border foreground when non-nil (used for breathing animation).
+func (i *Input) Draw(scr uv.Screen, area uv.Rectangle, busy bool, borderColor color.Color) {
 	var boxStyle lipgloss.Style
-	if i.ta.Focused() {
-		boxStyle = i.styles.Input.BoxFocused
+	if busy {
+		boxStyle = i.styles.Input.BoxBusy
 	} else {
-		boxStyle = i.styles.Input.BoxBlurred
+		boxStyle = i.styles.Input.BoxIdle
+	}
+	if borderColor != nil {
+		boxStyle = boxStyle.BorderForeground(borderColor)
 	}
 
-	// Render the textarea content inside the box
 	inputView := i.ta.View()
 	boxed := boxStyle.Width(area.Dx()).Height(area.Dy()).Render(inputView)
 	uv.NewStyledString(boxed).Draw(scr, area)
+	i.drawSlashHighlight(scr, area, boxStyle)
+}
+
+func (i *Input) drawSlashHighlight(scr uv.Screen, area uv.Rectangle, boxStyle lipgloss.Style) {
+	highlighted := slashHighlightValue(i.styles, i.ta.Value())
+	if highlighted == i.ta.Value() {
+		return
+	}
+	line, ok := firstVisibleLine(highlighted)
+	if !ok {
+		return
+	}
+	textWidth := max(0, area.Dx()-boxStyle.GetHorizontalFrameSize())
+	line = ansi.Truncate(line, textWidth, "")
+	lineArea := uv.Rect(
+		area.Min.X+boxStyle.GetBorderLeftSize()+boxStyle.GetPaddingLeft(),
+		area.Min.Y+boxStyle.GetBorderTopSize()+boxStyle.GetPaddingTop(),
+		textWidth,
+		1,
+	)
+	uv.NewStyledString(line).Draw(scr, lineArea)
+}
+
+func firstVisibleLine(v string) (string, bool) {
+	if v == "" {
+		return "", false
+	}
+	for _, line := range strings.Split(v, "\n") {
+		if strings.TrimSpace(ansi.Strip(line)) != "" {
+			return line, true
+		}
+	}
+	return "", false
+}
+
+func (i *Input) SlashSpec() slashSpec {
+	return parseSlashSpec(i.ta.Value())
 }
 
 // isAtStart returns true if the cursor is at position (0, 0).

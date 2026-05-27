@@ -12,8 +12,10 @@ import (
 
 func TestStreamSendsSystemPrompt(t *testing.T) {
 	var gotPayload map[string]json.RawMessage
+	var gotUserAgent string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUserAgent = r.Header.Get("User-Agent")
 		var raw map[string]json.RawMessage
 		json.NewDecoder(r.Body).Decode(&raw)
 		gotPayload = raw
@@ -36,6 +38,9 @@ func TestStreamSendsSystemPrompt(t *testing.T) {
 	_, err := client.Stream(context.Background(), nil, system, nil, 1024)
 	if err != nil {
 		t.Fatalf("Stream() error: %v", err)
+	}
+	if gotUserAgent != ceceUserAgent {
+		t.Fatalf("User-Agent = %q, want %q", gotUserAgent, ceceUserAgent)
 	}
 
 	// Verify system field was sent
@@ -79,8 +84,10 @@ func TestStreamSendsSystemPrompt(t *testing.T) {
 
 func TestStreamOmitsSystemWhenEmpty(t *testing.T) {
 	var gotPayload map[string]json.RawMessage
+	var gotUserAgent string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUserAgent = r.Header.Get("User-Agent")
 		var raw map[string]json.RawMessage
 		json.NewDecoder(r.Body).Decode(&raw)
 		gotPayload = raw
@@ -96,6 +103,9 @@ func TestStreamOmitsSystemWhenEmpty(t *testing.T) {
 	_, err := client.Stream(context.Background(), nil, chat.SystemPrompt{}, nil, 1024)
 	if err != nil {
 		t.Fatalf("Stream() error: %v", err)
+	}
+	if gotUserAgent != ceceUserAgent {
+		t.Fatalf("User-Agent = %q, want %q", gotUserAgent, ceceUserAgent)
 	}
 
 	// Empty system should produce no "system" key (omitempty)

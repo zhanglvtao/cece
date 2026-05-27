@@ -1,4 +1,4 @@
-package openai
+package aiden
 
 import (
 	"bufio"
@@ -23,16 +23,16 @@ type Choice struct {
 }
 
 type Delta struct {
-	Role             string           `json:"role"`
-	Content          string           `json:"content"`
-	ReasoningContent string           `json:"reasoning_content"`
-	ToolCalls        []ToolCallDelta  `json:"tool_calls"`
+	Role             string          `json:"role"`
+	Content          string          `json:"content"`
+	ReasoningContent string          `json:"reasoning_content"`
+	ToolCalls        []ToolCallDelta `json:"tool_calls"`
 }
 
 type ToolCallDelta struct {
-	Index    int            `json:"index"`
-	ID       string         `json:"id"`
-	Function FunctionDelta  `json:"function"`
+	Index   int           `json:"index"`
+	ID      string        `json:"id"`
+	Function FunctionDelta `json:"function"`
 }
 
 type FunctionDelta struct {
@@ -47,14 +47,13 @@ type Usage struct {
 }
 
 type parserState struct {
-	messageStarted     bool
-	thinkingOpen       bool
-	thinkingIndex      int
-	activeToolIndices  map[int]bool
-	textBlockStarted   bool
+	messageStarted    bool
+	thinkingOpen      bool
+	thinkingIndex     int
+	activeToolIndices map[int]bool
+	textBlockStarted  bool
 }
 
-// DecodeStreamEvent reads an OpenAI SSE stream and emits chat.ApiStreamEvent values.
 func DecodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 	out := make(chan chat.ApiStreamEvent)
 
@@ -69,7 +68,7 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 
 		for scanner.Scan() {
 			line := scanner.Text()
-			logger.Debug("openai sse raw line", "line", line)
+			logger.Debug("aiden sse raw line", "line", line)
 
 			if line == "" {
 				continue
@@ -108,7 +107,6 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 	choice := chunk.Choices[0]
 	delta := choice.Delta
 
-	// Synthesize message_start on first meaningful content
 	if !state.messageStarted {
 		state.messageStarted = true
 		out <- chat.ApiStreamEvent{
@@ -117,7 +115,6 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 		}
 	}
 
-	// Reasoning/thinking content
 	if delta.ReasoningContent != "" {
 		if !state.thinkingOpen {
 			state.thinkingOpen = true
@@ -136,7 +133,6 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 		}
 	}
 
-	// Transition from thinking to text: close thinking block
 	if state.thinkingOpen && delta.Content != "" {
 		out <- chat.ApiStreamEvent{
 			EventType:  "content_block_stop",
@@ -146,7 +142,6 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 		state.thinkingOpen = false
 	}
 
-	// Regular text content
 	if delta.Content != "" {
 		if !state.textBlockStarted {
 			state.textBlockStarted = true
@@ -166,15 +161,12 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 		}
 	}
 
-	// Tool calls
 	for _, tc := range delta.ToolCalls {
 		if state.activeToolIndices == nil {
 			state.activeToolIndices = make(map[int]bool)
 		}
 
-		// First appearance: tool_use start (has id + name)
 		if tc.ID != "" && tc.Function.Name != "" {
-			// Close any previously opened tool calls with smaller indices
 			for idx := range state.activeToolIndices {
 				if idx < tc.Index {
 					out <- chat.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
@@ -190,7 +182,6 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 			}
 		}
 
-		// Subsequent: input_json_delta
 		if tc.Function.Arguments != "" {
 			out <- chat.ApiStreamEvent{
 				EventType:     "content_block_delta",
@@ -201,9 +192,7 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 		}
 	}
 
-	// Finish reason: close all active blocks, emit message_delta
 	if choice.FinishReason != "" {
-		// Close thinking block if still open
 		if state.thinkingOpen {
 			out <- chat.ApiStreamEvent{
 				EventType:  "content_block_stop",
@@ -213,15 +202,15 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 			state.thinkingOpen = false
 		}
 
-		// Close text block if open
-		if state.textBlockStarted {
-			// We need to figure out the text block index
-			// This is handled by the runtime, just emit the stop
-		}
-
-		// Close all active tool call blocks
 		for idx := range state.activeToolIndices {
 			out <- chat.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+		}
+
+		if chunk.Usage.PromptTokens > 0 {
+			out <- chat.ApiStreamEvent{
+				EventType:   "message_start",
+				InputTokens: chunk.Usage.PromptTokens,
+			}
 		}
 
 		out <- chat.ApiStreamEvent{

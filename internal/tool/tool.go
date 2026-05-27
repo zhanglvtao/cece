@@ -25,6 +25,27 @@ type Emitter interface {
 	Emit(text string)
 }
 
+type Effect string
+
+const (
+	EffectRead  Effect = "read"
+	EffectWrite Effect = "write"
+	EffectExec  Effect = "exec"
+	EffectMode  Effect = "mode"
+)
+
+// Effectful is an optional interface for tools to declare their side-effect class.
+type Effectful interface {
+	Effect() Effect
+}
+
+func EffectOf(t Tool) Effect {
+	if e, ok := t.(Effectful); ok {
+		return e.Effect()
+	}
+	return EffectExec
+}
+
 // Tool is the core interface for all tools.
 type Tool interface {
 	Info() Definition

@@ -44,6 +44,11 @@ func FormatSessionContext(ctx SessionContext) string {
 		parts = append(parts, FormatToolDescriptionsTextToXml(ctx.ToolDescriptions))
 	}
 
+	// Skill listing section
+	if ctx.SkillListing != "" {
+		parts = append(parts, ctx.SkillListing)
+	}
+
 	return strings.Join(parts, "\n\n")
 }
 

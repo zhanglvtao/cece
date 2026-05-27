@@ -82,12 +82,13 @@ func TestLoadReturnsErrorWhenNoKeyAnywhere(t *testing.T) {
 	}
 }
 
-func TestEnvOverridesFile(t *testing.T) {
+func TestLoadAppendsEnvProviderAfterFileProviders(t *testing.T) {
 	dir := t.TempDir()
 	settings := `{
 		"provider": {
 			"providers": [
-				{ "name": "kimi", "apiKey": "file-key", "baseURL": "https://api.kimi.com" }
+				{ "name": "aiden", "protocol": "aiden", "baseURL": "https://aiden.example.com" },
+				{ "name": "codebase", "protocol": "codebase", "baseURL": "https://codebase.example.com" }
 			]
 		}
 	}`
@@ -100,14 +101,29 @@ func TestEnvOverridesFile(t *testing.T) {
 	}
 
 	t.Setenv("ANTHROPIC_API_KEY", "env-override-key")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://env.example.com")
 
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	// env provider is prepended as providers[0]
-	if cfg.Providers[0].APIKey != "env-override-key" {
-		t.Fatalf("Providers[0].APIKey = %q, want %q from env override", cfg.Providers[0].APIKey, "env-override-key")
+	if len(cfg.Providers) != 3 {
+		t.Fatalf("len(Providers) = %d, want 3", len(cfg.Providers))
+	}
+	if cfg.Providers[0].Name != "aiden" {
+		t.Fatalf("Providers[0].Name = %q, want %q", cfg.Providers[0].Name, "aiden")
+	}
+	if cfg.Providers[1].Name != "codebase" {
+		t.Fatalf("Providers[1].Name = %q, want %q", cfg.Providers[1].Name, "codebase")
+	}
+	if cfg.Providers[2].Name != "env" {
+		t.Fatalf("Providers[2].Name = %q, want %q", cfg.Providers[2].Name, "env")
+	}
+	if cfg.Providers[2].APIKey != "env-override-key" {
+		t.Fatalf("Providers[2].APIKey = %q, want %q", cfg.Providers[2].APIKey, "env-override-key")
+	}
+	if cfg.Providers[2].BaseURL != "https://env.example.com" {
+		t.Fatalf("Providers[2].BaseURL = %q, want %q", cfg.Providers[2].BaseURL, "https://env.example.com")
 	}
 }
 
@@ -119,7 +135,7 @@ func TestLoadParsesStaticModels(t *testing.T) {
 			"providers": [
 				{
 					"name": "aime",
-					"protocol": "openai",
+					"protocol": "aiden",
 					"baseURL": "https://aime.example.com",
 					"authMode": "bearer",
 					"authHelper": "echo token",
@@ -147,8 +163,8 @@ func TestLoadParsesStaticModels(t *testing.T) {
 		t.Fatalf("len(Providers) = %d, want 1", len(cfg.Providers))
 	}
 	p := cfg.Providers[0]
-	if p.Protocol != "openai" {
-		t.Fatalf("Protocol = %q, want %q", p.Protocol, "openai")
+	if p.Protocol != "aiden" {
+		t.Fatalf("Protocol = %q, want %q", p.Protocol, "aiden")
 	}
 	if len(p.Models) != 2 {
 		t.Fatalf("len(Models) = %d, want 2", len(p.Models))
@@ -161,13 +177,49 @@ func TestLoadParsesStaticModels(t *testing.T) {
 	}
 }
 
-func TestEnvModelOverridesFile(t *testing.T) {
+func TestLoadParsesToolResultConfig(t *testing.T) {
 	dir := t.TempDir()
 	settings := `{
 		"provider": {
-			"model": "kimi-k2.6",
 			"providers": [
-				{ "name": "kimi", "apiKey": "sk-xxx", "baseURL": "https://api.kimi.com" }
+				{ "name": "anthropic", "apiKey": "sk-ant-xxx", "baseURL": "https://api.anthropic.com" }
+			]
+		},
+		"tool_result": {
+			"inline_max_lines": 300,
+			"head_lines": 40,
+			"tail_lines": 20
+		}
+	}`
+	path := filepath.Join(dir, ".cece", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.ToolResult.InlineMaxLines != 300 {
+		t.Fatalf("ToolResult.InlineMaxLines = %d, want 300", cfg.ToolResult.InlineMaxLines)
+	}
+	if cfg.ToolResult.HeadLines != 40 {
+		t.Fatalf("ToolResult.HeadLines = %d, want 40", cfg.ToolResult.HeadLines)
+	}
+	if cfg.ToolResult.TailLines != 20 {
+		t.Fatalf("ToolResult.TailLines = %d, want 20", cfg.ToolResult.TailLines)
+	}
+}
+
+func TestLoadUsesDefaultToolResultConfig(t *testing.T) {
+	dir := t.TempDir()
+	settings := `{
+		"provider": {
+			"providers": [
+				{ "name": "anthropic", "apiKey": "sk-ant-xxx", "baseURL": "https://api.anthropic.com" }
 			]
 		}
 	}`
@@ -178,13 +230,18 @@ func TestEnvModelOverridesFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(settings), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ANTHROPIC_MODEL", "claude-opus-4-7")
 
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if cfg.Model != "claude-opus-4-7" {
-		t.Fatalf("Model = %q, want %q from env override", cfg.Model, "claude-opus-4-7")
+	if cfg.ToolResult.InlineMaxLines != 200 {
+		t.Fatalf("ToolResult.InlineMaxLines = %d, want 200", cfg.ToolResult.InlineMaxLines)
+	}
+	if cfg.ToolResult.HeadLines != 80 {
+		t.Fatalf("ToolResult.HeadLines = %d, want 80", cfg.ToolResult.HeadLines)
+	}
+	if cfg.ToolResult.TailLines != 80 {
+		t.Fatalf("ToolResult.TailLines = %d, want 80", cfg.ToolResult.TailLines)
 	}
 }

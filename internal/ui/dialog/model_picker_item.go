@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"cece/internal/chat"
+	"cece/internal/protocol"
 	"cece/internal/ui/list"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -14,7 +14,7 @@ import (
 
 type ModelPickerItem struct {
 	*list.Versioned
-	chat.ModelInfo
+	protocol.ModelInfo
 	styles  DialogStyles
 	current bool
 	m       fuzzy.Match
@@ -118,7 +118,7 @@ func (i *ModelPickerItem) Render(width int) string {
 	return result
 }
 
-func modelPickerItems(styles DialogStyles, models []chat.ModelInfo, currentModel string) []list.FilterableItem {
+func modelPickerItems(styles DialogStyles, models []protocol.ModelInfo, currentModel string) []list.FilterableItem {
 	items := make([]list.FilterableItem, len(models))
 	for i, m := range models {
 		items[i] = &ModelPickerItem{

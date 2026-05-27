@@ -20,6 +20,8 @@ const (
 
 const contextGaugeCells = 10
 
+var statusSpinnerFrames = []rune{'-', '\\', '|', '/'}
+
 type contextGauge struct {
 	remaining int
 	percent   int
@@ -100,16 +102,29 @@ func formatTokenK(n int) string {
 	return fmt.Sprintf("%dK", (n+999)/1000)
 }
 
+func modeLabel(mode string) string {
+	switch mode {
+	case "plan":
+		return "Plan"
+	case "auto-accept":
+		return "Auto"
+	default:
+		return "Default"
+	}
+}
+
 // StatusBarData holds the dynamic data displayed in the status line.
 type StatusBarData struct {
 	Status        string
 	Model         string
+	Mode          string
 	GitBranch     string
 	WorkDir       string
 	InputTokens   int
 	OutputTokens  int
 	ContextUsed   int
 	ContextWindow int
+	QueuedCount   int
 	Busy          bool
 }
 
@@ -124,10 +139,22 @@ func drawStatusBar(scr uv.Screen, area uv.Rectangle, sty Styles, data StatusBarD
 
 	// Section 1: Status indicator (always visible)
 	sep := sty.StatusBar.Separator.Render(" │ ")
+	var pillStyle lipgloss.Style
 	if data.Busy {
-		b.WriteString(sty.StatusBar.PillActive.Render("● " + data.Status))
+		pillStyle = sty.StatusBar.PillActive
 	} else {
-		b.WriteString(sty.StatusBar.Pill.Render("○ " + data.Status))
+		pillStyle = sty.StatusBar.PillIdle
+	}
+	agentStatus := modeLabel(data.Mode)
+	if data.Status != "" && data.Status != "Ready" {
+		agentStatus += " · " + data.Status
+	}
+	if data.QueuedCount > 0 {
+		b.WriteString(pillStyle.Render(fmt.Sprintf("● %s (%d queued)", agentStatus, data.QueuedCount)))
+	} else if data.Busy {
+		b.WriteString(pillStyle.Render("● " + agentStatus))
+	} else {
+		b.WriteString(pillStyle.Render("○ " + agentStatus))
 	}
 
 	// Section 2: Model name (text only, Info colored)
@@ -136,41 +163,46 @@ func drawStatusBar(scr uv.Screen, area uv.Rectangle, sty Styles, data StatusBarD
 		b.WriteString(sty.StatusBar.Model.Render(data.Model))
 	}
 
-	// Section 3: Project info (git branch + workdir)
-	projectParts := []string{}
-	if data.GitBranch != "" {
-		projectParts = append(projectParts, data.GitBranch)
-	}
-	if data.WorkDir != "" {
-		projectParts = append(projectParts, data.WorkDir)
-	}
-	if len(projectParts) > 0 {
+	// Section 3: Project info (git branch + workdir) with distinct colors
+	if data.GitBranch != "" || data.WorkDir != "" {
 		b.WriteString(" ")
 		b.WriteString(sep)
 		b.WriteString(" ")
-		b.WriteString(sty.StatusBar.Project.Render(strings.Join(projectParts, "  ")))
+		if data.GitBranch != "" {
+			b.WriteString(sty.StatusBar.GitBranch.Render("git(" + data.GitBranch + ")"))
+		}
+		if data.GitBranch != "" && data.WorkDir != "" {
+			b.WriteString(" ")
+		}
+		if data.WorkDir != "" {
+			b.WriteString(sty.StatusBar.WorkDir.Render(data.WorkDir))
+		}
 	}
 
-	// Section 4: Context & token usage
-	contextParts := []string{}
-	if data.ContextWindow > 0 {
-		contextParts = append(contextParts, renderContextGauge(sty, data.ContextUsed, data.ContextWindow))
-	}
-	if data.InputTokens > 0 || data.OutputTokens > 0 {
-		contextParts = append(contextParts, fmt.Sprintf("in:%d out:%d", data.InputTokens, data.OutputTokens))
-	}
-	if len(contextParts) > 0 {
+	// Section 4: Context & token usage with distinct in/out colors
+	if data.ContextWindow > 0 || data.InputTokens > 0 || data.OutputTokens > 0 {
 		b.WriteString(" ")
 		b.WriteString(sep)
 		b.WriteString(" ")
-		b.WriteString(sty.StatusBar.ContextInfo.Render(strings.Join(contextParts, "  ")))
+		if data.ContextWindow > 0 {
+			b.WriteString(renderContextGauge(sty, data.ContextUsed, data.ContextWindow))
+		}
+		if data.InputTokens > 0 || data.OutputTokens > 0 {
+			if data.ContextWindow > 0 {
+				b.WriteString(" ")
+			}
+			b.WriteString(sty.StatusBar.TokenIn.Render(fmt.Sprintf("in:%d", data.InputTokens)))
+			b.WriteString(" ")
+			b.WriteString(sty.StatusBar.TokenOut.Render(fmt.Sprintf("out:%d", data.OutputTokens)))
+		}
 	}
 
 	// Right-aligned key hints
-	hints := sty.StatusBar.KeyHint.Render("enter·send  esc·quit  ctrl+o·focus  ctrl+s·sessions")
+	hints := sty.StatusBar.KeyHint.Render("enter·send  shift+tab·mode  esc·quit  ctrl+o·focus  /resume")
 	line := b.String()
 	content := padRight(line, hints, area.Dx())
 
+	// Plain text line - no border, no shadow.
 	uv.NewStyledString(content).Draw(scr, area)
 }
 

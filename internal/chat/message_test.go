@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"testing"
 
 	"cece/internal/prompt"
@@ -48,5 +49,90 @@ func TestAssembleResultToSystemPromptEmpty(t *testing.T) {
 	sp := AssembleResultToSystemPrompt(result)
 	if len(sp.Blocks) != 0 {
 		t.Errorf("empty AssembleResult should produce 0 blocks, got %d", len(sp.Blocks))
+	}
+}
+
+func TestProjectMessagesForRequestStripsAssistantThinkingBlocks(t *testing.T) {
+	messages := []Message{
+		{
+			Role:    AssistantRole,
+			Content: "Visible answer.",
+			ContentBlocks: []ApiContentBlock{
+				{
+					Type: ApiThinkingContentType,
+					Thinking: &ApiThinkingBlock{
+						Text:      "let me think",
+						Signature: "sig_visible",
+					},
+				},
+				{
+					Type: ApiRedactedThinkingContentType,
+					Thinking: &ApiThinkingBlock{
+						Signature: "sig_redacted",
+					},
+				},
+				{Type: ApiTextContentType, Text: "Visible answer."},
+				{
+					Type: ApiToolUseContentType,
+					ToolUse: &ApiToolUseBlock{
+						ID:    "call_1",
+						Name:  "Read",
+						Input: json.RawMessage(`{"file_path":"/tmp/x"}`),
+					},
+				},
+			},
+		},
+	}
+
+	projected := ProjectMessagesForRequest(messages)
+	if len(projected) != 1 {
+		t.Fatalf("projected len = %d, want 1", len(projected))
+	}
+	if projected[0].Content != "Visible answer." {
+		t.Fatalf("projected content = %q, want visible fallback", projected[0].Content)
+	}
+	if len(projected[0].ContentBlocks) != 2 {
+		t.Fatalf("projected content blocks = %d, want 2", len(projected[0].ContentBlocks))
+	}
+	if projected[0].ContentBlocks[0].Type != ApiTextContentType {
+		t.Fatalf("first block type = %q, want %q", projected[0].ContentBlocks[0].Type, ApiTextContentType)
+	}
+	if projected[0].ContentBlocks[1].Type != ApiToolUseContentType {
+		t.Fatalf("second block type = %q, want %q", projected[0].ContentBlocks[1].Type, ApiToolUseContentType)
+	}
+	if got := len(messages[0].ContentBlocks); got != 4 {
+		t.Fatalf("original content blocks mutated to %d, want 4", got)
+	}
+}
+
+func TestProjectMessagesForRequestKeepsUserToolResults(t *testing.T) {
+	messages := []Message{
+		{
+			Role: UserRole,
+			ContentBlocks: []ApiContentBlock{
+				{
+					Type: ApiToolResultContentType,
+					ToolResult: &ApiToolResultBlock{
+						ToolUseID: "call_1",
+						Content:   "file1\nfile2",
+					},
+				},
+			},
+		},
+	}
+
+	projected := ProjectMessagesForRequest(messages)
+	if len(projected) != 1 {
+		t.Fatalf("projected len = %d, want 1", len(projected))
+	}
+	if len(projected[0].ContentBlocks) != 1 {
+		t.Fatalf("projected content blocks = %d, want 1", len(projected[0].ContentBlocks))
+	}
+	tr, ok := projected[0].ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatal("expected tool_result block to be preserved")
+	}
+	if tr.ToolUseID != "call_1" || tr.Content != "file1\nfile2" {
+		t.Fatalf("tool result = %+v, want call_1/file1\\nfile2", tr)
 	}
 }

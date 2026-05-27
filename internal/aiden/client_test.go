@@ -1,4 +1,4 @@
-package openai
+package aiden
 
 import (
 	"context"
@@ -219,6 +219,82 @@ func TestStreamNoRetryOn401WithoutTokenCache(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "401") {
 		t.Errorf("expected error to contain '401', got %v", err)
+	}
+}
+
+func TestStreamStripsThinkingFromPayload(t *testing.T) {
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n")
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "gpt-4o", server.URL)
+	ch, err := client.Stream(context.Background(), []chat.Message{{
+		Role:    chat.AssistantRole,
+		Content: "Visible answer.",
+		ContentBlocks: []chat.ApiContentBlock{
+			{
+				Type: chat.ApiThinkingContentType,
+				Thinking: &chat.ApiThinkingBlock{
+					Text:      "let me think",
+					Signature: "sig_visible",
+				},
+			},
+			{
+				Type: chat.ApiRedactedThinkingContentType,
+				Thinking: &chat.ApiThinkingBlock{
+					Signature: "sig_redacted",
+				},
+			},
+			{Type: chat.ApiTextContentType, Text: "Visible answer."},
+			{
+				Type: chat.ApiToolUseContentType,
+				ToolUse: &chat.ApiToolUseBlock{
+					ID:    "call_1",
+					Name:  "Read",
+					Input: json.RawMessage(`{"file_path":"/tmp/x"}`),
+				},
+			},
+		},
+	}}, chat.SystemPrompt{}, nil, 256)
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for range ch {
+	}
+
+	messages := gotBody["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("messages len = %d, want 1", len(messages))
+	}
+	message := messages[0].(map[string]any)
+	content, ok := message["content"].(string)
+	if !ok {
+		t.Fatalf("content type = %T, want string", message["content"])
+	}
+	if content != "Visible answer." {
+		t.Fatalf("content = %q, want visible text only", content)
+	}
+	toolCalls := message["tool_calls"].([]any)
+	if len(toolCalls) != 1 {
+		t.Fatalf("tool_calls len = %d, want 1", len(toolCalls))
+	}
+	toolCall := toolCalls[0].(map[string]any)
+	if toolCall["type"] != "function" {
+		t.Fatalf("tool_call type = %v, want function", toolCall["type"])
+	}
+	function := toolCall["function"].(map[string]any)
+	if function["name"] != "Read" {
+		t.Fatalf("function name = %v, want Read", function["name"])
+	}
+	if function["arguments"] != `{"file_path":"/tmp/x"}` {
+		t.Fatalf("arguments = %v, want file_path payload", function["arguments"])
 	}
 }
 

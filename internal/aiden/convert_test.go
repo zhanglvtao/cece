@@ -1,4 +1,4 @@
-package openai
+package aiden
 
 import (
 	"encoding/json"

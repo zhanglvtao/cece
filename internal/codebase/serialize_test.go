@@ -191,6 +191,75 @@ func TestSerializeDropsThinkingBlocks(t *testing.T) {
 	}
 }
 
+func TestSerializeAssistantThinkingAndLegacyContentKeepsVisibleText(t *testing.T) {
+	msgs := []chat.Message{
+		{
+			Role:    chat.AssistantRole,
+			Content: "Visible answer.",
+			ContentBlocks: []chat.ApiContentBlock{
+				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+			},
+		},
+	}
+
+	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	if len(result[0].Content) != 1 || result[0].Content[0].Text != "Visible answer." {
+		t.Fatalf("expected visible content fallback, got %+v", result[0].Content)
+	}
+}
+
+func TestSerializeAssistantThinkingOnlyUsesEmptyContent(t *testing.T) {
+	msgs := []chat.Message{
+		{
+			Role: chat.AssistantRole,
+			ContentBlocks: []chat.ApiContentBlock{
+				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+			},
+		},
+	}
+
+	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	if len(result[0].Content) != 1 || result[0].Content[0].Text != "" {
+		t.Fatalf("expected empty content item, got %+v", result[0].Content)
+	}
+}
+
+func TestSerializeAssistantThinkingAndToolUseUsesEmptyContentArray(t *testing.T) {
+	msgs := []chat.Message{
+		{
+			Role: chat.AssistantRole,
+			ContentBlocks: []chat.ApiContentBlock{
+				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+				{
+					Type: chat.ApiToolUseContentType,
+					ToolUse: &chat.ApiToolUseBlock{
+						ID:    "call_1",
+						Name:  "Bash",
+						Input: json.RawMessage(`{"command":"ls"}`),
+					},
+				},
+			},
+		},
+	}
+
+	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	if len(result[0].Content) != 0 {
+		t.Fatalf("expected empty content array, got %+v", result[0].Content)
+	}
+	if len(result[0].ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(result[0].ToolCalls))
+	}
+}
+
 func TestSerializeJSONRoundTrip(t *testing.T) {
 	msgs := []chat.Message{
 		{Role: chat.UserRole, Content: "list files"},

@@ -14,6 +14,16 @@ func formatTokenCount(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
+func compactNameList(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	if len(names) <= 2 {
+		return strings.Join(names, ",")
+	}
+	return strings.Join(names[:2], ",") + fmt.Sprintf("+%d", len(names)-2)
+}
+
 // DetailBlock holds response metadata for one assistant turn.
 type DetailBlock struct {
 	InputTokens         int
@@ -28,29 +38,29 @@ type DetailBlock struct {
 
 // Render produces the detail string for display below the assistant message.
 func (d DetailBlock) Render(width int, sty Styles) string {
-	label := sty.Chat.ResponseLabel.Render("◆ Response")
-
-	var parts []string
-	parts = append(parts, label)
-
-	parts = append(parts, fmt.Sprintf("in:%s out:%s", formatTokenCount(d.InputTokens), formatTokenCount(d.OutputTokens)))
-
-	if d.CacheCreationTokens > 0 || d.CacheReadTokens > 0 {
-		parts = append(parts, fmt.Sprintf("cache:+%s/−%s", formatTokenCount(d.CacheCreationTokens), formatTokenCount(d.CacheReadTokens)))
+	label := sty.Chat.ResponseLabel.Render("▾ res")
+	if !d.Expanded {
+		label = sty.Chat.ResponseLabel.Render("▸ res")
 	}
 
+	parts := []string{label}
+	if d.StopReason != "" {
+		parts = append(parts, d.StopReason)
+	}
+	parts = append(parts, fmt.Sprintf("%s→%s", formatTokenCount(d.InputTokens), formatTokenCount(d.OutputTokens)))
 	if d.Duration > 0 {
 		parts = append(parts, formatDuration(d.Duration))
 	}
-
-	if d.StopReason != "" {
-		parts = append(parts, fmt.Sprintf("stop:%s", d.StopReason))
+	if d.CacheCreationTokens > 0 || d.CacheReadTokens > 0 {
+		parts = append(parts, fmt.Sprintf("+%s/-%s", formatTokenCount(d.CacheCreationTokens), formatTokenCount(d.CacheReadTokens)))
+	}
+	if preview := compactNameList(d.ToolCalls); preview != "" {
+		parts = append(parts, preview)
 	}
 
-	if len(d.ToolCalls) > 0 {
-		parts = append(parts, fmt.Sprintf("calls:%s", strings.Join(d.ToolCalls, "·")))
+	lines := []string{"  " + strings.Join(parts, " · ")}
+	if d.Expanded && len(d.ToolCalls) > 2 {
+		lines = append(lines, "    "+strings.Join(d.ToolCalls, ", "))
 	}
-
-	line := "  " + strings.Join(parts, "  ")
-	return sty.Detail.Render(line)
+	return sty.Detail.Render(strings.Join(lines, "\n"))
 }

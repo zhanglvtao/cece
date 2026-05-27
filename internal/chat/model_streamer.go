@@ -1,0 +1,228 @@
+package chat
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"time"
+
+	"cece/internal/tool"
+)
+
+// modelResponse holds the result of a single model stream invocation.
+type modelResponse struct {
+	stopReason     string
+	inputTokens    int
+	outputTokens   int
+	toolCalls      []ApiToolUseBlock // non-empty when stopReason == "tool_use"
+	textContent    string            // assistant text reply
+	thinkingBlocks []ApiContentBlock // thinking + redacted_thinking blocks
+}
+
+// toolCallState tracks incremental assembly of a tool_use block across SSE events.
+type toolCallState struct {
+	id    string
+	name  string
+	input strings.Builder
+}
+
+// ModelStreamRequest describes one streaming model call within an agent turn.
+type ModelStreamRequest struct {
+	Messages    []Message
+	System      SystemPrompt
+	Reason      string
+	MaxTokens   int
+	ToolResults []string
+}
+
+// ModelStreamer converts provider stream chunks into chat events and a modelResponse.
+type ModelStreamer struct {
+	client        ModelClient
+	registry      *tool.Registry
+	onInputTokens func(int)
+}
+
+func NewModelStreamer(client ModelClient, registry *tool.Registry, onInputTokens func(int)) *ModelStreamer {
+	return &ModelStreamer{client: client, registry: registry, onInputTokens: onInputTokens}
+}
+
+// Stream executes one streaming model call, emits UI events to ch,
+// and returns the parsed response for the agent loop.
+func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch chan<- Event) (modelResponse, error) {
+	var tools []tool.Definition
+	if s.registry != nil {
+		tools = s.registry.Definitions()
+	}
+
+	estimated := estimateRequestTokens(req.System, req.Messages, tools)
+	ch <- UIModelRequestStarted{
+		Reason:               req.Reason,
+		ToolResults:          req.ToolResults,
+		EstimatedInputTokens: estimated,
+	}
+
+	chunks, err := s.client.Stream(ctx, req.Messages, req.System, tools, req.MaxTokens)
+	if err != nil {
+		return modelResponse{}, err
+	}
+
+	start := time.Now()
+
+	var resp modelResponse
+	var textBuf strings.Builder
+	var thinkingBuf strings.Builder
+	var thinkingIndex int = -1         // index of the current thinking block, -1 = none
+	var redactedThinkingIndex int = -1 // index of the current redacted_thinking block, -1 = none
+	var toolInputStates map[int]*toolCallState
+	assistantStarted := false
+
+	for chunk := range chunks {
+		if chunk.Err != nil {
+			return modelResponse{}, chunk.Err
+		}
+
+		if chunk.EventType != "" && !chunk.Done {
+			ch <- UIStreamEventDetail{
+				EventType: chunk.EventType,
+				Detail:    chunk.Detail,
+				Text:      truncate(chunk.Delta, 60),
+			}
+		}
+
+		if chunk.EventType == "message_start" {
+			resp.inputTokens = chunk.InputTokens
+			if s.onInputTokens != nil {
+				s.onInputTokens(resp.inputTokens)
+			}
+			var toolNames []string
+			for _, def := range tools {
+				toolNames = append(toolNames, def.Name)
+			}
+			ch <- UIStreamStarted{
+				InputTokens:         resp.inputTokens,
+				Tools:               toolNames,
+				CacheCreationTokens: chunk.CacheCreationTokens,
+				CacheReadTokens:     chunk.CacheReadTokens,
+			}
+		}
+		if chunk.EventType == "message_delta" {
+			resp.outputTokens = chunk.OutputTokens
+			resp.stopReason = chunk.StopReason
+		}
+
+		// Tool use assembly
+		if chunk.EventType == "content_block_start" && chunk.ToolCallID != "" {
+			if toolInputStates == nil {
+				toolInputStates = make(map[int]*toolCallState)
+			}
+			toolInputStates[chunk.Index] = &toolCallState{
+				id:   chunk.ToolCallID,
+				name: chunk.ToolCallName,
+			}
+			ch <- UIToolCallStarted{
+				ID:    chunk.ToolCallID,
+				Name:  chunk.ToolCallName,
+				Index: chunk.Index,
+			}
+		}
+		if chunk.Detail == "input_json_delta" && chunk.ToolCallInput != "" {
+			if ts, ok := toolInputStates[chunk.Index]; ok {
+				ts.input.WriteString(chunk.ToolCallInput)
+				ch <- UIToolCallDelta{
+					ID:    ts.id,
+					Index: chunk.Index,
+					Input: chunk.ToolCallInput,
+				}
+			}
+		}
+		if chunk.EventType == "content_block_stop" {
+			if ts, ok := toolInputStates[chunk.Index]; ok {
+				delete(toolInputStates, chunk.Index)
+				raw := json.RawMessage(ts.input.String())
+				resp.toolCalls = append(resp.toolCalls, ApiToolUseBlock{
+					ID:    ts.id,
+					Name:  ts.name,
+					Input: raw,
+				})
+				ch <- UIToolCallCompleted{
+					ID:    ts.id,
+					Name:  ts.name,
+					Input: raw,
+					Index: chunk.Index,
+				}
+			}
+		}
+
+		// Thinking block assembly
+		if chunk.EventType == "content_block_start" && chunk.IsThinking {
+			thinkingIndex = chunk.Index
+			thinkingBuf.Reset()
+			ch <- UIThinkingStarted{Index: chunk.Index}
+		}
+		if chunk.EventType == "content_block_start" && chunk.IsRedactedThinking {
+			redactedThinkingIndex = chunk.Index
+		}
+		if chunk.Detail == "thinking_delta" && chunk.ThinkingDelta != "" {
+			thinkingBuf.WriteString(chunk.ThinkingDelta)
+			ch <- UIThinkingDelta{Text: chunk.ThinkingDelta}
+		}
+		if chunk.EventType == "content_block_stop" && thinkingIndex >= 0 && chunk.Index == thinkingIndex {
+			fullThinking := thinkingBuf.String()
+			sig := chunk.ThinkingSignature
+			thinkingIndex = -1
+			thinkingBuf.Reset()
+			resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
+				Type: ApiThinkingContentType,
+				Thinking: &ApiThinkingBlock{
+					Text:      fullThinking,
+					Signature: sig,
+				},
+			})
+			ch <- UIThinkingCompleted{Text: fullThinking, Signature: sig}
+		}
+		if chunk.EventType == "content_block_stop" && redactedThinkingIndex >= 0 && chunk.Index == redactedThinkingIndex {
+			resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
+				Type: ApiRedactedThinkingContentType,
+				Thinking: &ApiThinkingBlock{
+					Signature: chunk.ThinkingSignature,
+				},
+			})
+			redactedThinkingIndex = -1
+		}
+
+		// Text delta (excludes thinking_delta which is routed above)
+		if chunk.Delta != "" && chunk.Detail != "thinking_delta" {
+			if !assistantStarted {
+				ch <- UIAssistantStarted{}
+				assistantStarted = true
+			}
+			textBuf.WriteString(chunk.Delta)
+			ch <- UIAssistantDelta{Text: chunk.Delta}
+		}
+
+		if chunk.Done {
+			resp.textContent = textBuf.String()
+			var callNames []string
+			for _, tc := range resp.toolCalls {
+				callNames = append(callNames, tc.Name)
+			}
+			ch <- UIStreamCompleted{
+				OutputTokens: resp.outputTokens,
+				StopReason:   resp.stopReason,
+				Duration:     time.Since(start),
+				ToolCalls:    callNames,
+			}
+			return resp, nil
+		}
+	}
+
+	return modelResponse{}, errors.New("stream ended without message_stop")
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}

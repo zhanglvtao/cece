@@ -131,6 +131,9 @@ func NewSessions(styles DialogStyles, sessions []SessionInfo, selectedID string)
 // ID implements Dialog.
 func (s *Session) ID() string { return SessionsID }
 
+// DesiredHeight implements Dialog.
+func (s *Session) DesiredHeight() int { return 20 }
+
 // HandleMsg implements Dialog.
 func (s *Session) HandleMsg(msg tea.Msg) Action {
 	switch msg := msg.(type) {
@@ -229,7 +232,7 @@ func (s *Session) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		titleStyle = titleStyle.Foreground(t.RenamingMessage.GetForeground())
 	}
 
-	width := max(0, min(defaultDialogMaxWidth, area.Dx()-viewStyle.GetHorizontalBorderSize()))
+	width := max(0, area.Dx()-viewStyle.GetHorizontalBorderSize())
 	height := max(0, min(defaultDialogHeight, area.Dy()-viewStyle.GetVerticalBorderSize()))
 	innerWidth := width - viewStyle.GetHorizontalFrameSize()
 	heightOffset := titleStyle.GetVerticalFrameSize() + titleContentHeight +
@@ -276,7 +279,7 @@ func (s *Session) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 	view := rc.Render()
 
-	DrawCenterCursor(scr, area, view, cur)
+	DrawInline(scr, area, view, cur)
 	return cur
 }
 
@@ -293,8 +296,9 @@ func (s *Session) confirmDeleteSession() Action {
 	if sessionItem == nil {
 		return nil
 	}
-	s.removeSession(sessionItem.ID())
-	return ActionCmd{func() tea.Msg { return nil }}
+	id := sessionItem.ID()
+	s.removeSession(id)
+	return ActionDeleteSession{ID: id}
 }
 
 func (s *Session) removeSession(id string) {
@@ -317,13 +321,14 @@ func (s *Session) confirmRenameSession() Action {
 	if newTitle == "" {
 		return nil
 	}
+	id := sessionItem.ID()
 	for i, sess := range s.sessions {
-		if sess.ID == sessionItem.ID() {
+		if sess.ID == id {
 			s.sessions[i].Title = newTitle
 			break
 		}
 	}
-	return ActionCmd{func() tea.Msg { return nil }}
+	return ActionRenameSession{ID: id, Title: newTitle}
 }
 
 // ShortHelp implements help.KeyMap.

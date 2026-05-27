@@ -7,25 +7,32 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
-const maxOutputLen = 30000
+const (
+	maxOutputLen              = 30000
+	DefaultBashTimeoutSeconds = 10
+)
 
 type bashParams struct {
 	Command string `json:"command"`
-	Timeout int    `json:"timeout,omitempty"` // seconds, 0 = no timeout
+	Timeout int    `json:"timeout,omitempty"` // seconds, 0 uses the default timeout
 }
 
 type bashTool struct{}
 
 func NewBash() Tool { return bashTool{} }
 
+func (bashTool) Effect() Effect { return EffectExec }
+
 func (bashTool) Info() Definition {
 	return Definition{
 		Name:        "Bash",
-		Description: "Execute a bash command and return its output.",
+		Description: "Execute a bash command and return its output. In plan mode, use only read-only exploration commands such as ls, pwd, git status, git log, git diff, find, grep, cat, head, and tail. Do not run commands that modify state, including mkdir, touch, rm, mv, cp, redirection writes (> or >>), heredocs that write files, git add/commit/push/checkout/reset, package installs, config changes, or generated-file commands.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -35,11 +42,28 @@ func (bashTool) Info() Definition {
 				},
 				"timeout": map[string]any{
 					"type":        "integer",
-					"description": "Optional timeout in seconds (default: 120)",
+					"description": "Optional timeout in seconds. Defaults to 10 when omitted or set to 0.",
+					"default":     10,
+					"minimum":     0,
 				},
 			},
 			"required": []string{"command"},
 		},
+	}
+}
+
+func ResolveBashTimeoutSeconds(timeout int) (int, error) {
+	return resolveBashTimeoutSeconds(timeout)
+}
+
+func resolveBashTimeoutSeconds(timeout int) (int, error) {
+	switch {
+	case timeout < 0:
+		return 0, fmt.Errorf("must be >= 0")
+	case timeout == 0:
+		return DefaultBashTimeoutSeconds, nil
+	default:
+		return timeout, nil
 	}
 }
 
@@ -52,19 +76,23 @@ func (bashTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 		return Result{Content: "missing command", IsError: true}
 	}
 
-	if p.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(p.Timeout)*time.Second)
-		defer cancel()
+	timeoutSeconds, err := resolveBashTimeoutSeconds(p.Timeout)
+	if err != nil {
+		return Result{Content: fmt.Sprintf("invalid timeout: %v", err), IsError: true}
 	}
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", p.Command)
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
 
-	// Capture stderr directly — no streaming needed for stderr.
+	cmd := exec.CommandContext(ctx, "bash", "-c", p.Command)
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
+
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	// stdout: pipe through TeeReader so we stream to emitter AND capture for Result.
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return Result{Content: fmt.Sprintf("stdout pipe: %v", err), IsError: true}
@@ -74,18 +102,24 @@ func (bashTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 		return Result{Content: fmt.Sprintf("start: %v", err), IsError: true}
 	}
 
-	// TeeReader: every read goes to both the buffer (for Result) and the emitter.
+	// When the context is cancelled (timeout / user cancel), kill the entire
+	// process group so that child processes spawned by bash are also terminated.
+	go func() {
+		<-ctx.Done()
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}()
+
 	var stdoutBuf bytes.Buffer
 	var teeReader io.Reader = stdoutPipe
 	if emitter != nil {
 		teeReader = io.TeeReader(stdoutPipe, &lineWriter{emitter: emitter})
 	}
-	// Must drain the pipe fully; otherwise cmd.Wait() can deadlock.
 	io.Copy(&stdoutBuf, teeReader)
 
 	waitErr := cmd.Wait()
 
-	// Build result content: stdout + stderr + error
 	var b strings.Builder
 	if stdoutBuf.Len() > 0 {
 		b.Write(stdoutBuf.Bytes())
@@ -111,7 +145,6 @@ func (bashTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 	return Result{Content: truncateOutput(b.String()), IsError: waitErr != nil}
 }
 
-// lineWriter is an io.Writer that emits complete lines to an Emitter.
 type lineWriter struct {
 	emitter Emitter
 	partial string

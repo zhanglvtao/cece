@@ -73,7 +73,7 @@ func (rc *RenderContext) Render() string {
 			parts = append(parts, make([]string, rc.Gap)...)
 		}
 		helpWidth := rc.Width - dialogStyle.GetHorizontalFrameSize()
-		helpStyle := lipgloss.NewStyle().Faint(true).Width(helpWidth)
+		helpStyle := lipgloss.NewStyle().Width(helpWidth)
 		helpView := ansi.Truncate(helpStyle.Render(rc.Help), helpWidth-1, "")
 		parts = append(parts, helpView)
 	}

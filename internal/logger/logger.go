@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,6 +19,7 @@ var (
 	humanFile *os.File
 	bufWriter *bufio.Writer
 	humanBuf  *bufio.Writer
+	sessionID atomic.Value
 )
 
 // Init initializes the global logger with dual output:
@@ -55,7 +58,8 @@ func Init(path string, debug bool) error {
 	jsonHandler := newUTC8Handler(bufWriter, loc, debug, func() { bufWriter.Flush() })
 	humanHandler := newHumanHandler(humanBuf, loc, debug, func() { humanBuf.Flush() })
 
-	tee := &teeHandler{a: jsonHandler, b: humanHandler}
+	SetSessionID("")
+	tee := &sessionHandler{next: &teeHandler{a: jsonHandler, b: humanHandler}}
 	slog.SetDefault(slog.New(tee))
 
 	return nil
@@ -79,10 +83,47 @@ func Sync() {
 	}
 }
 
-func Debug(msg string, args ...any) { slog.Debug(msg, args...) }
-func Info(msg string, args ...any)  { slog.Info(msg, args...) }
-func Warn(msg string, args ...any)  { slog.Warn(msg, args...) }
-func Error(msg string, args ...any) { slog.Error(msg, args...) }
+func SetSessionID(id string) { sessionID.Store(id) }
+
+func Debug(msg string, args ...any) { log(slog.LevelDebug, msg, args...) }
+func Info(msg string, args ...any)  { log(slog.LevelInfo, msg, args...) }
+func Warn(msg string, args ...any)  { log(slog.LevelWarn, msg, args...) }
+func Error(msg string, args ...any) { log(slog.LevelError, msg, args...) }
+
+func log(level slog.Level, msg string, args ...any) {
+	l := slog.Default()
+	if !l.Enabled(context.Background(), level) {
+		return
+	}
+	var pcs [1]uintptr
+	runtime.Callers(3, pcs[:])
+	r := slog.NewRecord(time.Now(), level, msg, pcs[0])
+	r.Add(args...)
+	_ = l.Handler().Handle(context.Background(), r)
+}
+
+// sessionHandler injects the current session_id into every log record.
+type sessionHandler struct {
+	next slog.Handler
+}
+
+func (h *sessionHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.next.Enabled(ctx, level)
+}
+
+func (h *sessionHandler) Handle(ctx context.Context, r slog.Record) error {
+	id, _ := sessionID.Load().(string)
+	r.AddAttrs(slog.String("session_id", id))
+	return h.next.Handle(ctx, r)
+}
+
+func (h *sessionHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &sessionHandler{next: h.next.WithAttrs(attrs)}
+}
+
+func (h *sessionHandler) WithGroup(name string) slog.Handler {
+	return &sessionHandler{next: h.next.WithGroup(name)}
+}
 
 // teeHandler dispatches each log record to two handlers.
 type teeHandler struct {

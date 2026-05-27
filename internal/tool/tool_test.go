@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ── Bash ──────────────────────────────────────────────────────────────────────
@@ -20,6 +21,23 @@ func TestBashToolInfo(t *testing.T) {
 	if info.InputSchema == nil {
 		t.Fatal("InputSchema is nil")
 	}
+	properties, ok := info.InputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %T, want map[string]any", info.InputSchema["properties"])
+	}
+	timeout, ok := properties["timeout"].(map[string]any)
+	if !ok {
+		t.Fatalf("timeout schema = %T, want map[string]any", properties["timeout"])
+	}
+	if timeout["default"] != 10 {
+		t.Fatalf("timeout default = %v, want 10", timeout["default"])
+	}
+	if timeout["minimum"] != 0 {
+		t.Fatalf("timeout minimum = %v, want 0", timeout["minimum"])
+	}
+	if timeout["description"] != "Optional timeout in seconds. Defaults to 10 when omitted or set to 0." {
+		t.Fatalf("timeout description = %v, want updated description", timeout["description"])
+	}
 }
 
 func TestBashToolRunEcho(t *testing.T) {
@@ -31,6 +49,37 @@ func TestBashToolRunEcho(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "hello") {
 		t.Fatalf("Content = %q, want to contain 'hello'", result.Content)
+	}
+}
+
+func TestResolveBashTimeoutSeconds(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout int
+		want    int
+		wantErr bool
+	}{
+		{name: "zero uses default", timeout: 0, want: 10},
+		{name: "positive uses explicit value", timeout: 5, want: 5},
+		{name: "negative is rejected", timeout: -1, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveBashTimeoutSeconds(tt.timeout)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("resolveBashTimeoutSeconds(%d) error = nil, want error", tt.timeout)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveBashTimeoutSeconds(%d) error = %v", tt.timeout, err)
+			}
+			if got != tt.want {
+				t.Fatalf("resolveBashTimeoutSeconds(%d) = %d, want %d", tt.timeout, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -60,6 +109,71 @@ func TestBashToolRunFails(t *testing.T) {
 	}
 }
 
+func TestBashToolRunRejectsNegativeTimeout(t *testing.T) {
+	var b bashTool
+	input, _ := json.Marshal(bashParams{Command: "echo hello", Timeout: -1})
+	result := b.Run(context.Background(), input, nil)
+	if !result.IsError {
+		t.Fatal("IsError = false, want true for negative timeout")
+	}
+	if !strings.Contains(result.Content, "invalid timeout") {
+		t.Fatalf("Content = %q, want to contain invalid timeout", result.Content)
+	}
+}
+
+func TestBashToolRunTimesOut(t *testing.T) {
+	var b bashTool
+	input, _ := json.Marshal(bashParams{Command: "sleep 2", Timeout: 1})
+	start := time.Now()
+	result := b.Run(context.Background(), input, nil)
+	elapsed := time.Since(start)
+	if !result.IsError {
+		t.Fatal("IsError = false, want true for timeout")
+	}
+	if !strings.Contains(result.Content, "command timed out") {
+		t.Fatalf("Content = %q, want timeout message", result.Content)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("timeout did not take effect: elapsed %v, want < 3s", elapsed)
+	}
+}
+
+func TestBashToolRunTimesOutDefault(t *testing.T) {
+	var b bashTool
+	// Default timeout is 10s; sleep 30 should be killed well before that.
+	input, _ := json.Marshal(bashParams{Command: "sleep 30"})
+	start := time.Now()
+	result := b.Run(context.Background(), input, nil)
+	elapsed := time.Since(start)
+	if !result.IsError {
+		t.Fatal("IsError = false, want true for timeout")
+	}
+	if !strings.Contains(result.Content, "command timed out") {
+		t.Fatalf("Content = %q, want timeout message", result.Content)
+	}
+	if elapsed > 15*time.Second {
+		t.Fatalf("default timeout did not take effect: elapsed %v, want < 15s", elapsed)
+	}
+}
+
+func TestBashToolRunTimesOutChildProcess(t *testing.T) {
+	var b bashTool
+	// bash spawns a child `sleep`; the process group kill should terminate it.
+	input, _ := json.Marshal(bashParams{Command: "sleep 60", Timeout: 1})
+	start := time.Now()
+	result := b.Run(context.Background(), input, nil)
+	elapsed := time.Since(start)
+	if !result.IsError {
+		t.Fatal("IsError = false, want true for timeout")
+	}
+	if !strings.Contains(result.Content, "command timed out") {
+		t.Fatalf("Content = %q, want timeout message", result.Content)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("child process not killed with group: elapsed %v, want < 3s", elapsed)
+	}
+}
+
 func TestBashToolMissingCommand(t *testing.T) {
 	var b bashTool
 	input, _ := json.Marshal(bashParams{})
@@ -85,7 +199,7 @@ func TestReadToolRunFile(t *testing.T) {
 	os.WriteFile(path, []byte("hello\nworld\n"), 0o644)
 
 	var r readTool
-	input, _ := json.Marshal(readParams{FilePath: path})
+	input, _ := json.Marshal(readParams{Path: path})
 	result := r.Run(context.Background(), input, nil)
 	if result.IsError {
 		t.Fatalf("IsError = true, content = %q", result.Content)
@@ -97,7 +211,7 @@ func TestReadToolRunFile(t *testing.T) {
 
 func TestReadToolRunMissingFile(t *testing.T) {
 	var r readTool
-	input, _ := json.Marshal(readParams{FilePath: "/nonexistent/file.txt"})
+	input, _ := json.Marshal(readParams{Path: "/nonexistent/file.txt"})
 	result := r.Run(context.Background(), input, nil)
 	if !result.IsError {
 		t.Fatal("IsError = false, want true for missing file")
@@ -110,7 +224,7 @@ func TestReadToolRunWithEmitter(t *testing.T) {
 	os.WriteFile(path, []byte("content\n"), 0o644)
 
 	var r readTool
-	input, _ := json.Marshal(readParams{FilePath: path})
+	input, _ := json.Marshal(readParams{Path: path})
 	var lines []string
 	emitter := &testEmitter{lines: &lines}
 	result := r.Run(context.Background(), input, emitter)
@@ -140,7 +254,7 @@ func TestWriteToolRun(t *testing.T) {
 	path := filepath.Join(dir, "out.txt")
 
 	var w writeTool
-	input, _ := json.Marshal(writeParams{FilePath: path, Content: "hello"})
+	input, _ := json.Marshal(writeParams{Path: path, Content: "hello"})
 	result := w.Run(context.Background(), input, nil)
 	if result.IsError {
 		t.Fatalf("IsError = true, content = %q", result.Content)
@@ -160,7 +274,7 @@ func TestWriteToolCreatesDirs(t *testing.T) {
 	path := filepath.Join(dir, "a", "b", "out.txt")
 
 	var w writeTool
-	input, _ := json.Marshal(writeParams{FilePath: path, Content: "deep"})
+	input, _ := json.Marshal(writeParams{Path: path, Content: "deep"})
 	result := w.Run(context.Background(), input, nil)
 	if result.IsError {
 		t.Fatalf("IsError = true, content = %q", result.Content)
@@ -169,6 +283,18 @@ func TestWriteToolCreatesDirs(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	if string(data) != "deep" {
 		t.Fatalf("file content = %q, want %q", string(data), "deep")
+	}
+}
+
+func TestPlanModeRemindersUseSystemReminderTags(t *testing.T) {
+	if !strings.Contains(BuildFullPlanReminder("/tmp/.cece/plans"), "<system-reminder>") {
+		t.Fatalf("full reminder = %q, want system-reminder tag", BuildFullPlanReminder("/tmp/.cece/plans"))
+	}
+	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans"), "<system-reminder>") {
+		t.Fatalf("sparse reminder = %q, want system-reminder tag", BuildSparsePlanReminder("/tmp/.cece/plans"))
+	}
+	if !strings.Contains(ExitPlanModeReminder(), "<system-reminder>") {
+		t.Fatalf("exit reminder = %q, want system-reminder tag", ExitPlanModeReminder())
 	}
 }
 
@@ -367,7 +493,7 @@ func TestEditToolReplace(t *testing.T) {
 
 	var e editTool
 	input, _ := json.Marshal(editParams{
-		FilePath:  path,
+		Path:      path,
 		OldString: "world",
 		NewString: "Go",
 	})
@@ -396,7 +522,7 @@ func TestEditToolNotFound(t *testing.T) {
 
 	var e editTool
 	input, _ := json.Marshal(editParams{
-		FilePath:  path,
+		Path:      path,
 		OldString: "nonexistent",
 		NewString: "replacement",
 	})
@@ -413,7 +539,7 @@ func TestEditToolMultipleMatches(t *testing.T) {
 
 	var e editTool
 	input, _ := json.Marshal(editParams{
-		FilePath:  path,
+		Path:      path,
 		OldString: "aaa",
 		NewString: "ccc",
 	})
@@ -430,7 +556,7 @@ func TestEditToolReplaceAll(t *testing.T) {
 
 	var e editTool
 	input, _ := json.Marshal(editParams{
-		FilePath:   path,
+		Path:       path,
 		OldString:  "aaa",
 		NewString:  "ccc",
 		ReplaceAll: true,
@@ -452,7 +578,7 @@ func TestEditToolCreateFile(t *testing.T) {
 
 	var e editTool
 	input, _ := json.Marshal(editParams{
-		FilePath:  path,
+		Path:      path,
 		OldString: "",
 		NewString: "created",
 	})
@@ -474,7 +600,7 @@ func TestEditToolDeleteContent(t *testing.T) {
 
 	var e editTool
 	input, _ := json.Marshal(editParams{
-		FilePath:  path,
+		Path:      path,
 		OldString: "world\n",
 		NewString: "",
 	})
@@ -489,21 +615,259 @@ func TestEditToolDeleteContent(t *testing.T) {
 	}
 }
 
-func TestEditToolMissingFilePath(t *testing.T) {
+func TestRegistryExecuteEditAllowsEmptyReplacementString(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("hello\nworld\ngoodbye\n"), 0o644)
+
+	r := NewRegistry(editTool{})
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: "world\n",
+		NewString: "",
+	})
+	result := r.Execute(context.Background(), "Edit", input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	if string(data) != "hello\ngoodbye\n" {
+		t.Fatalf("file content = %q, want %q", string(data), "hello\ngoodbye\n")
+	}
+}
+
+func TestRegistryExecuteEditAllowsEmptyOldStringForCreate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "new.txt")
+
+	r := NewRegistry(editTool{})
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: "",
+		NewString: "created",
+	})
+	result := r.Execute(context.Background(), "Edit", input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	if string(data) != "created" {
+		t.Fatalf("file content = %q, want %q", string(data), "created")
+	}
+}
+
+func TestEditToolMissingPath(t *testing.T) {
 	var e editTool
 	input, _ := json.Marshal(editParams{OldString: "x", NewString: "y"})
 	result := e.Run(context.Background(), input, nil)
 	if !result.IsError {
-		t.Fatal("IsError = false, want true for missing file_path")
+		t.Fatal("IsError = false, want true for missing path")
 	}
 }
 
 func TestEditToolMissingBothStrings(t *testing.T) {
 	var e editTool
-	input, _ := json.Marshal(editParams{FilePath: "/some/file.txt"})
+	input, _ := json.Marshal(editParams{Path: "/some/file.txt"})
 	result := e.Run(context.Background(), input, nil)
 	if !result.IsError {
 		t.Fatal("IsError = false, want true when both old_string and new_string are empty")
+	}
+}
+
+// ── Fuzzy matching ────────────────────────────────────────────────────────────
+
+func TestEditFuzzyTabToSpace(t *testing.T) {
+	// File has tab, LLM provides spaces in old_string
+	// actualOld extracts the tab version from the file
+	// new_string replaces the whole matched region
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.go")
+	os.WriteFile(path, []byte("\thello world\n\tfoo bar\n"), 0o644)
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: "    hello world\n", // 4 spaces instead of tab
+		NewString: "    goodbye world\n",
+	})
+	result := e.Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	// new_string is written as-is; the unmatched tab line is preserved
+	if string(data) != "    goodbye world\n\tfoo bar\n" {
+		t.Fatalf("file content = %q", string(data))
+	}
+}
+
+func TestEditFuzzyCRLF(t *testing.T) {
+	// File has CRLF, LLM provides LF in old_string
+	// actualOld extracts the CRLF version from the file
+	// new_string is written as-is (LF)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("hello\r\nworld\r\n"), 0o644)
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: "hello\nworld", // LF instead of CRLF
+		NewString: "hello\nGo",
+	})
+	result := e.Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	// new_string is written as-is; trailing CRLF from unmatched portion preserved
+	if string(data) != "hello\nGo\r\n" {
+		t.Fatalf("file content = %q", string(data))
+	}
+}
+
+func TestEditFuzzyQuotes(t *testing.T) {
+	// File has curly quotes, LLM provides straight quotes
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("\u201Chello\u201D\n"), 0o644) // "hello"
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: `"hello"`, // straight quotes
+		NewString: `"goodbye"`,
+	})
+	result := e.Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	// actualOld is the curly-quoted version from file;
+	// new_string replaces it with straight quotes as given
+	if string(data) != "\"goodbye\"\n" {
+		t.Fatalf("file content = %q", string(data))
+	}
+}
+
+func TestEditFuzzyExactMatchPreferred(t *testing.T) {
+	// When exact match exists, it should be used (no normalization needed)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("hello world\n"), 0o644)
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: "hello world",
+		NewString: "hello Go",
+	})
+	result := e.Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	if string(data) != "hello Go\n" {
+		t.Fatalf("file content = %q", string(data))
+	}
+}
+
+func TestEditFuzzyNotFoundWithEnhancedError(t *testing.T) {
+	// When nothing matches, error should include file context
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("line1\nline2\nline3\n"), 0o644)
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: "nonexistent",
+		NewString: "replacement",
+	})
+	result := e.Run(context.Background(), input, nil)
+	if !result.IsError {
+		t.Fatal("IsError = false, want true")
+	}
+	if !strings.Contains(result.Content, "old_string not found") {
+		t.Fatalf("error should mention old_string not found, got: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "line1") {
+		t.Fatalf("error should include file context, got: %q", result.Content)
+	}
+}
+
+func TestEditFuzzyTabUniquenessCheck(t *testing.T) {
+	// Multiple tab matches should be detected for uniqueness
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("\tfoo\nbar\n\tfoo\n"), 0o644)
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: "    foo", // spaces matching tab
+		NewString: "baz",
+	})
+	result := e.Run(context.Background(), input, nil)
+	if !result.IsError {
+		t.Fatal("IsError = false, want true for multiple matches")
+	}
+	if !strings.Contains(result.Content, "multiple times") {
+		t.Fatalf("error should mention multiple times, got: %q", result.Content)
+	}
+}
+
+func TestEditFuzzyReplaceAll(t *testing.T) {
+	// replace_all with tab/space normalization
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("\tfoo\nmiddle\n\tfoo\n"), 0o644)
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:       path,
+		OldString:  "    foo", // spaces matching tab
+		NewString:  "    bar",
+		ReplaceAll: true,
+	})
+	result := e.Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	// actualOld is "\tfoo", new_string replaces it
+	if string(data) != "    bar\nmiddle\n    bar\n" {
+		t.Fatalf("file content = %q", string(data))
+	}
+}
+
+func TestEditFuzzyCRLFReplaceAll(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("foo\r\nbar\r\nfoo\r\n"), 0o644)
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:       path,
+		OldString:  "foo", // LF-only old_string
+		NewString:  "baz",
+		ReplaceAll: true,
+	})
+	result := e.Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	if string(data) != "baz\r\nbar\r\nbaz\r\n" {
+		t.Fatalf("file content = %q, want CRLF preserved", string(data))
 	}
 }
 
@@ -550,4 +914,123 @@ type testEmitter struct {
 
 func (e *testEmitter) Emit(text string) {
 	*e.lines = append(*e.lines, text)
+}
+
+// ── ValidateInput ──────────────────────────────────────────────────────────────
+
+func TestValidateInputEmptyObject(t *testing.T) {
+	var b bashTool
+	result := validateInput(b.Info(), json.RawMessage(`{}`))
+	if result == nil {
+		t.Fatal("expected validation error for empty object")
+	}
+	if !result.IsError {
+		t.Fatal("IsError = false, want true")
+	}
+	if !strings.Contains(result.Content, "command") {
+		t.Fatalf("error should mention missing field 'command', got: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "Bash") {
+		t.Fatalf("error should mention tool name 'Bash', got: %q", result.Content)
+	}
+}
+
+func TestValidateInputMissingOneOfMany(t *testing.T) {
+	var w writeTool
+	result := validateInput(w.Info(), json.RawMessage(`{"path":"/tmp/x"}`))
+	if result == nil {
+		t.Fatal("expected validation error for missing content field")
+	}
+	if !strings.Contains(result.Content, "content") {
+		t.Fatalf("error should mention missing field 'content', got: %q", result.Content)
+	}
+	if strings.Contains(result.Content, "path") {
+		t.Fatalf("error should NOT mention 'path' since it was provided, got: %q", result.Content)
+	}
+}
+
+func TestValidateInputAllPresent(t *testing.T) {
+	var b bashTool
+	result := validateInput(b.Info(), json.RawMessage(`{"command":"echo hi"}`))
+	if result != nil {
+		t.Fatalf("expected nil for valid input, got: %v", result)
+	}
+}
+
+func TestValidateInputAcceptsEmptyStringForPresentRequiredField(t *testing.T) {
+	var b bashTool
+	result := validateInput(b.Info(), json.RawMessage(`{"command":""}`))
+	if result != nil {
+		t.Fatalf("expected nil when required field is present but empty, got: %v", result)
+	}
+}
+
+func TestValidateInputNoRequiredFields(t *testing.T) {
+	schema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	}
+	def := Definition{Name: "NoReq", InputSchema: schema}
+	result := validateInput(def, json.RawMessage(`{}`))
+	if result != nil {
+		t.Fatalf("expected nil for schema with no required fields, got: %v", result)
+	}
+}
+
+func TestValidateInputMalformedJSON(t *testing.T) {
+	var b bashTool
+	result := validateInput(b.Info(), json.RawMessage(`not json`))
+	if result == nil {
+		t.Fatal("expected validation error for malformed JSON")
+	}
+	if !result.IsError {
+		t.Fatal("IsError = false, want true")
+	}
+	if !strings.Contains(result.Content, "Invalid tool input JSON") {
+		t.Fatalf("error should mention invalid JSON, got: %q", result.Content)
+	}
+}
+
+func TestValidateInputErrorMessageFormat(t *testing.T) {
+	var b bashTool
+	result := validateInput(b.Info(), json.RawMessage(`{}`))
+	if result == nil {
+		t.Fatal("expected validation error")
+	}
+	// Should contain: tool name, field name, field type, field description
+	if !strings.Contains(result.Content, "Bash") {
+		t.Fatalf("missing tool name, got: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "command") {
+		t.Fatalf("missing field name, got: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "string") {
+		t.Fatalf("missing field type, got: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "bash command") {
+		t.Fatalf("missing field description, got: %q", result.Content)
+	}
+}
+
+func TestRegistryExecuteValidatesBeforeRun(t *testing.T) {
+	var b bashTool
+	r := NewRegistry(b)
+	result := r.Execute(context.Background(), "Bash", json.RawMessage(`{}`), nil)
+	if !result.IsError {
+		t.Fatal("expected error for empty input")
+	}
+	if !strings.Contains(result.Content, "Missing required parameter") {
+		t.Fatalf("expected validation error, got: %q", result.Content)
+	}
+}
+
+func TestGetRequiredFieldsFromMapAny(t *testing.T) {
+	// When InputSchema is map[string]any, required comes as []any not []string
+	schema := map[string]any{
+		"required": []any{"command", "path"},
+	}
+	fields := getRequiredFields(schema)
+	if len(fields) != 2 || fields[0] != "command" || fields[1] != "path" {
+		t.Fatalf("got %v, want [command path]", fields)
+	}
 }

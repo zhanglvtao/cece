@@ -182,9 +182,9 @@ func TestParseStreamAssemblesToolCallInput(t *testing.T) {
 		"event: content_block_start\n" +
 		"data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01\",\"name\":\"Read\",\"input\":{}}}\n\n" +
 		"event: content_block_delta\n" +
-		"data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"file\"}}\n\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"pa\"}}\n\n" +
 		"event: content_block_delta\n" +
-		"data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"_path\\\":\\\"/tmp/test.go\\\"}\"}}\n\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"th\\\":\\\"/tmp/test.go\\\"}\"}}\n\n" +
 		"event: content_block_stop\n" +
 		"data: {\"type\":\"content_block_stop\",\"index\":1}\n\n" +
 		"event: message_stop\n" +
@@ -210,8 +210,8 @@ func TestParseStreamAssemblesToolCallInput(t *testing.T) {
 	}
 
 	joined := strings.Join(inputParts, "")
-	if joined != `{"file_path":"/tmp/test.go"}` {
-		t.Fatalf("joined input = %q, want %q", joined, `{"file_path":"/tmp/test.go"}`)
+	if joined != `{"path":"/tmp/test.go"}` {
+		t.Fatalf("joined input = %q, want %q", joined, `{"path":"/tmp/test.go"}`)
 	}
 	if !sawContentBlockStop {
 		t.Fatal("expected content_block_stop chunk")
@@ -309,5 +309,64 @@ func TestParseStreamThinkingDeltaDoesNotLeakToText(t *testing.T) {
 	}
 	if len(textDeltas) != 1 || textDeltas[0] != "Hello" {
 		t.Fatalf("textDeltas = %v, want [\"Hello\"]", textDeltas)
+	}
+}
+
+func TestParseStreamContentBlockStopCarriesSignature(t *testing.T) {
+	body := io.NopCloser(strings.NewReader("" +
+		"event: content_block_start\n" +
+		"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\"}}\n\n" +
+		"event: content_block_delta\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"hmm\"}}\n\n" +
+		"event: content_block_stop\n" +
+		"data: {\"type\":\"content_block_stop\",\"index\":0,\"signature\":\"ErUB3d\"}\n\n" +
+		"event: message_stop\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"))
+
+	chunks := decodeStreamEvent(body)
+
+	var gotSig string
+	for chunk := range chunks {
+		if chunk.EventType == "content_block_stop" && chunk.Index == 0 {
+			gotSig = chunk.ThinkingSignature
+		}
+		if chunk.Err != nil {
+			t.Fatalf("unexpected error: %v", chunk.Err)
+		}
+	}
+	if gotSig != "ErUB3d" {
+		t.Fatalf("ThinkingSignature = %q, want %q", gotSig, "ErUB3d")
+	}
+}
+
+func TestParseStreamRedactedThinking(t *testing.T) {
+	body := io.NopCloser(strings.NewReader("" +
+		"event: content_block_start\n" +
+		"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"redacted_thinking\"}}\n\n" +
+		"event: content_block_stop\n" +
+		"data: {\"type\":\"content_block_stop\",\"index\":0,\"signature\":\"REDACTED_SIG\"}\n\n" +
+		"event: message_stop\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"))
+
+	chunks := decodeStreamEvent(body)
+
+	var sawRedactedStart bool
+	var gotSig string
+	for chunk := range chunks {
+		if chunk.EventType == "content_block_start" && chunk.IsRedactedThinking {
+			sawRedactedStart = true
+		}
+		if chunk.EventType == "content_block_stop" && chunk.Index == 0 {
+			gotSig = chunk.ThinkingSignature
+		}
+		if chunk.Err != nil {
+			t.Fatalf("unexpected error: %v", chunk.Err)
+		}
+	}
+	if !sawRedactedStart {
+		t.Fatal("expected redacted_thinking content_block_start with IsRedactedThinking=true")
+	}
+	if gotSig != "REDACTED_SIG" {
+		t.Fatalf("ThinkingSignature = %q, want %q", gotSig, "REDACTED_SIG")
 	}
 }

@@ -9,9 +9,21 @@ import (
 
 type Event interface{ isEvent() }
 
+// UISessionCreated is emitted when a new session is auto-created on first input.
+type UISessionCreated struct {
+	ID    string
+	Title string
+}
+
+func (UISessionCreated) isEvent() {}
+
 type UIUserMessageAdded struct{ Message Message }
 
 func (UIUserMessageAdded) isEvent() {}
+
+type UISystemReminderAdded struct{ Content string }
+
+func (UISystemReminderAdded) isEvent() {}
 
 type UIModelRequestStarted struct {
 	Reason               string   // "user" or "tool_result"
@@ -71,9 +83,9 @@ func (UIStreamCompleted) isEvent() {}
 
 // UITruncationRetry is emitted when the output was truncated and we're retrying with larger max_tokens.
 type UITruncationRetry struct {
-	Attempt      int   // retry attempt number (1-based)
-	PrevMaxTokens int  // previous max_tokens value
-	NewMaxTokens  int  // new max_tokens value
+	Attempt       int // retry attempt number (1-based)
+	PrevMaxTokens int // previous max_tokens value
+	NewMaxTokens  int // new max_tokens value
 }
 
 func (UITruncationRetry) isEvent() {}
@@ -156,7 +168,40 @@ func (UIThinkingDelta) isEvent() {}
 
 // UIThinkingCompleted is emitted when a thinking content block ends.
 type UIThinkingCompleted struct {
-	Text string // full assembled thinking text
+	Text      string // full assembled thinking text
+	Signature string // cryptographic signature for round-trip
 }
 
 func (UIThinkingCompleted) isEvent() {}
+
+// UIPlanApprovalRequested is emitted when ExitPlanMode is called and the plan
+// is ready for user approval. The UI should render the plan content and show
+// an approval dialog.
+type UIPlanApprovalRequested struct {
+	PlanContent string // full markdown content of the plan file
+	PlanFile    string // base name of the plan file (e.g. "add-auth.md")
+}
+
+func (UIPlanApprovalRequested) isEvent() {}
+
+// UIQuestionAsked is emitted when AskUserQuestion tool is called. The UI
+// should render a question dialog, collect user answers, then call
+// Runtime.AnswerQuestion() to continue the agent loop.
+type UIQuestionAsked struct {
+	CallID    string
+	Questions []tool.Question
+}
+
+func (UIQuestionAsked) isEvent() {}
+
+// UIQueuedInputPromoted is emitted when a queued input is injected into
+// the agent loop between tool calls. The UI should promote the next faint
+// queued item to normal styling.
+type UIQueuedInputPromoted struct{}
+
+func (UIQueuedInputPromoted) isEvent() {}
+
+// UITurnCompleted is emitted when a full agent turn finishes.
+type UITurnCompleted struct{}
+
+func (UITurnCompleted) isEvent() {}

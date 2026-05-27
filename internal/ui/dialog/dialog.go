@@ -10,10 +10,9 @@ import (
 )
 
 const (
-	defaultDialogMaxWidth = 70
-	defaultDialogHeight   = 20
-	titleContentHeight    = 1
-	inputContentHeight    = 1
+	defaultDialogHeight = 20
+	titleContentHeight  = 1
+	inputContentHeight  = 1
 )
 
 // CloseKey is the default key binding to close dialogs.
@@ -30,6 +29,7 @@ type Dialog interface {
 	ID() string
 	HandleMsg(msg tea.Msg) Action
 	Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor
+	DesiredHeight() int
 }
 
 // ActionClose signals that the dialog should be closed.
@@ -51,8 +51,35 @@ type ActionSelectModel struct {
 	BaseURL          string
 	AuthMode         string // "apikey" or "bearer"
 	AuthHelper       string // shell command to fetch dynamic token
-	Protocol         string // "anthropic" (default) or "openai"
+	Protocol         string // "anthropic" (default), "aiden", or "codebase"
+	ConfigName       string
 }
+
+// ActionDeleteSession signals that a session should be deleted.
+type ActionDeleteSession struct {
+	ID string
+}
+
+// ActionRenameSession signals that a session should be renamed.
+type ActionRenameSession struct {
+	ID    string
+	Title string
+}
+
+// ActionSaveSessionAndQuit signals that the current session should be kept and the app should quit.
+type ActionSaveSessionAndQuit struct{}
+
+// ActionDiscardSessionAndQuit signals that the current session should be discarded and the app should quit.
+type ActionDiscardSessionAndQuit struct{}
+
+// ActionConsumed signals that the dialog consumed the key event but no
+// high-level action is needed. This prevents the key from falling through
+// to the main model's input handler.
+type ActionConsumed struct{}
+
+// ActionCancelQuestion signals that the user cancelled the question dialog
+// (e.g. via ctrl+c).
+type ActionCancelQuestion struct{}
 
 // ActionCmd wraps a tea.Cmd to be executed by the main model.
 type ActionCmd struct{ Cmd tea.Cmd }
@@ -176,4 +203,14 @@ func DrawCenterCursor(scr uv.Screen, area uv.Rectangle, view string, cur *tea.Cu
 		cur.Y += center.Min.Y
 	}
 	uv.NewStyledString(view).Draw(scr, center)
+}
+
+// DrawInline draws the dialog view inline within the given area (like slash popup).
+// Horizontally fills area width, vertically top-aligned with cursor offset.
+func DrawInline(scr uv.Screen, area uv.Rectangle, view string, cur *tea.Cursor) {
+	if cur != nil {
+		cur.X += area.Min.X
+		cur.Y += area.Min.Y
+	}
+	uv.NewStyledString(view).Draw(scr, area)
 }

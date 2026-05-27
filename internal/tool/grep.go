@@ -34,6 +34,8 @@ type grepTool struct{}
 
 func NewGrep() Tool { return grepTool{} }
 
+func (grepTool) Effect() Effect { return EffectRead }
+
 func (grepTool) Info() Definition {
 	return Definition{
 		Name:        "Grep",

@@ -59,6 +59,7 @@ func decodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 				Error struct {
 					Message string `json:"message"`
 				} `json:"error"`
+				Signature string `json:"signature"` // thinking block signature from content_block_stop
 			}
 
 			if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
@@ -87,6 +88,12 @@ func decodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 						EventType:  "content_block_start",
 						Index:      envelope.Index,
 						IsThinking: true,
+					}
+				} else if envelope.ContentBlock.Type == "redacted_thinking" {
+					out <- chat.ApiStreamEvent{
+						EventType:          "content_block_start",
+						Index:              envelope.Index,
+						IsRedactedThinking: true,
 					}
 				} else {
 					// text block start — no actionable data yet
@@ -120,8 +127,9 @@ func decodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 				}
 			case "content_block_stop":
 				out <- chat.ApiStreamEvent{
-					EventType: "content_block_stop",
-					Index:     envelope.Index,
+					EventType:         "content_block_stop",
+					Index:             envelope.Index,
+					ThinkingSignature: envelope.Signature,
 				}
 			case "message_delta":
 				out <- chat.ApiStreamEvent{

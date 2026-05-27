@@ -15,36 +15,56 @@ func TestFormatToolArgs(t *testing.T) {
 		{
 			toolName: "Bash",
 			args:     map[string]any{"command": "ls -la", "timeout": float64(120)},
-			want:     "ls -la",
+			want:     "ls -la  timeout=120s",
 		},
 		{
 			toolName: "Bash",
 			args:     map[string]any{"command": "echo hello"},
-			want:     "echo hello",
+			want:     "echo hello  timeout=10s",
+		},
+		{
+			toolName: "Bash",
+			args:     map[string]any{"command": "echo hello", "timeout": float64(0)},
+			want:     "echo hello  timeout=10s",
+		},
+		{
+			toolName: "Bash",
+			args:     map[string]any{"command": "echo hello", "timeout": float64(5)},
+			want:     "echo hello  timeout=5s",
+		},
+		{
+			toolName:     "Bash",
+			args:         map[string]any{"command": "echo hello", "timeout": float64(-1)},
+			wantContains: []string{"command:echo hello", "timeout:-1"},
+		},
+		{
+			toolName:     "Bash",
+			args:         map[string]any{"command": "echo hello", "timeout": 1.5},
+			wantContains: []string{"command:echo hello", "timeout:1.5"},
 		},
 		{
 			toolName: "Read",
-			args:     map[string]any{"file_path": "/foo/bar.go", "offset": float64(10), "limit": float64(20)},
+			args:     map[string]any{"path": "/foo/bar.go", "offset": float64(10), "limit": float64(20)},
 			want:     "/foo/bar.go  offset:10  limit:20",
 		},
 		{
 			toolName: "Read",
-			args:     map[string]any{"file_path": "/foo/bar.go"},
+			args:     map[string]any{"path": "/foo/bar.go"},
 			want:     "/foo/bar.go",
 		},
 		{
 			toolName: "Edit",
-			args:     map[string]any{"file_path": "/foo/bar.go", "old_string": "hello", "new_string": "world"},
+			args:     map[string]any{"path": "/foo/bar.go", "old_string": "hello", "new_string": "world"},
 			want:     "/foo/bar.go",
 		},
 		{
 			toolName: "Edit",
-			args:     map[string]any{"file_path": "/foo/bar.go", "old_string": "hello", "new_string": "world", "replace_all": true},
+			args:     map[string]any{"path": "/foo/bar.go", "old_string": "hello", "new_string": "world", "replace_all": true},
 			want:     "/foo/bar.go  replace_all:true",
 		},
 		{
 			toolName: "Write",
-			args:     map[string]any{"file_path": "/foo/bar.go", "content": "package main\n"},
+			args:     map[string]any{"path": "/foo/bar.go", "content": "package main\n"},
 			want:     "/foo/bar.go",
 		},
 		{

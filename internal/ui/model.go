@@ -3,121 +3,91 @@ package ui
 import (
 	"context"
 	"fmt"
-	"image"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"cece/internal/chat"
-	"cece/internal/ui/dialog"
-	"cece/internal/ui/list"
-	"charm.land/bubbles/v2/key"
+	"cece/internal/protocol"
+	"cece/internal/session"
+	"cece/internal/skill"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/ultraviolet/layout"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
-// ── Focus states ────────────────────────────────────────────────────────────
-
-type focusState uint8
-
 const (
-	focusEditor focusState = iota
-	focusChat
+	simpleInputMinHeight = 3
+	simpleInputMaxHeight = 8
+	modalMaxHeight       = 14
 )
 
-// ── Messages ────────────────────────────────────────────────────────────────
+type globalEventMsg struct{ events []protocol.Event }
+type inputErrorMsg struct{ err error }
+type statusSpinnerTickMsg struct{}
 
-type runtimeEventMsg struct{ event chat.Event }
-
-type sendResultMsg struct {
-	events <-chan chat.Event
-	err    error
-}
-
-type streamClosedMsg struct{}
-
-type spinnerTickMsg struct{}
-
-type modelsLoadedMsg struct {
-	models []chat.ModelInfo
-	err    error
-}
-
-// Sender interface ────────────────────────────────────────────────────────
-
+// Sender submits user input to the runtime.
 type Sender interface {
-	Input(ctx context.Context, input string) (<-chan chat.Event, error)
+	Input(ctx context.Context, input string) error
 }
 
-// Confirmer is implemented by the Runtime to allow the UI to signal
-// tool execution approval or cancellation.
-type Confirmer interface {
-	Confirm()
-	Cancel()
+// Actor receives fire-and-forget protocol actions from the UI.
+type Actor interface {
+	Do(action protocol.Action)
 }
 
-// ModelSwitcher is implemented by Runtime to support model switching.
-type ModelSwitcher interface {
-	SwitchModel(model string, maxContextWindow int, apiKey string, baseURL string, authMode string, authHelper string, protocol string, configName string)
+// Eventer exposes the runtime's async protocol event stream.
+type Eventer interface {
+	Events() <-chan protocol.Event
 }
 
-// AllModelLister is implemented by Runtime to list models from all providers.
-type AllModelLister interface {
-	ListAllModels(ctx context.Context) ([]chat.ModelInfo, error)
-}
-
-// ── Model (root UI) ─────────────────────────────────────────────────────────
-
-// Model is the root bubbletea v2 model. It composes Header, Chat, Input, and
-// Dialog Overlay into a three-section vertical layout.
+// Model is Cece's root Bubble Tea model. It intentionally keeps UI state small:
+// protocol events update the transcript, and protocol actions drive the runtime.
 type Model struct {
-	sender    Sender
-	modelName string
-	styles    Styles
-	keyMap    KeyMap
+	sender Sender
 
-	// Sub-components
-	chat    *Chat
-	input   *Input
-	overlay *dialog.Overlay
+	modelName           string
+	mode                protocol.PermissionMode
+	projectDir          string
+	workDir             string
+	gitBranch           string
+	contextWindow       int
+	status              string
+	statusFrame         int
+	statusSpinnerActive bool
+	busy                bool
+	width               int
+	height              int
 
-	// Layout state
-	focus  focusState
-	busy   bool
-	status string
-	width  int
-	height int
+	transcript  transcript
+	viewport    viewport.Model
+	input       textarea.Model
+	modal       modalState
+	slashPopup  *SlashPopup
 
-	// Header data
-	gitBranch     string
-	workDir       string
-	contextWindow int
-
-	// Streaming
-	events       <-chan chat.Event
-	spinnerFrame int
-
-	// Mouse state: when the user presses a button inside the chat area
-	// we treat it as the start of a text-selection gesture and suppress
-	// wheel scrolling until the button is released. This lets users drag
-	// to select a range without the screen scrolling out from under them.
-	chatSelecting bool
+	sessions                session.Store
+	currentSessionID        string
+	currentSessionEphemeral bool
+	skillStore              *skill.Store
+	queued                  []string
+	history                 []string
+	historyIndex            int
 }
 
-// NewModel creates a new root UI model.
 func NewModel(sender Sender, modelName string, projectDir string, contextWindow ...int) Model {
-	styles := DefaultStyles()
-	keyMap := DefaultKeyMap()
+	input := textarea.New()
+	input.Placeholder = "Send a message... (Enter send, Ctrl+J newline)"
+	input.ShowLineNumbers = false
+	input.CharLimit = -1
+	input.DynamicHeight = true
+	input.MinHeight = simpleInputMinHeight
+	input.MaxHeight = simpleInputMaxHeight
+	input.SetVirtualCursor(false)
+	input.SetPromptFunc(0, func(textarea.PromptInfo) string { return "" })
+	input.Focus()
 
-	chatComp := NewChat(styles)
-	inputComp := NewInput(styles)
-	inputComp.SetPromptStyle()
-
-	branch := gitBranch(projectDir)
-	wd := filepath.Base(projectDir)
 	cw := 0
 	if len(contextWindow) > 0 {
 		cw = contextWindow[0]
@@ -126,536 +96,604 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 	return Model{
 		sender:        sender,
 		modelName:     modelName,
-		styles:        styles,
-		keyMap:        keyMap,
-		chat:          chatComp,
-		input:         inputComp,
-		overlay:       dialog.NewOverlay(),
-		focus:         focusEditor,
-		status:        "Ready",
-		gitBranch:     branch,
-		workDir:       wd,
+		mode:          protocol.PermissionModeDefault,
+		projectDir:    projectDir,
+		workDir:       filepath.Base(projectDir),
+		gitBranch:     gitBranch(projectDir),
 		contextWindow: cw,
+		status:        "Ready",
+		slashPopup:   NewSlashPopup(DefaultStyles()),
+		transcript:   newTranscript(),
+		viewport:     viewport.New(viewport.WithWidth(80), viewport.WithHeight(20)),
+		input:        input,
+		historyIndex: -1,
 	}
 }
 
-// Init implements tea.Model.
+func (m *Model) SetSessions(store session.Store) { m.sessions = store }
+
+func (m *Model) SetSkillStore(store *skill.Store) {
+	m.skillStore = store
+	if store != nil {
+		m.slashPopup.SetSkills(store.All())
+	}
+}
+
 func (m Model) Init() tea.Cmd {
+	if eventer, ok := m.sender.(Eventer); ok {
+		return consumeGlobalEventsCmd(eventer.Events())
+	}
 	return nil
 }
 
-// Update implements tea.Model.
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	return m.update(msg)
+func consumeGlobalEventsCmd(ch <-chan protocol.Event) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-ch // block for first event
+		if !ok {
+			return nil
+		}
+		events := []protocol.Event{ev}
+		// non-blocking drain remaining buffered events
+		for {
+			select {
+			case e, ok := <-ch:
+				if !ok {
+					return globalEventMsg{events: events}
+				}
+				events = append(events, e)
+			default:
+				return globalEventMsg{events: events}
+			}
+		}
+	}
 }
 
-func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Delegate to dialog overlay if active.
-	if m.overlay.HasDialogs() {
-		action := m.overlay.Update(msg)
-		return m, m.handleDialogAction(action)
-	}
+func statusSpinnerTickCmd() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg {
+		return statusSpinnerTickMsg{}
+	})
+}
 
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return m.update(msg) }
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.handleResize(msg.Width, msg.Height)
+		m.resize()
 		return m, nil
-
+	case inputErrorMsg:
+		m.busy = false
+		m.status = msg.err.Error()
+		m.transcript.appendDone(blockError, "error", msg.err.Error())
+		m.refreshViewport(true)
+		return m, nil
+	case statusSpinnerTickMsg:
+		if !m.statusShowsSpinner() {
+			m.statusSpinnerActive = false
+			return m, nil
+		}
+		m.statusFrame++
+		return m, statusSpinnerTickCmd()
+	case globalEventMsg:
+		for _, ev := range msg.events {
+			m.applyEvent(ev)
+		}
+		cmds := []tea.Cmd{}
+		if cmd := m.ensureStatusSpinner(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if eventer, ok := m.sender.(Eventer); ok {
+			cmds = append(cmds, consumeGlobalEventsCmd(eventer.Events()))
+		}
+		return m, tea.Batch(cmds...)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
-
 	case tea.MouseWheelMsg:
-		return m.handleMouseWheel(msg)
-
-	case tea.MouseClickMsg:
-		return m.handleMouseClick(msg)
-
-	case tea.MouseReleaseMsg:
-		return m.handleMouseRelease(msg)
-
-	case tea.MouseMotionMsg:
-		// Motion events: forward to input only if the input box is the
-		// active gesture target. Otherwise drop them so native terminal
-		// selection (Shift+drag in Ghostty/iTerm2/Terminal) stays clean.
-		if m.isInInputArea(msg.X, msg.Y) {
-			cmd := m.input.Update(msg)
-			return m, cmd
-		}
-		return m, nil
-
-	case sendResultMsg:
-		if msg.err != nil {
-			m.busy = false
-			m.status = msg.err.Error()
-			return m, nil
-		}
-		m.events = msg.events
-		return m, waitEventCmd(m.events)
-
-	case runtimeEventMsg:
-		m.applyEvent(msg.event)
-		if m.events != nil {
-			return m, waitEventCmd(m.events)
-		}
-		return m, nil
-
-	case streamClosedMsg:
-		return m, nil
-
-	case spinnerTickMsg:
-		if m.busy {
-			m.spinnerFrame++
-			m.chat.AdvanceLoading()
-			return m, spinnerTickCmd()
-		}
-
-	case modelsLoadedMsg:
-		if msg.err != nil {
-			m.status = "Failed to load models"
-			return m, nil
-		}
-		dialogStyles := dialog.DefaultDialogStyles()
-		picker := dialog.NewModelPicker(dialogStyles, msg.models, m.modelName)
-		m.overlay.OpenDialog(picker)
-		m.status = "Select model"
-		return m, nil
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 	}
 
-	// Forward other messages to the input (e.g. cursor blink).
-	cmd := m.input.Update(msg)
+	if !m.modal.active() {
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m *Model) applyEvent(event protocol.Event) {
+	m.transcript.apply(event)
+	switch e := event.(type) {
+	case protocol.SessionCreated:
+		m.currentSessionID = e.ID
+		m.currentSessionEphemeral = true
+		m.status = "Session created"
+	case protocol.ModelRequestStarted:
+		m.busy = true
+		m.status = "Requesting"
+	case protocol.AssistantStarted:
+		m.busy = true
+		m.status = "Streaming"
+	case protocol.RunFailed:
+		m.busy = false
+		m.queued = nil
+		m.status = "Failed"
+	case protocol.TurnCompleted:
+		m.busy = false
+		m.status = "Ready"
+	case protocol.QueuedInputPromoted:
+		if len(m.queued) > 0 {
+			m.queued = m.queued[1:]
+		}
+	case protocol.TruncationRetry:
+		m.status = "Retrying"
+	case protocol.ToolCallsReady:
+		m.openToolConfirm(e.Calls)
+		m.status = "Confirm tools"
+	case protocol.PlanApprovalRequested:
+		m.openPlanConfirm(e.PlanFile)
+		m.status = "Approve plan"
+	case protocol.QuestionAsked:
+		m.openQuestion(e.Questions)
+		m.status = "Answer question"
+	case protocol.ModelsLoadedEvent:
+		if e.Err != "" {
+			m.status = "Failed to load models: " + e.Err
+		} else {
+			m.openModelPicker(e.Models)
+			m.status = "Switch model"
+		}
+	case protocol.ModeChangedEvent:
+		m.mode = e.Mode
+		m.status = e.Message
+		if e.Message != "" {
+			m.transcript.appendDone(blockSystem, "mode", e.Message)
+		}
+	case protocol.ModeEvent:
+		m.mode = e.Mode
+	case protocol.SessionLoadedEvent:
+		if e.Err != "" {
+			m.status = "Failed to load session: " + e.Err
+		} else {
+			m.currentSessionID = e.SessionID
+			m.currentSessionEphemeral = false
+			if e.Model != "" {
+				m.modelName = e.Model
+			}
+			if e.ContextWindow > 0 {
+				m.contextWindow = e.ContextWindow
+			}
+			m.status = "Session loaded"
+		}
+	case protocol.HistoryClearedEvent:
+		m.transcript.reset()
+		m.status = "Cleared"
+	}
+	m.refreshViewport(eventPinsViewportToBottom(event))
+}
+
+func eventPinsViewportToBottom(event protocol.Event) bool {
+	switch event.(type) {
+	case protocol.SessionLoadedEvent, protocol.HistoryClearedEvent:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) View() tea.View {
+	m.resize()
+	sections := []string{m.headerView(), m.viewport.View()}
+	modal := m.modalView()
+	if modal != "" {
+		sections = append(sections, modal)
+	}
+	popup := m.slashPopup.View(m.width)
+	if popup != "" {
+		sections = append(sections, popup)
+	}
+	sections = append(sections, m.inputView(), m.statusView())
+	content := strings.Join(sections, "\n")
+	view := tea.NewView(content)
+	view.MouseMode = tea.MouseModeCellMotion
+	view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
+
+	// Position cursor at the textarea's actual location.
+	if cur := m.input.Cursor(); cur != nil {
+		rowsAboveInput := 1 + m.viewport.Height() // header + viewport
+		if modal != "" {
+			rowsAboveInput += strings.Count(modal, "\n") + 1
+		}
+		if popup != "" {
+			rowsAboveInput += strings.Count(popup, "\n") + 1
+		}
+		cur.Y += rowsAboveInput
+		view.Cursor = cur
+	}
+
+	return view
+}
+
+func (m *Model) resize() {
+	wasAtBottom := m.viewport.AtBottom()
+	if m.width <= 0 {
+		m.width = 80
+	}
+	if m.height <= 0 {
+		m.height = 24
+	}
+	modalH := m.modalHeight()
+	popupH := 0
+	if m.slashPopup.Active() {
+		popupH = m.slashPopup.Height()
+	}
+	inputH := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
+	viewportH := m.height - 1 - modalH - popupH - inputH - 1
+	if viewportH < 3 {
+		viewportH = 3
+	}
+	m.viewport.SetWidth(m.width)
+	m.viewport.SetHeight(viewportH)
+	m.input.SetWidth(max(1, m.width))
+	m.input.SetHeight(inputH)
+	m.refreshViewport(wasAtBottom)
+}
+
+func (m *Model) refreshViewport(gotoBottom bool) {
+	atBottom := m.viewport.AtBottom()
+	m.viewport.SetContent(m.transcript.render(m.width))
+	if gotoBottom || atBottom {
+		m.viewport.GotoBottom()
+	}
+}
+
+func (m *Model) headerView() string {
+	parts := []string{"Cece"}
+	if m.modelName != "" {
+		parts = append(parts, m.modelName)
+	}
+	parts = append(parts, string(m.mode))
+	if m.workDir != "" {
+		parts = append(parts, m.workDir)
+	}
+	if m.gitBranch != "" {
+		parts = append(parts, "git:"+m.gitBranch)
+	}
+	return lipgloss.NewStyle().Bold(true).Render(ansi.Truncate(strings.Join(parts, " | "), m.width, "..."))
+}
+
+func (m *Model) inputView() string {
+	return m.input.View()
+}
+
+func (m *Model) statusView() string {
+	parts := []string{m.statusLabel(), "[" + modeLabel(string(m.mode)) + "]"}
+	if m.modelName != "" {
+		parts = append(parts, m.modelName)
+	}
+	if len(m.queued) > 0 {
+		parts = append(parts, fmt.Sprintf("queued:%d", len(m.queued)))
+	}
+	if m.transcript.inputTokens > 0 || m.transcript.outputTokens > 0 {
+		parts = append(parts, fmt.Sprintf("tok:%d/%d", m.transcript.inputTokens, m.transcript.outputTokens))
+	}
+	if m.contextWindow > 0 && m.transcript.contextUsed > 0 {
+		remaining := m.contextWindow - m.transcript.contextUsed
+		if remaining < 0 {
+			remaining = 0
+		}
+		pct := remaining * 100 / m.contextWindow
+		parts = append(parts, fmt.Sprintf("ctx:%d/%d %d%%", remaining, m.contextWindow, pct))
+	}
+	if !m.viewport.AtBottom() {
+		parts = append(parts, fmt.Sprintf("scroll:%d%%", int(m.viewport.ScrollPercent()*100)))
+	}
+	parts = append(parts, "Enter send | Ctrl+J newline | Ctrl+Up/Down line | PgUp/PgDn page | Esc cancel | /model /resume")
+	return ansi.Truncate(strings.Join(parts, "  "), m.width, "...")
+}
+
+func (m *Model) statusLabel() string {
+	if !m.statusShowsSpinner() {
+		return m.status
+	}
+	return fmt.Sprintf("%s %s", string(statusSpinnerFrames[m.statusFrame%len(statusSpinnerFrames)]), m.status)
+}
+
+func (m *Model) statusShowsSpinner() bool {
+	return m.status == "Requesting" || m.status == "Streaming"
+}
+
+func (m *Model) ensureStatusSpinner() tea.Cmd {
+	if !m.statusShowsSpinner() {
+		m.statusSpinnerActive = false
+		return nil
+	}
+	if m.statusSpinnerActive {
+		return nil
+	}
+	m.statusSpinnerActive = true
+	return statusSpinnerTickCmd()
+}
+
+func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if handled := m.handleChatScrollKey(msg); handled {
+		return m, nil
+	}
+	if m.modal.active() {
+		return m, m.handleModalKey(msg)
+	}
+
+	// Slash popup key handling takes priority when active.
+	if m.slashPopup.Active() {
+		return m.handleSlashPopupKey(msg)
+	}
+
+	switch msg.String() {
+	case "ctrl+c":
+		if m.busy {
+			m.cancelTurn("Cancelled")
+			return m, nil
+		}
+		return m, func() tea.Msg { return tea.Quit() }
+	case "esc":
+		if m.busy {
+			m.cancelTurn("Cancelled")
+		}
+		return m, nil
+	case "enter":
+		return m, m.handleSend()
+	case "ctrl+j", "shift+enter":
+		m.input.InsertRune('\n')
+		return m, nil
+	case "shift+tab", "backtab":
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.CyclePermissionModeAction{})
+		}
+		return m, nil
+	case "up":
+		if m.inputAtStart() && m.historyPrev() {
+			return m, nil
+		}
+		if strings.TrimSpace(m.input.Value()) == "" {
+			m.viewport.ScrollUp(1)
+			return m, nil
+		}
+	case "down":
+		if m.inputAtEnd() && m.historyNext() {
+			return m, nil
+		}
+		if strings.TrimSpace(m.input.Value()) == "" {
+			m.viewport.ScrollDown(1)
+			return m, nil
+		}
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+
+	// After any input change, check if we should open the slash popup.
+	m.checkSlashPopup()
+
 	return m, cmd
 }
 
-// applyEvent applies a chat event and updates model-level state.
-func (m *Model) applyEvent(event chat.Event) {
-	// Skip duplicate UIUserMessageAdded — already shown by handleSend.
-	if _, ok := event.(chat.UIUserMessageAdded); ok && m.busy {
-		return
-	}
-	m.chat.ApplyEvent(event)
-	switch event.(type) {
-	case chat.UIModelRequestStarted:
-		m.busy = true
-		m.status = "Requesting"
-	case chat.UIAssistantStarted:
-		m.busy = true
-		m.status = "Streaming"
-	case chat.UIAssistantCompleted:
-		m.busy = false
-		m.status = "Ready"
-	case chat.UIRunFailed:
-		m.busy = false
-		m.status = "Cancelled"
-	case chat.UITruncationRetry:
-		m.status = "Retrying (64K)..."
-	case chat.UIToolCallsReady:
-		var infos []dialog.ToolCallInfo
-		for _, call := range event.(chat.UIToolCallsReady).Calls {
-			argPreview := string(call.Input)
-			if len(argPreview) > 40 {
-				argPreview = argPreview[:37] + "..."
-			}
-			infos = append(infos, dialog.ToolCallInfo{
-				Name: call.Name,
-				Args: argPreview,
-			})
+func (m *Model) handleSlashPopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "up":
+		m.slashPopup.SelectUp()
+		return m, nil
+	case "down":
+		m.slashPopup.SelectDown()
+		return m, nil
+	case "esc":
+		m.slashPopup.Close()
+		return m, nil
+	case "tab", "enter":
+		if cmd, ok := m.slashPopup.SelectedCommand(); ok {
+			m.input.SetValue(cmd + " ")
+			m.input.CursorEnd()
+			m.slashPopup.Close()
 		}
-		m.overlay.OpenDialog(dialog.NewConfirm(dialog.DefaultDialogStyles(), infos))
-		m.status = "Confirm tools"
+		return m, nil
+	case "space":
+		m.slashPopup.Close()
+		// Fall through to insert space into textarea.
 	}
+
+	// For all other keys (including backspace, printable chars), pass to textarea.
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+
+	// Update popup filter or close if no longer matching.
+	spec := parseSlashSpec(m.input.Value())
+	if !spec.Active {
+		m.slashPopup.Close()
+	} else if spec.HasArgs {
+		m.slashPopup.Close()
+	} else {
+		m.slashPopup.UpdateFilter(spec.Query)
+	}
+
+	return m, cmd
 }
 
-// View implements tea.Model (v2 API).
-func (m *Model) View() tea.View {
-	var v tea.View
-	v.AltScreen = true
-	// Mouse tracking: cell-motion mode is the minimum that delivers wheel
-	// events. We route mouse messages by cursor position in update():
-	// chat area → wheel scrolls history; input area → wheel/click/release
-	// are forwarded to the textarea. A click inside the chat area arms a
-	// "selecting" flag that suppresses wheel scrolling until release, so
-	// drag-to-select gestures aren't disrupted by inertial scrolling.
-	// Native terminal selection still works via Shift+drag in
-	// Ghostty/iTerm2/Apple Terminal, which bypasses application capture.
-	v.MouseMode = tea.MouseModeCellMotion
-
-	scr := uv.NewScreenBuffer(m.width, m.height)
-	cursor := m.drawScreen(scr, scr.Bounds())
-
-	content := scr.Render()
-	v.Content = content
-	v.Cursor = cursor
-	return v
-}
-
-func (m *Model) drawScreen(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
-	chatRect, inputRect, statusBarRect := m.generateLayout(area.Dx(), area.Dy())
-
-	// Chat
-	m.chat.Draw(scr, chatRect)
-
-	// Input
-	m.input.Draw(scr, inputRect)
-
-	// Status Bar
-	drawStatusBar(scr, statusBarRect, m.styles, StatusBarData{
-		Status:        m.status,
-		Model:         m.modelName,
-		GitBranch:     m.gitBranch,
-		WorkDir:       m.workDir,
-		InputTokens:   func() int { in, _ := m.chat.TokenInfo(); return in }(),
-		OutputTokens:  func() int { _, out := m.chat.TokenInfo(); return out }(),
-		ContextUsed:   m.chat.ContextUsed(),
-		ContextWindow: m.contextWindow,
-		Busy:          m.busy,
-	})
-
-	// Dialog overlay
-	if m.overlay.HasDialogs() {
-		return m.overlay.Draw(scr, area)
-	}
-
-	// Return cursor for the editor
-	if m.focus == focusEditor {
-		cur := m.input.Cursor()
-		if cur != nil {
-			cur.X += inputRect.Min.X
-			cur.Y += inputRect.Min.Y
-			return cur
-		}
-	}
-	return nil
-}
-
-// ── Key handling ────────────────────────────────────────────────────────────
-
-func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, m.keyMap.Quit):
-		if m.busy {
-			if canceler, ok := m.sender.(interface{ Cancel() }); ok {
-				canceler.Cancel()
-			}
-			m.busy = false
-			m.status = "Cancelled"
-			return m, nil
-		}
-		return m, tea.Quit
-
-	case key.Matches(msg, m.keyMap.Cancel):
-		if m.busy {
-			if canceler, ok := m.sender.(interface{ Cancel() }); ok {
-				canceler.Cancel()
-			}
-			m.busy = false
-			m.status = "Cancelled"
-			return m, nil
-		}
-		if m.focus == focusChat {
-			m.focus = focusEditor
-			m.chat.Blur()
-			m.input.Focus()
-			return m, nil
-		}
-		return m, tea.Quit
-
-	case key.Matches(msg, m.keyMap.Sessions):
-		return m, m.openSessionsDialog()
-
-	case key.Matches(msg, m.keyMap.SwitchFocus):
-		if m.focus == focusEditor {
-			m.focus = focusChat
-			m.input.Blur()
-			m.chat.Focus()
+// checkSlashPopup opens the slash popup when the input starts with "/".
+func (m *Model) checkSlashPopup() {
+	spec := parseSlashSpec(m.input.Value())
+	if spec.Active && !spec.HasArgs {
+		if !m.slashPopup.Active() {
+			m.slashPopup.Open(spec.Query)
 		} else {
-			m.focus = focusEditor
-			m.chat.Blur()
-			m.input.Focus()
+			m.slashPopup.UpdateFilter(spec.Query)
 		}
-		return m, nil
-
-	case key.Matches(msg, m.keyMap.Editor.Send) && !m.busy:
-		return m.handleSend()
-
-	case key.Matches(msg, m.keyMap.Editor.Newline):
-		m.input.InsertRune('\n')
-		return m, nil
 	}
-
-	// Focus-dependent key handling
-	switch m.focus {
-	case focusEditor:
-		return m.handleEditorKey(msg)
-	case focusChat:
-		return m.handleChatKey(msg)
-	}
-	return m, nil
 }
 
-func (m *Model) handleEditorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, m.keyMap.Editor.HistoryUp):
-		m.input.HistoryUp()
-		cmd := m.input.Update(msg)
-		return m, cmd
-	case key.Matches(msg, m.keyMap.Editor.HistoryDown):
-		m.input.HistoryDown()
-		cmd := m.input.Update(msg)
-		return m, cmd
+func (m *Model) handleChatScrollKey(msg tea.KeyPressMsg) bool {
+	key := msg.Key()
+	switch key.Code {
+	case tea.KeyPgUp:
+		m.viewport.ScrollUp(max(1, m.viewport.Height()-1))
+		return true
+	case tea.KeyPgDown:
+		m.viewport.ScrollDown(max(1, m.viewport.Height()-1))
+		return true
+	case tea.KeyHome:
+		m.viewport.GotoTop()
+		return true
+	case tea.KeyEnd:
+		m.viewport.GotoBottom()
+		return true
+	}
+	if !key.Mod.Contains(tea.ModCtrl) && !key.Mod.Contains(tea.ModAlt) {
+		return false
+	}
+	switch key.Code {
+	case tea.KeyUp, tea.KeyKpUp:
+		m.viewport.ScrollUp(1)
+		return true
+	case tea.KeyDown, tea.KeyKpDown:
+		m.viewport.ScrollDown(1)
+		return true
 	default:
-		cmd := m.input.Update(msg)
-		return m, cmd
+		return false
 	}
 }
 
-func (m *Model) handleChatKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, m.keyMap.Chat.Up):
-		if !m.chat.SelectPrev() {
-			m.chat.ScrollBy(-1)
-		}
-	case key.Matches(msg, m.keyMap.Chat.Down):
-		if !m.chat.SelectNext() {
-			m.chat.ScrollBy(1)
-		}
-	case key.Matches(msg, m.keyMap.Chat.PageUp):
-		m.chat.ScrollBy(-m.chat.Height())
-	case key.Matches(msg, m.keyMap.Chat.PageDown):
-		m.chat.ScrollBy(m.chat.Height())
-	case key.Matches(msg, m.keyMap.Chat.Home):
-		m.chat.list.ScrollToTop()
-	case key.Matches(msg, m.keyMap.Chat.End):
-		m.chat.ScrollToBottom()
-	case key.Matches(msg, m.keyMap.Chat.Expand):
-		m.chat.ToggleExpand()
-	default:
-		// Any unhandled key in chat mode returns focus to editor
-		m.focus = focusEditor
-		m.chat.Blur()
-		m.input.Focus()
-		cmd := m.input.Update(msg)
-		return m, cmd
-	}
-	return m, nil
-}
-
-// ── Send handling ───────────────────────────────────────────────────────────
-
-func (m *Model) handleSend() (tea.Model, tea.Cmd) {
+func (m *Model) handleSend() tea.Cmd {
 	input := strings.TrimSpace(m.input.Value())
 	if input == "" {
-		return m, nil
-	}
-
-	// Slash command interception
-	if strings.HasPrefix(input, "/") {
-		m.input.Reset()
-		return m.handleSlashCommand(input)
-	}
-
-	m.input.Reset()
-	m.input.AddHistory(input)
-
-	// Immediately show user message in chat (before LLM response)
-	m.chat.ApplyEvent(chat.UIUserMessageAdded{
-		Message: chat.Message{Role: chat.UserRole, Content: input},
-	})
-	loading := &loadingItem{
-		Versioned: list.NewVersioned(),
-		styles:    m.styles,
-		label:     "Thinking",
-		startAt:   time.Now(),
-	}
-	m.chat.SetLoading(loading)
-	m.busy = true
-	m.status = "Submitting"
-
-	return m, tea.Batch(submitCmd(m.sender, input), spinnerTickCmd())
-}
-
-func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
-	parts := strings.SplitN(input, " ", 2)
-	cmd := parts[0]
-	switch cmd {
-	case "/model":
-		m.status = "Loading models..."
-		return m, m.openModelPicker()
-	default:
-		m.status = "Unknown command: " + cmd
-		return m, nil
-	}
-}
-
-func (m *Model) openModelPicker() tea.Cmd {
-	lister, ok := m.sender.(AllModelLister)
-	if !ok {
-		return func() tea.Msg { return modelsLoadedMsg{err: fmt.Errorf("model listing not supported")} }
-	}
-	return func() tea.Msg {
-		models, err := lister.ListAllModels(context.Background())
-		return modelsLoadedMsg{models: models, err: err}
-	}
-}
-
-// ── Mouse handling ──────────────────────────────────────────────────────────
-
-// handleMouseWheel routes wheel events by cursor position:
-//   - inside the chat area → scrolls the chat history.
-//   - inside the input area → forwards to the textarea (cursor up/down,
-//     which moves the textarea viewport with it).
-//
-// While a click-drag selection gesture is in progress in the chat area
-// (chatSelecting), wheel events are suppressed so the screen does not
-// scroll out from under the user mid-selection.
-//
-// Dialogs never reach this handler — `update()` delegates to the overlay
-// while it has dialogs.
-func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case m.isInChatArea(msg.X, msg.Y):
-		if m.chatSelecting {
-			return m, nil
-		}
-		switch msg.Button {
-		case tea.MouseWheelUp:
-			m.chat.ScrollBy(-3)
-		case tea.MouseWheelDown:
-			m.chat.ScrollBy(3)
-		}
-	case m.isInInputArea(msg.X, msg.Y):
-		switch msg.Button {
-		case tea.MouseWheelUp:
-			m.input.ScrollBy(-3)
-		case tea.MouseWheelDown:
-			m.input.ScrollBy(3)
-		}
-	}
-	return m, nil
-}
-
-// handleMouseClick records the start of a potential text-selection gesture
-// when the click lands inside the chat area, and forwards clicks inside the
-// input area to the textarea (so it can position its cursor).
-func (m *Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case m.isInChatArea(msg.X, msg.Y):
-		m.chatSelecting = true
-	case m.isInInputArea(msg.X, msg.Y):
-		cmd := m.input.Update(msg)
-		return m, cmd
-	}
-	return m, nil
-}
-
-// handleMouseRelease ends the selection gesture in the chat area and
-// forwards releases inside the input area to the textarea.
-func (m *Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
-	if m.chatSelecting {
-		m.chatSelecting = false
-	}
-	if m.isInInputArea(msg.X, msg.Y) {
-		cmd := m.input.Update(msg)
-		return m, cmd
-	}
-	return m, nil
-}
-
-// isInChatArea reports whether (x, y) lies within the chat history rectangle.
-func (m *Model) isInChatArea(x, y int) bool {
-	if m.width <= 0 || m.height <= 0 {
-		return false
-	}
-	chatRect, _, _ := m.generateLayout(m.width, m.height)
-	return image.Pt(x, y).In(image.Rectangle(chatRect))
-}
-
-// isInInputArea reports whether (x, y) lies within the input box rectangle.
-func (m *Model) isInInputArea(x, y int) bool {
-	if m.width <= 0 || m.height <= 0 {
-		return false
-	}
-	_, inputRect, _ := m.generateLayout(m.width, m.height)
-	return image.Pt(x, y).In(image.Rectangle(inputRect))
-}
-
-// ── Dialog handling ─────────────────────────────────────────────────────────
-
-func (m *Model) openSessionsDialog() tea.Cmd {
-	sessions := m.listSessions()
-	dialogStyles := dialog.DefaultDialogStyles()
-	d := dialog.NewSessions(dialogStyles, sessions, "")
-	m.overlay.OpenDialog(d)
-	return nil
-}
-
-func (m *Model) handleDialogAction(action dialog.Action) tea.Cmd {
-	if action == nil {
 		return nil
 	}
-	switch a := action.(type) {
-	case dialog.ActionClose:
-		m.overlay.CloseFrontDialog()
-	case dialog.ActionSelectSession:
-		m.overlay.CloseFrontDialog()
-		// TODO: implement session switching via chat.Runtime
-		_ = a.ID
-	case dialog.ActionCmd:
-		return a.Cmd
-	case dialog.ActionConfirmTools:
-		m.overlay.CloseFrontDialog()
-		if confirmer, ok := m.sender.(Confirmer); ok {
-			confirmer.Confirm()
-		}
-	case dialog.ActionRejectTools:
-		m.overlay.CloseFrontDialog()
-		if confirmer, ok := m.sender.(Confirmer); ok {
-			confirmer.Cancel()
-		}
-		m.busy = false
-		m.status = "Tool calls rejected"
-	case dialog.ActionSelectModel:
-		m.overlay.CloseFrontDialog()
-		m.modelName = a.ID
-		if a.MaxContextWindow > 0 {
-			m.contextWindow = a.MaxContextWindow
-		}
-		if sw, ok := m.sender.(ModelSwitcher); ok {
-			sw.SwitchModel(a.ID, a.MaxContextWindow, a.APIKey, a.BaseURL, a.AuthMode, a.AuthHelper, a.Protocol, "")
-		}
-		m.status = a.Provider + "/" + a.DisplayName
+	m.input.Reset()
+	m.addHistory(input)
+	m.viewport.GotoBottom()
+	if strings.HasPrefix(strings.TrimLeft(input, " \t"), "/") {
+		return m.handleSlashCommand(input)
 	}
+	if m.busy {
+		m.queueInput(input)
+		return nil
+	}
+	m.busy = true
+	m.status = "Submitting"
+	return submitCmd(m.sender, input)
+}
+
+func (m *Model) handleSlashCommand(input string) tea.Cmd {
+	spec := parseSlashSpec(input)
+	switch spec.Command {
+	case "/model":
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.ListModelsAction{})
+			m.status = "Loading models"
+		}
+		return nil
+	case "/resume":
+		m.openSessionsDialog()
+		return nil
+	case "/clear":
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.ClearHistoryAction{})
+			m.status = "Cleared"
+		}
+		return nil
+	case "/skills":
+		if m.skillStore != nil {
+			m.transcript.appendDone(blockInfo, "skills", skill.FormatSkillList(m.skillStore.All()))
+			m.status = "Skills listed"
+		}
+		return nil
+	}
+	name := strings.TrimPrefix(spec.Command, "/")
+	if m.skillStore != nil {
+		if sk, ok := m.skillStore.Get(name); ok {
+			content := skill.FormatInvocation(sk, spec.Args)
+			if m.busy {
+				m.queueInput(content)
+				return nil
+			}
+			m.busy = true
+			m.status = "Submitting skill"
+			return submitCmd(m.sender, content)
+		}
+	}
+	m.status = formatSlashUnknown(spec.Command)
 	return nil
 }
 
-func (m *Model) listSessions() []dialog.SessionInfo {
-	// TODO: integrate with chat.Runtime session storage
-	return nil
+func (m *Model) queueInput(input string) {
+	if actor, ok := m.sender.(Actor); ok {
+		actor.Do(protocol.QueueInputAction{Text: input})
+	}
+	m.queued = append(m.queued, input)
+	m.status = fmt.Sprintf("Queued (%d)", len(m.queued))
 }
 
-// ── Layout ──────────────────────────────────────────────────────────────────
-
-func (m *Model) generateLayout(w, h int) (chat_, input, statusbar uv.Rectangle) {
-	const statusBarHeight = 1
-	inputHeight := m.input.Height() // already includes separator line
-
-	layout.Vertical(
-		layout.Fill(1),
-		layout.Len(inputHeight),
-		layout.Len(statusBarHeight),
-	).Split(uv.Rect(0, 0, w, h)).Assign(&chat_, &input, &statusbar)
-
-	return chat_, input, statusbar
+func (m *Model) cancelTurn(status string) {
+	if actor, ok := m.sender.(Actor); ok {
+		actor.Do(protocol.CancelAction{})
+	}
+	m.busy = false
+	m.queued = nil
+	m.status = status
 }
 
-func (m *Model) handleResize(w, h int) {
-	chatRect, inputRect, _ := m.generateLayout(w, h)
-	m.chat.SetSize(chatRect.Dx(), chatRect.Dy())
-	m.input.SetWidth(inputRect.Dx())
+func (m *Model) addHistory(input string) {
+	if input == "" {
+		return
+	}
+	if len(m.history) == 0 || m.history[0] != input {
+		m.history = append([]string{input}, m.history...)
+	}
+	m.historyIndex = -1
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+func (m *Model) historyPrev() bool {
+	if len(m.history) == 0 {
+		return false
+	}
+	next := m.historyIndex + 1
+	if next >= len(m.history) {
+		return false
+	}
+	m.historyIndex = next
+	m.input.SetValue(m.history[next])
+	return true
+}
+
+func (m *Model) historyNext() bool {
+	if m.historyIndex < 0 {
+		return false
+	}
+	next := m.historyIndex - 1
+	m.historyIndex = next
+	if next < 0 {
+		m.input.SetValue("")
+	} else {
+		m.input.SetValue(m.history[next])
+	}
+	return true
+}
+
+func (m *Model) inputAtStart() bool { return m.input.Line() == 0 }
+
+func (m *Model) inputAtEnd() bool { return m.input.Line() >= strings.Count(m.input.Value(), "\n") }
+
+func submitCmd(sender Sender, input string) tea.Cmd {
+	return func() tea.Msg {
+		if sender == nil {
+			return inputErrorMsg{err: fmt.Errorf("runtime unavailable")}
+		}
+		if err := sender.Input(context.Background(), input); err != nil {
+			return inputErrorMsg{err: err}
+		}
+		return nil
+	}
+}
 
 func gitBranch(dir string) string {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
@@ -666,29 +704,3 @@ func gitBranch(dir string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
-
-func submitCmd(sender Sender, input string) tea.Cmd {
-	return func() tea.Msg {
-		events, err := sender.Input(context.Background(), input)
-		return sendResultMsg{events: events, err: err}
-	}
-}
-
-func waitEventCmd(events <-chan chat.Event) tea.Cmd {
-	return func() tea.Msg {
-		event, ok := <-events
-		if !ok {
-			return streamClosedMsg{}
-		}
-		return runtimeEventMsg{event: event}
-	}
-}
-
-func spinnerTickCmd() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
-		return spinnerTickMsg{}
-	})
-}
-
-// Suppress unused import warnings.
-var _ ansi.MouseButton

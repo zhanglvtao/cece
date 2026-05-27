@@ -11,16 +11,21 @@ import (
 
 const defaultModel = "claude-sonnet-4-6"
 const settingsRelPath = ".cece/settings.json"
+const (
+	defaultToolResultInlineMaxLines = 200
+	defaultToolResultHeadLines      = 80
+	defaultToolResultTailLines      = 80
+)
 
 // ProviderConfig describes a single API provider's credentials.
 type ProviderConfig struct {
-	Name       string          `json:"name"`
-	Protocol   string          `json:"protocol"`   // "anthropic" (default) or "openai"
-	APIKey     string          `json:"apiKey"`
-	BaseURL    string          `json:"baseURL"`
-	AuthMode   string          `json:"authMode"`   // "apikey" (default) or "bearer"
-	AuthHelper string          `json:"authHelper"` // shell command to fetch dynamic token
-	Models     []StaticModel   `json:"models"`     // static model list (for providers without /v1/models)
+	Name       string        `json:"name"`
+	Protocol   string        `json:"protocol"`   // "anthropic" (default), "aiden", or "codebase"
+	APIKey     string        `json:"apiKey"`
+	BaseURL    string        `json:"baseURL"`
+	AuthMode   string        `json:"authMode"`   // "apikey" (default) or "bearer"
+	AuthHelper string        `json:"authHelper"` // shell command to fetch dynamic token
+	Models     []StaticModel `json:"models"`     // static model list (for providers without /v1/models)
 }
 
 // StaticModel declares a model available from a provider.
@@ -31,6 +36,12 @@ type StaticModel struct {
 	ConfigName       string `json:"configName"` // codebase-api needs this field
 }
 
+type ToolResultConfig struct {
+	InlineMaxLines int
+	HeadLines      int
+	TailLines      int
+}
+
 type Config struct {
 	Model               string
 	Debug               bool
@@ -38,14 +49,15 @@ type Config struct {
 	MaxTokens           int
 	ModelContextMapping map[string]int // model ID -> max context window
 	Providers           []ProviderConfig
+	ToolResult          ToolResultConfig
 }
 
 type settingsFile struct {
 	Provider struct {
-		Model               string            `json:"model"`
-		MaxTokens           int               `json:"maxTokens"`
-		ModelContextMapping map[string]int    `json:"modelContextMapping"`
-		Providers           []ProviderConfig  `json:"providers"`
+		Model               string           `json:"model"`
+		MaxTokens           int              `json:"maxTokens"`
+		ModelContextMapping map[string]int   `json:"modelContextMapping"`
+		Providers           []ProviderConfig `json:"providers"`
 	} `json:"provider"`
 	Debug struct {
 		Enabled bool `json:"enabled"`
@@ -53,10 +65,17 @@ type settingsFile struct {
 	Yolo struct {
 		Enabled bool `json:"enabled"`
 	} `json:"yolo"`
+	ToolResult struct {
+		InlineMaxLines int `json:"inline_max_lines"`
+		HeadLines      int `json:"head_lines"`
+		TailLines      int `json:"tail_lines"`
+	} `json:"tool_result"`
 }
 
 func Load(projectDir string) (Config, error) {
-	var cfg Config
+	cfg := Config{
+		ToolResult: defaultToolResultConfig(),
+	}
 
 	path := filepath.Join(projectDir, settingsRelPath)
 	data, err := os.ReadFile(path)
@@ -71,23 +90,30 @@ func Load(projectDir string) (Config, error) {
 		cfg.Providers = sf.Provider.Providers
 		cfg.Debug = sf.Debug.Enabled
 		cfg.Yolo = sf.Yolo.Enabled
+		cfg.ToolResult = ToolResultConfig{
+			InlineMaxLines: sf.ToolResult.InlineMaxLines,
+			HeadLines:      sf.ToolResult.HeadLines,
+			TailLines:      sf.ToolResult.TailLines,
+		}
 	}
+	cfg.ToolResult = normalizeToolResultConfig(cfg.ToolResult)
 
 	if v := os.Getenv("ZLAUDE_YOLO"); v == "1" || v == "true" {
 		cfg.Yolo = true
 	}
 
-	// Environment variable fallback: create an "env" provider if set
+	// Environment variable fallback: add an "env" provider when set.
+	// Keep file-defined provider order so startup routing remains stable.
 	if envKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); envKey != "" {
 		envBaseURL := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
 		if envBaseURL == "" {
 			envBaseURL = "https://api.anthropic.com"
 		}
-		cfg.Providers = append([]ProviderConfig{{
+		cfg.Providers = append(cfg.Providers, ProviderConfig{
 			Name:    "env",
 			APIKey:  envKey,
 			BaseURL: envBaseURL,
-		}}, cfg.Providers...)
+		})
 	}
 
 	if len(cfg.Providers) == 0 {
@@ -109,6 +135,28 @@ func Load(projectDir string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func defaultToolResultConfig() ToolResultConfig {
+	return ToolResultConfig{
+		InlineMaxLines: defaultToolResultInlineMaxLines,
+		HeadLines:      defaultToolResultHeadLines,
+		TailLines:      defaultToolResultTailLines,
+	}
+}
+
+func normalizeToolResultConfig(cfg ToolResultConfig) ToolResultConfig {
+	defaults := defaultToolResultConfig()
+	if cfg.InlineMaxLines <= 0 {
+		cfg.InlineMaxLines = defaults.InlineMaxLines
+	}
+	if cfg.HeadLines <= 0 {
+		cfg.HeadLines = defaults.HeadLines
+	}
+	if cfg.TailLines <= 0 {
+		cfg.TailLines = defaults.TailLines
+	}
+	return cfg
 }
 
 const defaultContextWindow = 200000

@@ -21,6 +21,8 @@ type globTool struct{}
 
 func NewGlob() Tool { return globTool{} }
 
+func (globTool) Effect() Effect { return EffectRead }
+
 func (globTool) Info() Definition {
 	return Definition{
 		Name:        "Glob",

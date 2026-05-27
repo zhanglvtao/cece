@@ -55,45 +55,35 @@ func BuildDialogStyles(p theme.Palette) DialogStyles {
 		InputPrompt: base.
 			Border(lipgloss.NormalBorder(), false, false, true, false).
 			BorderForeground(p.Primary),
-		HelpView:  base.Faint(true),
+		HelpView:  base,
 		ListStyle: lipgloss.NewStyle(),
-		NormalItem: base.Padding(0, 1),
+		NormalItem: base.Foreground(p.FgMuted).Padding(0, 1),
 		SelectedItem: base.
-			Background(p.Primary).
-			Foreground(p.OnPrimary).
+			Foreground(p.FgBase).
 			Padding(0, 1),
-		InfoBlurred: base.Faint(true).Foreground(p.FgFaint),
+		InfoBlurred: base.Foreground(p.FgMuted),
 		InfoFocused: base.Foreground(p.FgBase),
-		DeletingMessage: base.Foreground(p.Destructive),
-		RenamingMessage: base.Foreground(p.WarningMuted),
+		DeletingMessage: base,
+		RenamingMessage: base,
 
-		DeletingItemBlurred: base.Padding(0, 1).Foreground(p.DestructiveMuted),
+		DeletingItemBlurred: base.Foreground(p.FgMuted).Padding(0, 1),
 		DeletingItemFocused: base.
-			Background(p.Destructive).
-			Foreground(p.OnPrimary).
+			Foreground(p.FgBase).
 			Padding(0, 1),
-		RenamingItemBlurred: base.Padding(0, 1),
+		RenamingItemBlurred: base.Foreground(p.FgMuted).Padding(0, 1),
 		RenamingItemFocused: base.
-			Background(p.InfoFaint).
 			Foreground(p.FgBase).
 			Padding(0, 1),
 
 		ContentPanel: base.
-			Background(p.BgSubtle).
-			Foreground(p.FgBase).
 			Padding(0, 2),
 
-		// Modern: action buttons
 		AllowBtn: base.
-			Foreground(p.OnPrimary).
-			Background(p.SuccessFaint).
+			Bold(true).
 			Padding(0, 1),
 		DenyBtn: base.
-			Foreground(p.OnPrimary).
-			Background(p.DestructiveMuted).
 			Padding(0, 1),
 
-		// Scrollbar
 		ScrollbarThumb: base.Foreground(p.Secondary),
 		ScrollbarTrack: base.Foreground(p.Separator),
 	}

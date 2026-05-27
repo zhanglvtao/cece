@@ -20,6 +20,9 @@ func TestGetModelInfoSuccess(t *testing.T) {
 		if r.Header.Get("anthropic-version") != "2023-06-01" {
 			t.Errorf("missing anthropic-version header")
 		}
+		if r.Header.Get("User-Agent") != ceceUserAgent {
+			t.Errorf("missing or wrong User-Agent header")
+		}
 		w.Header().Set("content-type", "application/json")
 		w.Write([]byte(`{
 			"data": {
@@ -76,6 +79,9 @@ func TestListModelsSuccess(t *testing.T) {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			http.NotFound(w, r)
 			return
+		}
+		if r.Header.Get("User-Agent") != ceceUserAgent {
+			t.Errorf("missing or wrong User-Agent header")
 		}
 		w.Header().Set("content-type", "application/json")
 		w.Write([]byte(`{

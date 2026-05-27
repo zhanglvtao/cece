@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"cece/internal/chat"
+	"cece/internal/httpretry"
 	"cece/internal/logger"
 	"io"
 	"log/slog"
@@ -37,17 +38,19 @@ func (a apiModelInfo) toChat() chat.ModelInfo {
 func (c *Client) GetModelInfo(ctx context.Context) (*chat.ModelInfo, error) {
 	url := strings.TrimRight(c.baseURL, "/") + "/v1/models/" + c.model
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create model info request: %w", err)
-	}
-	if err := c.setAuthHeaders(ctx, req.Header); err != nil {
-		return nil, fmt.Errorf("set auth headers: %w", err)
+	makeRequest := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create model info request: %w", err)
+		}
+		if err := c.setAuthHeaders(ctx, req.Header); err != nil {
+			return nil, fmt.Errorf("set auth headers: %w", err)
+		}
+		return req, nil
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := httpretry.Do(ctx, c.httpClient, makeRequest, httpretry.Options{})
 	if err != nil {
-		slog.Warn("model info request failed", "error", err)
 		return nil, fmt.Errorf("model info request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -76,17 +79,19 @@ func (c *Client) GetModelInfo(ctx context.Context) (*chat.ModelInfo, error) {
 func (c *Client) ListModels(ctx context.Context) ([]chat.ModelInfo, error) {
 	url := strings.TrimRight(c.baseURL, "/") + "/v1/models"
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create list models request: %w", err)
-	}
-	if err := c.setAuthHeaders(ctx, req.Header); err != nil {
-		return nil, fmt.Errorf("set auth headers: %w", err)
+	makeRequest := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create list models request: %w", err)
+		}
+		if err := c.setAuthHeaders(ctx, req.Header); err != nil {
+			return nil, fmt.Errorf("set auth headers: %w", err)
+		}
+		return req, nil
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := httpretry.Do(ctx, c.httpClient, makeRequest, httpretry.Options{})
 	if err != nil {
-		slog.Warn("list models request failed", "error", err)
 		return nil, fmt.Errorf("list models request: %w", err)
 	}
 	defer resp.Body.Close()

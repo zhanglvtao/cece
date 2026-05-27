@@ -17,9 +17,9 @@ const (
 )
 
 type Message struct {
-	Role          Role
-	Content       string // plain text, kept for backward compat
-	ContentBlocks []ApiContentBlock
+	Role          Role              `json:"role"`
+	Content       string            `json:"content,omitempty"`
+	ContentBlocks []ApiContentBlock `json:"content_blocks,omitempty"`
 }
 
 // TextContent returns the concatenated text from all text-type content blocks.
@@ -39,17 +39,24 @@ func (m Message) TextContent() string {
 type ApiContentBlockType string
 
 const (
-	ApiTextContentType       ApiContentBlockType = "text"
-	ApiThinkingContentType   ApiContentBlockType = "thinking"
-	ApiToolUseContentType    ApiContentBlockType = "tool_use"
-	ApiToolResultContentType ApiContentBlockType = "tool_result"
+	ApiTextContentType             ApiContentBlockType = "text"
+	ApiThinkingContentType         ApiContentBlockType = "thinking"
+	ApiRedactedThinkingContentType ApiContentBlockType = "redacted_thinking"
+	ApiToolUseContentType          ApiContentBlockType = "tool_use"
+	ApiToolResultContentType       ApiContentBlockType = "tool_result"
 )
 
 type ApiContentBlock struct {
-	Type       ApiContentBlockType
-	Text       string              // for text blocks
-	ToolUse    *ApiToolUseBlock    // for tool_use blocks
-	ToolResult *ApiToolResultBlock // for tool_result blocks
+	Type       ApiContentBlockType `json:"type"`
+	Text       string              `json:"text,omitempty"`
+	Thinking   *ApiThinkingBlock   `json:"thinking,omitempty"`
+	ToolUse    *ApiToolUseBlock    `json:"tool_use,omitempty"`
+	ToolResult *ApiToolResultBlock `json:"tool_result,omitempty"`
+}
+
+type ApiThinkingBlock struct {
+	Text      string `json:"thinking,omitempty"`
+	Signature string `json:"signature"`
 }
 
 func (cb ApiContentBlock) AsToolResult() (*ApiToolResultBlock, bool) {
@@ -66,9 +73,11 @@ type ApiToolUseBlock struct {
 }
 
 type ApiToolResultBlock struct {
-	ToolUseID string // 对应 tool_use 的 ID
-	Content   string // 工具执行结果文本
-	IsError   bool   // 是否为错误结果
+	ToolUseID  string `json:"tool_use_id"`
+	Content    string `json:"content"`
+	IsError    bool   `json:"is_error,omitempty"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	TotalLines int    `json:"total_lines,omitempty"`
 }
 
 // ApiStreamEvent represents a single event from the Anthropic SSE stream.
@@ -93,8 +102,10 @@ type ApiStreamEvent struct {
 	Index         int    // content block index
 
 	// Thinking block fields (from content_block_start type="thinking" + thinking_delta)
-	IsThinking    bool   // true when content_block_start has type "thinking"
-	ThinkingDelta string // text from thinking_delta
+	IsThinking         bool   // true when content_block_start has type "thinking"
+	ThinkingDelta      string // text from thinking_delta
+	ThinkingSignature  string // signature from content_block_stop
+	IsRedactedThinking bool   // true when content_block_start has type "redacted_thinking"
 }
 
 type SystemPrompt struct {
@@ -116,7 +127,7 @@ type ModelInfo struct {
 	BaseURL          string // provider base URL (for model switching)
 	AuthMode         string // "apikey" or "bearer"
 	AuthHelper       string // shell command to fetch dynamic token
-	Protocol         string // "anthropic" (default) or "openai" or "codebase"
+	Protocol         string // "anthropic" (default) or "aiden" or "codebase"
 	ConfigName       string // codebase-api needs config_name
 }
 
@@ -138,4 +149,36 @@ func AssembleResultToSystemPrompt(r prompt.AssembleResult) SystemPrompt {
 		})
 	}
 	return SystemPrompt{Blocks: blocks}
+}
+
+func ProjectMessagesForRequest(messages []Message) []Message {
+	projected := make([]Message, len(messages))
+	for i, message := range messages {
+		projected[i] = projectMessageForRequest(message)
+	}
+	return projected
+}
+
+func projectMessageForRequest(message Message) Message {
+	projected := message
+	if len(message.ContentBlocks) == 0 {
+		return projected
+	}
+
+	if message.Role != AssistantRole {
+		projected.ContentBlocks = append([]ApiContentBlock(nil), message.ContentBlocks...)
+		return projected
+	}
+
+	blocks := make([]ApiContentBlock, 0, len(message.ContentBlocks))
+	for _, block := range message.ContentBlocks {
+		switch block.Type {
+		case ApiThinkingContentType, ApiRedactedThinkingContentType:
+			continue
+		default:
+			blocks = append(blocks, block)
+		}
+	}
+	projected.ContentBlocks = blocks
+	return projected
 }

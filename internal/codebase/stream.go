@@ -3,6 +3,7 @@ package codebase
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 
@@ -26,6 +27,13 @@ type TokenUsageEvent struct {
 // DoneEvent represents a done event from the codebase-api SSE stream.
 type DoneEvent struct {
 	FinishReason string `json:"finish_reason"`
+}
+
+// ErrorEvent represents an error event from the codebase-api SSE stream.
+type ErrorEvent struct {
+	Message string `json:"message"`
+	Error   string `json:"error,omitempty"`
+	Code    int    `json:"code,omitempty"`
 }
 
 type streamState struct {
@@ -100,7 +108,6 @@ func processEvent(eventType, data string, out chan<- chat.ApiStreamEvent, state 
 	case "token_usage":
 		var ev TokenUsageEvent
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			// Non-fatal: just log and skip
 			logger.Debug("codebase token_usage parse error", "error", err)
 			return
 		}
@@ -115,10 +122,26 @@ func processEvent(eventType, data string, out chan<- chat.ApiStreamEvent, state 
 		}
 		emitDone(&ev, out, state)
 
-	case "metadata":
-		// Ignore metadata events
+	case "error":
+		var ev ErrorEvent
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			out <- chat.ApiStreamEvent{Err: fmt.Errorf("codebase error event parse failure: %s", data)}
+			return
+		}
+		message := ev.Message
+		if message == "" {
+			message = ev.Error
+		}
+		if ev.Error != "" && ev.Error != message {
+			message = message + "; " + ev.Error
+		}
+		out <- chat.ApiStreamEvent{Err: fmt.Errorf("codebase api error: %s (code=%d)", message, ev.Code)}
+
+	case "metadata", "progress_notice", "timing_cost", "extra_info":
+		// Informational events, safely ignored
+
 	default:
-		logger.Debug("codebase unknown event type", "type", eventType)
+		logger.Debug("codebase unknown event type", "type", eventType, "data", data)
 	}
 }
 
@@ -261,4 +284,10 @@ func mapStopReason(reason string) string {
 	default:
 		return reason
 	}
+}
+
+// isCodebaseRetryable checks whether a codebase API stream error
+// is retryable (e.g. backend model temporarily unavailable).
+func isCodebaseRetryable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "code=3003")
 }

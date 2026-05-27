@@ -14,6 +14,7 @@ type SessionContext struct {
 	CLAUDEmd           string // project instructions from CLAUDE.md
 	ToolDescriptions   string // rendered tool summary text
 	ModelName          string // current model identifier
+	SkillListing       string // rendered <available_skills> XML
 }
 
 // SessionCollector abstracts session context data collection.

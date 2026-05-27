@@ -1,7 +1,7 @@
 package dialog
 
 import (
-	"cece/internal/chat"
+	"cece/internal/protocol"
 	"cece/internal/ui/list"
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -18,7 +18,7 @@ type ModelPicker struct {
 	help         help.Model
 	list         *list.FilterableList
 	input        textinput.Model
-	models       []chat.ModelInfo
+	models       []protocol.ModelInfo
 	currentModel string
 
 	keyMap struct {
@@ -33,7 +33,7 @@ type ModelPicker struct {
 var _ Dialog = (*ModelPicker)(nil)
 
 // NewModelPicker creates a new ModelPicker dialog.
-func NewModelPicker(styles DialogStyles, models []chat.ModelInfo, currentModel string) *ModelPicker {
+func NewModelPicker(styles DialogStyles, models []protocol.ModelInfo, currentModel string) *ModelPicker {
 	p := &ModelPicker{
 		styles:       styles,
 		models:       models,
@@ -83,6 +83,9 @@ func NewModelPicker(styles DialogStyles, models []chat.ModelInfo, currentModel s
 // ID implements Dialog.
 func (p *ModelPicker) ID() string { return ModelPickerID }
 
+// DesiredHeight implements Dialog.
+func (p *ModelPicker) DesiredHeight() int { return 20 }
+
 // HandleMsg implements Dialog.
 func (p *ModelPicker) HandleMsg(msg tea.Msg) Action {
 	switch msg := msg.(type) {
@@ -119,6 +122,7 @@ func (p *ModelPicker) HandleMsg(msg tea.Msg) Action {
 					AuthMode:         pi.AuthMode,
 					AuthHelper:       pi.AuthHelper,
 					Protocol:         pi.Protocol,
+					ConfigName:       pi.ConfigName,
 				}
 			}
 		default:
@@ -137,7 +141,7 @@ func (p *ModelPicker) HandleMsg(msg tea.Msg) Action {
 func (p *ModelPicker) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	t := p.styles
 
-	width := max(0, min(defaultDialogMaxWidth, area.Dx()-t.View.GetHorizontalBorderSize()))
+	width := max(0, area.Dx()-t.View.GetHorizontalBorderSize())
 	height := max(0, min(defaultDialogHeight, area.Dy()-t.View.GetVerticalBorderSize()))
 	innerWidth := width - t.View.GetHorizontalFrameSize()
 	heightOffset := t.Title.GetVerticalFrameSize() + titleContentHeight +
@@ -162,7 +166,7 @@ func (p *ModelPicker) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 	view := rc.Render()
 
-	DrawCenterCursor(scr, area, view, cur)
+	DrawInline(scr, area, view, cur)
 	return cur
 }
 

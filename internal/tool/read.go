@@ -14,14 +14,16 @@ const (
 )
 
 type readParams struct {
-	FilePath string `json:"file_path"`
-	Offset   int    `json:"offset,omitempty"` // 1-based line number
-	Limit    int    `json:"limit,omitempty"`
+	Path   string `json:"path"`
+	Offset int    `json:"offset,omitempty"` // 1-based line number
+	Limit  int    `json:"limit,omitempty"`
 }
 
 type readTool struct{}
 
 func NewRead() Tool { return readTool{} }
+
+func (readTool) Effect() Effect { return EffectRead }
 
 func (readTool) Info() Definition {
 	return Definition{
@@ -30,7 +32,7 @@ func (readTool) Info() Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"file_path": map[string]any{
+				"path": map[string]any{
 					"type":        "string",
 					"description": "The absolute path to the file to read",
 				},
@@ -43,7 +45,7 @@ func (readTool) Info() Definition {
 					"description": "Number of lines to read",
 				},
 			},
-			"required": []string{"file_path"},
+			"required": []string{"path"},
 		},
 	}
 }
@@ -53,15 +55,15 @@ func (readTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 	if err := json.Unmarshal(input, &p); err != nil {
 		return Result{Content: fmt.Sprintf("invalid params: %v", err), IsError: true}
 	}
-	if p.FilePath == "" {
-		return Result{Content: "missing file_path", IsError: true}
+	if p.Path == "" {
+		return Result{Content: "missing path", IsError: true}
 	}
 
 	if emitter != nil {
-		emitter.Emit(fmt.Sprintf("Reading %s...", p.FilePath))
+		emitter.Emit(fmt.Sprintf("Reading %s...", p.Path))
 	}
 
-	data, err := os.ReadFile(p.FilePath)
+	data, err := os.ReadFile(p.Path)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("read: %v", err), IsError: true}
 	}

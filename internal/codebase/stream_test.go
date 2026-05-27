@@ -7,7 +7,6 @@ import (
 
 	"cece/internal/chat"
 )
-
 func sseBody(lines ...string) io.ReadCloser {
 	return io.NopCloser(strings.NewReader(strings.Join(lines, "\n") + "\n"))
 }
@@ -385,5 +384,85 @@ func TestDecodeFullEventSequence(t *testing.T) {
 		if actual[i] != want {
 			t.Errorf("event[%d]: expected %q, got %q", i, want, actual[i])
 		}
+	}
+}
+
+func TestDecodeErrorEvent(t *testing.T) {
+	body := sseBody(
+		`event: output`,
+		`data: {"response":"hi"}`,
+		``,
+		`event: error`,
+		`data: {"message":"rate limit exceeded","code":"429"}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err == nil {
+		t.Fatal("expected error from error event")
+	}
+	if !strings.Contains(err.Error(), "rate limit exceeded") {
+		t.Errorf("expected error to contain 'rate limit exceeded', got %v", err)
+	}
+	if !strings.Contains(err.Error(), "429") {
+		t.Errorf("expected error to contain code '429', got %v", err)
+	}
+	_ = events
+}
+
+func TestDecodeErrorEventWithNumericCode(t *testing.T) {
+	body := sseBody(
+		`event: error`,
+		`data: {"code":4001,"error":"biz error: rpc error: code = ErrParamInvalid desc = invalid param, origin err = app is not found","message":"trae_permanent_error(invalid params): invalid param"}`,
+		``,
+	)
+
+	_, err := collectEvents(DecodeStreamEvent(body))
+	if err == nil {
+		t.Fatal("expected error from numeric-code error event")
+	}
+	if strings.Contains(err.Error(), "parse failure") {
+		t.Fatalf("expected business error, got parse failure: %v", err)
+	}
+	if !strings.Contains(err.Error(), "invalid param") {
+		t.Fatalf("expected business error message to be preserved, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "4001") {
+		t.Fatalf("expected numeric error code to be preserved, got %v", err)
+	}
+}
+
+func TestDecodeInformationalEventsIgnored(t *testing.T) {
+	body := sseBody(
+		`event: progress_notice`,
+		`data: {"progress":50}`,
+		``,
+		`event: timing_cost`,
+		`data: {"total_ms":1234}`,
+		``,
+		`event: extra_info`,
+		`data: {"info":"some info"}`,
+		``,
+		`event: metadata`,
+		`data: {"model":"test"}`,
+		``,
+		`event: output`,
+		`data: {"response":"ok"}`,
+		``,
+		`event: done`,
+		`data: {"finish_reason":"stop"}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var text string
+	for _, e := range events {
+		if e.Delta != "" {
+			text += e.Delta
+		}
+	}
+	if text != "ok" {
+		t.Errorf("expected text 'ok', got %q", text)
 	}
 }

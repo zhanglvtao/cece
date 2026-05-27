@@ -6,17 +6,16 @@ import (
 
 // KeyMap holds all keyboard bindings for the TUI.
 type KeyMap struct {
-	Quit       key.Binding
-	Help       key.Binding
-	Sessions   key.Binding
-	NewSession key.Binding
-	Cancel     key.Binding
+	Quit   key.Binding
+	Help   key.Binding
+	Cancel key.Binding
 
 	Editor struct {
 		Send        key.Binding
 		Newline     key.Binding
 		HistoryUp   key.Binding
 		HistoryDown key.Binding
+		Complete    key.Binding
 	}
 
 	Chat struct {
@@ -29,7 +28,8 @@ type KeyMap struct {
 		Expand   key.Binding
 	}
 
-	SwitchFocus key.Binding
+	SwitchFocus    key.Binding
+	TogglePlanMode key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -43,14 +43,6 @@ func DefaultKeyMap() KeyMap {
 	k.Help = key.NewBinding(
 		key.WithKeys("ctrl+g"),
 		key.WithHelp("ctrl+g", "help"),
-	)
-	k.Sessions = key.NewBinding(
-		key.WithKeys("ctrl+s"),
-		key.WithHelp("ctrl+s", "sessions"),
-	)
-	k.NewSession = key.NewBinding(
-		key.WithKeys("ctrl+n"),
-		key.WithHelp("ctrl+n", "new session"),
 	)
 	k.Cancel = key.NewBinding(
 		key.WithKeys("esc"),
@@ -72,6 +64,10 @@ func DefaultKeyMap() KeyMap {
 	k.Editor.HistoryDown = key.NewBinding(
 		key.WithKeys("down"),
 		key.WithHelp("↓", "next"),
+	)
+	k.Editor.Complete = key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "complete"),
 	)
 
 	k.Chat.Up = key.NewBinding(
@@ -106,6 +102,10 @@ func DefaultKeyMap() KeyMap {
 	k.SwitchFocus = key.NewBinding(
 		key.WithKeys("ctrl+o"),
 		key.WithHelp("ctrl+o", "switch focus"),
+	)
+	k.TogglePlanMode = key.NewBinding(
+		key.WithKeys("shift+tab", "backtab"),
+		key.WithHelp("shift+tab", "cycle mode"),
 	)
 
 	return k

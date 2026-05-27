@@ -9,6 +9,8 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/charmbracelet/ultraviolet v0.0.0-20260416155717-489999b90468
 	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/google/uuid v1.3.0
+	github.com/lucasb-eyer/go-colorful v1.4.0
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/rivo/uniseg v0.4.7
 	github.com/sahilm/fuzzy v0.1.2
@@ -26,9 +28,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
-	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
-	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect

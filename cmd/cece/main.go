@@ -11,18 +11,30 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"cece/internal/aiden"
 	"cece/internal/chat"
 	"cece/internal/claude"
 	"cece/internal/codebase"
 	"cece/internal/config"
+	"cece/internal/engine"
 	"cece/internal/logger"
-	"cece/internal/openai"
 	"cece/internal/prompt"
+	"cece/internal/protocol"
+	"cece/internal/session"
+	"cece/internal/skill"
 	"cece/internal/tool"
 	"cece/internal/ui"
 )
 
 func createClient(pc config.ProviderConfig, model string, configName string) chat.ModelClient {
+	if configName == "" {
+		for _, sm := range pc.Models {
+			if sm.ID == model {
+				configName = sm.ConfigName
+				break
+			}
+		}
+	}
 	switch pc.Protocol {
 	case "codebase":
 		c := codebase.NewClient(pc.APIKey, model, configName, pc.BaseURL)
@@ -30,14 +42,15 @@ func createClient(pc config.ProviderConfig, model string, configName string) cha
 			c.SetAuthHelper(pc.AuthHelper)
 		}
 		return c
-	case "openai":
-		c := openai.NewClient(pc.APIKey, model, pc.BaseURL)
+	case "aiden":
+		c := aiden.NewClient(pc.APIKey, model, pc.BaseURL)
 		if pc.AuthHelper != "" {
 			c.SetAuthHelper(pc.AuthHelper)
 		}
 		return c
 	default:
 		c := claude.NewClient(pc.APIKey, model, pc.BaseURL, claude.ParseAuthMode(pc.AuthMode))
+		c.SetThinking(true, 0)
 		if pc.AuthHelper != "" {
 			c.SetAuthHelper(pc.AuthHelper)
 		}
@@ -65,6 +78,11 @@ func main() {
 	logger.Info("cece starting", "model", cfg.Model, "provider", defaultProvider.Name, "maxTokens", cfg.MaxTokens)
 
 	client := createClient(defaultProvider, cfg.Model, "")
+	planState := tool.NewPlanModeState()
+	planState.SetProjectDir(projectDir)
+	// Initialize skill system
+	skillStore := skill.NewStore(skill.DiscoverAll(projectDir))
+
 	registry := tool.NewRegistry(
 		tool.NewBash(),
 		tool.NewRead(),
@@ -72,10 +90,15 @@ func main() {
 		tool.NewGrep(),
 		tool.NewEdit(),
 		tool.NewGlob(),
+		tool.NewEnterPlanMode(planState),
+		tool.NewExitPlanMode(planState),
+		tool.NewAskUserQuestion(),
+		tool.NewSkillTool(skillStore),
 	)
 
-	stablePrompt := prompt.FormatStableSystemPrompt()
+	stablePrompt := prompt.FormatStableSystemPrompt(projectDir)
 	collector := prompt.NewDefaultSessionCollector(projectDir, registry)
+	collector.SetSkillProvider(skillStore)
 	assembler := prompt.NewContextAssembler(stablePrompt, registry, collector)
 
 	// Initialize session context and query model info for token budget
@@ -123,11 +146,22 @@ func main() {
 	}
 	assembler.SetMaxContextTokens(contextWindow)
 
-	runtime := chat.NewRuntime(client, registry, cfg.Yolo, cfg.MaxTokens, assembler, projectDir)
-	runtime.ContextWindowFor = cfg.ContextWindowFor
+	eng := engine.NewEngine(client, registry, cfg.Yolo, cfg.MaxTokens, assembler, projectDir)
+	eng.SetPlanModeState(planState)
+	eng.SetModelInfo(cfg.Model, contextWindow)
+	eng.SetToolResultPolicy(chat.ToolResultPolicy{
+		InlineMaxLines: cfg.ToolResult.InlineMaxLines,
+		HeadLines:      cfg.ToolResult.HeadLines,
+		TailLines:      cfg.ToolResult.TailLines,
+	})
+	eng.ContextWindowFor = cfg.ContextWindowFor
+
+	// Session persistence
+	store := session.NewFileStore(projectDir)
+	eng.SetStore(store)
 
 	// Inject client factory for cross-protocol model switching
-	runtime.SetCreateClientFn(func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) chat.ModelClient {
+	createClientFn := func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) chat.ModelClient {
 		pc := config.ProviderConfig{
 			Protocol:   protocol,
 			APIKey:     apiKey,
@@ -136,11 +170,33 @@ func main() {
 			AuthHelper: authHelper,
 		}
 		return createClient(pc, model, configName)
-	})
+	}
+
+	// Inject provider resolver so session resume can rebuild clients with real credentials
+	providerResolver := func(configName string) (apiKey, baseURL, authMode, authHelper, protocol string) {
+		for _, p := range cfg.Providers {
+			if configName != "" {
+				for _, m := range p.Models {
+					if m.ConfigName == configName {
+						return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
+					}
+				}
+			}
+			if p.Name == configName {
+				return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
+			}
+		}
+		// Fallback: return first provider if no match
+		if len(cfg.Providers) > 0 {
+			p := cfg.Providers[0]
+			return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
+		}
+		return "", "", "", "", ""
+	}
 
 	// Inject multi-provider model listing
-	runtime.SetListAllModelsFn(func(ctx context.Context) ([]chat.ModelInfo, error) {
-		var allModels []chat.ModelInfo
+	listAllModelsFn := func(ctx context.Context) ([]protocol.ModelInfo, error) {
+		var allModels []protocol.ModelInfo
 		var mu sync.Mutex
 		var wg sync.WaitGroup
 		for _, p := range cfg.Providers {
@@ -183,16 +239,25 @@ func main() {
 					return
 				}
 
-				mu.Lock()
-				for i := range models {
-					models[i].Provider = pc.Name
-					models[i].APIKey = pc.APIKey
-					models[i].BaseURL = pc.BaseURL
-					models[i].AuthMode = pc.AuthMode
-					models[i].AuthHelper = pc.AuthHelper
-					models[i].Protocol = pc.Protocol
+				// Convert internal models to dto
+				dtoModels := make([]protocol.ModelInfo, len(models))
+				for i, m := range models {
+					dtoModels[i] = protocol.ModelInfo{
+						ID:               m.ID,
+						DisplayName:      m.DisplayName,
+						MaxContextWindow: m.MaxContextWindow,
+						Provider:         pc.Name,
+						APIKey:           pc.APIKey,
+						BaseURL:          pc.BaseURL,
+						AuthMode:         pc.AuthMode,
+						AuthHelper:       pc.AuthHelper,
+						Protocol:         pc.Protocol,
+						ConfigName:       m.ConfigName,
+					}
 				}
-				allModels = append(allModels, models...)
+
+				mu.Lock()
+				allModels = append(allModels, dtoModels...)
 				mu.Unlock()
 			}(p)
 		}
@@ -201,8 +266,12 @@ func main() {
 			return nil, errors.New("no models available from any provider")
 		}
 		return allModels, nil
-	})
-	model := ui.NewModel(runtime, cfg.Model, projectDir, contextWindow)
+	}
+
+	mediator := engine.NewEngineMediator(eng, store, providerResolver, createClientFn, listAllModelsFn)
+	model := ui.NewModel(mediator, cfg.Model, projectDir, contextWindow)
+	model.SetSessions(store)
+	model.SetSkillStore(skillStore)
 
 	program := tea.NewProgram(&model)
 	if _, err := program.Run(); err != nil {

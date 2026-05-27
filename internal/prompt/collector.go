@@ -16,12 +16,18 @@ type ToolListProvider interface {
 	Definitions() []tool.Definition
 }
 
+// SkillListProvider abstracts skill listing retrieval.
+type SkillListProvider interface {
+	Listing() string
+}
+
 // DefaultSessionCollector gathers session-level context:
 // environment info, project instructions, and tool summaries.
 type DefaultSessionCollector struct {
-	repoRoot     string
-	toolProvider ToolListProvider
-	loader       *InstructionLoader
+	repoRoot      string
+	toolProvider  ToolListProvider
+	skillProvider SkillListProvider
+	loader        *InstructionLoader
 }
 
 func NewDefaultSessionCollector(repoRoot string, tp ToolListProvider) *DefaultSessionCollector {
@@ -30,6 +36,10 @@ func NewDefaultSessionCollector(repoRoot string, tp ToolListProvider) *DefaultSe
 		toolProvider: tp,
 		loader:       NewInstructionLoader(repoRoot),
 	}
+}
+
+func (d *DefaultSessionCollector) SetSkillProvider(sp SkillListProvider) {
+	d.skillProvider = sp
 }
 
 func (d *DefaultSessionCollector) Collect(ctx context.Context) (SessionContext, error) {
@@ -53,6 +63,10 @@ func (d *DefaultSessionCollector) Collect(ctx context.Context) (SessionContext, 
 	if d.toolProvider != nil {
 		defs := d.toolProvider.Definitions()
 		sc.ToolDescriptions = FormatToolDescriptionsText(defs)
+	}
+
+	if d.skillProvider != nil {
+		sc.SkillListing = d.skillProvider.Listing()
 	}
 
 	return sc, nil

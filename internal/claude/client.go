@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"cece/internal/chat"
+	"cece/internal/httpretry"
 	"cece/internal/logger"
 	"cece/internal/tool"
 )
@@ -22,6 +23,8 @@ const (
 	AuthModeAPIKey AuthMode = iota // x-api-key header (Anthropic native)
 	AuthModeBearer                 // Authorization: Bearer header (proxy gateway)
 )
+
+const ceceUserAgent = "cece-agent"
 
 // ParseAuthMode converts a string auth mode to an AuthMode value.
 // Returns AuthModeAPIKey for empty string or "apikey", AuthModeBearer for "bearer".
@@ -35,12 +38,14 @@ func ParseAuthMode(s string) AuthMode {
 }
 
 type Client struct {
-	apiKey     string
-	model      string
-	baseURL    string
-	authMode   AuthMode
-	tokenCache *TokenCache // nil = use static apiKey
-	httpClient *http.Client
+	apiKey      string
+	model       string
+	baseURL     string
+	authMode    AuthMode
+	tokenCache  *TokenCache // nil = use static apiKey
+	httpClient  *http.Client
+	thinkingOn  bool // enable extended thinking
+	thinkBudget int  // budget_tokens for thinking (0 = use default 10000)
 }
 
 func NewClient(apiKey, model, baseURL string, authMode AuthMode) *Client {
@@ -61,6 +66,12 @@ func (c *Client) SetAuthHelper(helper string) {
 
 func (c *Client) SetModel(model string) { c.model = model }
 func (c *Client) Model() string         { return c.model }
+
+// SetThinking enables extended thinking with the given budget (0 = default 10000).
+func (c *Client) SetThinking(enabled bool, budget int) {
+	c.thinkingOn = enabled
+	c.thinkBudget = budget
+}
 func (c *Client) SetProvider(apiKey, baseURL string, authMode int) {
 	c.apiKey = apiKey
 	c.baseURL = baseURL
@@ -80,6 +91,7 @@ func (c *Client) resolveAPIKey(ctx context.Context) (string, error) {
 func (c *Client) setAuthHeaders(ctx context.Context, h http.Header) error {
 	h.Set("content-type", "application/json")
 	h.Set("anthropic-version", "2023-06-01")
+	h.Set("User-Agent", ceceUserAgent)
 	key, err := c.resolveAPIKey(ctx)
 	if err != nil {
 		return fmt.Errorf("resolve api key: %w", err)
@@ -94,6 +106,8 @@ func (c *Client) setAuthHeaders(ctx context.Context, h http.Header) error {
 }
 
 func (c *Client) Stream(ctx context.Context, messages []chat.Message, system chat.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan chat.ApiStreamEvent, error) {
+	projectedMessages := chat.ProjectMessagesForRequest(messages)
+
 	// Build system blocks for Anthropic wire format
 	var systemBlocks []any
 	for _, block := range system.Blocks {
@@ -107,6 +121,11 @@ func (c *Client) Stream(ctx context.Context, messages []chat.Message, system cha
 		systemBlocks = append(systemBlocks, entry)
 	}
 
+	type thinkingConfig struct {
+		Type         string `json:"type"`
+		BudgetTokens int    `json:"budget_tokens"`
+	}
+
 	payload := struct {
 		Model     string            `json:"model"`
 		MaxTokens int               `json:"max_tokens"`
@@ -114,6 +133,7 @@ func (c *Client) Stream(ctx context.Context, messages []chat.Message, system cha
 		System    []any             `json:"system,omitempty"`
 		Messages  []any             `json:"messages"`
 		Tools     []tool.Definition `json:"tools,omitempty"`
+		Thinking  *thinkingConfig   `json:"thinking,omitempty"`
 	}{
 		Model:     c.model,
 		MaxTokens: maxTokens,
@@ -122,7 +142,15 @@ func (c *Client) Stream(ctx context.Context, messages []chat.Message, system cha
 		Tools:     tools,
 	}
 
-	for _, message := range messages {
+	if c.thinkingOn {
+		budget := c.thinkBudget
+		if budget <= 0 {
+			budget = 10000
+		}
+		payload.Thinking = &thinkingConfig{Type: "enabled", BudgetTokens: budget}
+	}
+
+	for _, message := range projectedMessages {
 		payload.Messages = append(payload.Messages, serializeMessage(message))
 	}
 
@@ -135,28 +163,50 @@ func (c *Client) Stream(ctx context.Context, messages []chat.Message, system cha
 	logger.Debug("api request body", "url", messagesURL, "body", string(body))
 	slog.Info("stream request", "url", messagesURL, "model", c.model, "messages", len(payload.Messages))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, messagesURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	if err := c.setAuthHeaders(ctx, req.Header); err != nil {
-		return nil, fmt.Errorf("set auth headers: %w", err)
+	makeRequest := func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, messagesURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		if err := c.setAuthHeaders(ctx, req.Header); err != nil {
+			return nil, fmt.Errorf("set auth headers: %w", err)
+		}
+		return req, nil
 	}
 
-	resp, err := c.httpClient.Do(req)
+	var invalidate func()
+	if c.tokenCache != nil {
+		invalidate = c.tokenCache.Invalidate
+	}
+
+	resp, err := httpretry.DoWithAuthRefresh(ctx, c.httpClient, makeRequest, httpretry.Options{}, httpretry.AuthRefreshOptions{
+		Invalidate: invalidate,
+	})
 	if err != nil {
-		slog.Error("stream request failed", "error", err)
 		return nil, err
 	}
+
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		raw, _ := io.ReadAll(resp.Body)
-		slog.Error("stream api error", "status", resp.Status, "body", strings.TrimSpace(string(raw)))
-		return nil, fmt.Errorf("anthropic api returned %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+		reqID := extractRequestID(resp)
+		slog.Error("stream api error", "status", resp.Status, "body", strings.TrimSpace(string(raw)), "request_id", reqID)
+		errMsg := fmt.Sprintf("anthropic api returned %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+		if reqID != "" {
+			errMsg += " (" + reqID + ")"
+		}
+		return nil, fmt.Errorf("%s", errMsg)
 	}
 
 	slog.Info("stream connected", "status", resp.StatusCode)
 	return decodeStreamEvent(resp.Body), nil
+}
+
+func extractRequestID(resp *http.Response) string {
+	if id := resp.Header.Get("request-id"); id != "" {
+		return "request_id=" + id
+	}
+	return ""
 }
 
 // serializeMessage converts a chat.Message into the Anthropic wire format.
@@ -200,11 +250,26 @@ func serializeMessage(m chat.Message) any {
 		}
 	}
 
-	// ApiContentBlocks (assistant with text + tool_use)
+	// ApiContentBlocks (assistant with thinking + text + tool_use)
 	if len(m.ContentBlocks) > 0 {
 		var blocks []any
 		for _, cb := range m.ContentBlocks {
 			switch cb.Type {
+			case chat.ApiThinkingContentType:
+				if cb.Thinking != nil {
+					blocks = append(blocks, map[string]any{
+						"type":      "thinking",
+						"thinking":  cb.Thinking.Text,
+						"signature": cb.Thinking.Signature,
+					})
+				}
+			case chat.ApiRedactedThinkingContentType:
+				if cb.Thinking != nil {
+					blocks = append(blocks, map[string]any{
+						"type":      "redacted_thinking",
+						"signature": cb.Thinking.Signature,
+					})
+				}
 			case chat.ApiTextContentType:
 				blocks = append(blocks, textBlock{Type: "text", Text: cb.Text})
 			case chat.ApiToolUseContentType:

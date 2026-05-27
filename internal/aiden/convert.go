@@ -1,28 +1,27 @@
-package openai
+package aiden
 
 import "cece/internal/tool"
 
-type OAITool struct {
+type AidenTool struct {
 	Type     string     `json:"type"`
-	Function OAIToolDef `json:"function"`
+	Function AidenToolDef `json:"function"`
 }
 
-type OAIToolDef struct {
+type AidenToolDef struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	Parameters  map[string]any `json:"parameters"`
 }
 
-// ConvertTools converts Anthropic-format tool definitions to OpenAI function-calling format.
-func ConvertTools(tools []tool.Definition) []OAITool {
+func ConvertTools(tools []tool.Definition) []AidenTool {
 	if len(tools) == 0 {
 		return nil
 	}
-	result := make([]OAITool, 0, len(tools))
+	result := make([]AidenTool, 0, len(tools))
 	for _, t := range tools {
-		result = append(result, OAITool{
+		result = append(result, AidenTool{
 			Type: "function",
-			Function: OAIToolDef{
+			Function: AidenToolDef{
 				Name:        t.Name,
 				Description: t.Description,
 				Parameters:  t.InputSchema,

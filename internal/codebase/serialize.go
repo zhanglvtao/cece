@@ -131,12 +131,19 @@ func serializeMessage(m chat.Message) CodebaseMessage {
 						},
 					})
 				}
-			// ApiThinkingContentType: dropped
+			case chat.ApiThinkingContentType:
+			// ApiRedactedThinkingContentType: dropped (no text to send)
 			}
 		}
+		text := m.Content
 		if len(textParts) > 0 {
-			msg.Content = textContent(strings.Join(textParts, ""))
+			text = strings.Join(textParts, "")
 		}
+		if text == "" && len(msg.ToolCalls) > 0 {
+			msg.Content = []CodebaseContent{}
+			return msg
+		}
+		msg.Content = textContent(text)
 		return msg
 	}
 

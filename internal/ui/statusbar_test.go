@@ -37,3 +37,61 @@ func TestContextGaugeState(t *testing.T) {
 		})
 	}
 }
+
+func TestModeLabel(t *testing.T) {
+	if got := modeLabel("plan"); got != "Plan" {
+		t.Fatalf("modeLabel(plan) = %q, want Plan", got)
+	}
+	if got := modeLabel("auto-accept"); got != "Auto" {
+		t.Fatalf("modeLabel(auto-accept) = %q, want Auto", got)
+	}
+	if got := modeLabel("default"); got != "Default" {
+		t.Fatalf("modeLabel(default) = %q, want Default", got)
+	}
+	if got := modeLabel(""); got != "Default" {
+		t.Fatalf("modeLabel(empty) = %q, want Default", got)
+	}
+}
+
+func TestFormatTokenK(t *testing.T) {
+	tests := []struct {
+		name string
+		in   int
+		want string
+	}{
+		{name: "zero", in: 0, want: "0K"},
+		{name: "under 1K rounds up", in: 999, want: "1K"},
+		{name: "exact K", in: 1000, want: "1K"},
+		{name: "rounds up", in: 1500, want: "2K"},
+		{name: "large", in: 12000, want: "12K"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatTokenK(tt.in); got != tt.want {
+				t.Fatalf("formatTokenK(%d) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStatusLabelShowsSpinnerOnlyWhileRequestingOrStreaming(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+
+	m.status = "Ready"
+	if got := m.statusLabel(); got != "Ready" {
+		t.Fatalf("statusLabel ready = %q, want Ready", got)
+	}
+
+	m.status = "Requesting"
+	m.statusFrame = 0
+	if got, want := m.statusLabel(), "- Requesting"; got != want {
+		t.Fatalf("statusLabel requesting = %q, want %q", got, want)
+	}
+
+	m.status = "Streaming"
+	m.statusFrame = 1
+	if got, want := m.statusLabel(), "\\ Streaming"; got != want {
+		t.Fatalf("statusLabel streaming = %q, want %q", got, want)
+	}
+}
