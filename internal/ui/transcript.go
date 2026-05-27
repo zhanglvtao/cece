@@ -195,9 +195,9 @@ func (t *transcript) apply(event protocol.Event) {
 		beforeOutput = strings.TrimSuffix(beforeOutput, "running...")
 		beforeOutput = strings.TrimRight(beforeOutput, "\n")
 		if beforeOutput == "" {
-			t.blocks[idx].text = prefix + ": " + result
+			t.blocks[idx].text = prefix + ":\n" + result
 		} else {
-			t.blocks[idx].text = beforeOutput + "\n---\n" + prefix + ": " + result
+			t.blocks[idx].text = beforeOutput + "\n---\n" + prefix + ":\n" + result
 		}
 		t.blocks[idx].done = true
 	case protocol.PlanApprovalRequested:
