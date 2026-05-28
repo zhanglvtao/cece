@@ -381,6 +381,10 @@ func (m *Model) View() tea.View {
 	if queued != "" {
 		sections = append(sections, queued)
 	}
+	// Add a blank line between headline/queued and the input box
+	if headline != "" || queued != "" {
+		sections = append(sections, "")
+	}
 	sections = append(sections, m.inputView())
 	statusBarView := m.statusBar.Render(m.width)
 	if statusBarView != "" {
@@ -414,6 +418,12 @@ func (m *Model) View() tea.View {
 		}
 		if headline != "" {
 			rowsAboveInput += strings.Count(headline, "\n") + 1
+		}
+		if queued != "" {
+			rowsAboveInput += strings.Count(queued, "\n") + 1
+		}
+		if headline != "" || queued != "" {
+			rowsAboveInput++ // blank separator line before input
 		}
 		cur.Y += rowsAboveInput + m.styles.Input.Box.GetBorderTopSize() + m.styles.Input.Box.GetPaddingTop()
 		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft()
