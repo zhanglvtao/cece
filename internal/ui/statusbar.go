@@ -104,10 +104,9 @@ func (sb *StatusBar) Render(width int) string {
 	}
 
 	// tokens + cache
-	cacheTotal := sb.cacheReadTokens + sb.cacheCreationTokens
-	tokenPart := fmt.Sprintf("in/out/cache:%s/%s/%s", formatTokenK(sb.inputTokens), formatTokenK(sb.outputTokens), formatTokenK(cacheTotal))
-	if cacheTotal > 0 {
-		hitRate := sb.cacheReadTokens * 100 / cacheTotal
+	tokenPart := fmt.Sprintf("in/out/cache:%s/%s/%s", formatTokenK(sb.inputTokens), formatTokenK(sb.outputTokens), formatTokenK(sb.cacheReadTokens))
+	if sb.inputTokens > 0 && (sb.cacheReadTokens > 0 || sb.cacheCreationTokens > 0) {
+		hitRate := sb.cacheReadTokens * 100 / sb.inputTokens
 		tokenPart += fmt.Sprintf(" %d%%", hitRate)
 	}
 	parts = append(parts, tokenPart)

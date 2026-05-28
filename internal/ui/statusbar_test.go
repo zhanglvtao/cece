@@ -47,8 +47,8 @@ func TestStatusBarCacheHitRate(t *testing.T) {
 	sb.UpdateCache(8000, 2000)
 
 	got := sb.Render(120)
-	if !strings.Contains(got, "in/out/cache:10K/2K/10K") {
-		t.Fatalf("missing cache total: %q", got)
+	if !strings.Contains(got, "in/out/cache:10K/2K/8K") {
+		t.Fatalf("missing cache read tokens: %q", got)
 	}
 	if !strings.Contains(got, " 80%") {
 		t.Fatalf("missing cache hit rate: %q", got)

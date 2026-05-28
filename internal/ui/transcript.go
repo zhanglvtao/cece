@@ -113,7 +113,10 @@ func (t *transcript) apply(event protocol.Event) {
 		t.cacheReadTokens += e.CacheReadTokens
 		t.cacheCreationTokens += e.CacheCreationTokens
 		if e.CacheReadTokens > 0 || e.CacheCreationTokens > 0 {
-			total := e.CacheReadTokens + e.CacheCreationTokens
+			total := e.InputTokens
+			if total == 0 {
+				total = e.CacheReadTokens + e.CacheCreationTokens
+			}
 			hitRate := e.CacheReadTokens * 100 / total
 			t.appendDone(blockInfo, "cache", fmt.Sprintf("hit %dK/%dK (%d%%)", (e.CacheReadTokens+999)/1000, (total+999)/1000, hitRate))
 		}
