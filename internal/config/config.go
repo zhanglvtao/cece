@@ -70,7 +70,8 @@ type Config struct {
 	Debug               bool
 	Yolo                bool
 	MaxTokens           int
-	ModelContextMapping map[string]int // model ID -> max context window
+	DefaultMode         string           // "default", "auto-accept", or "plan"
+	ModelContextMapping map[string]int   // model ID -> max context window
 	Providers           []ProviderConfig
 	ToolResult          ToolResultConfig
 	MCP                 MCPs
@@ -80,6 +81,7 @@ type settingsFile struct {
 	Provider struct {
 		Model               string           `json:"model"`
 		MaxTokens           int              `json:"maxTokens"`
+		DefaultMode         string           `json:"defaultMode"` // "default", "auto-accept", or "plan"
 		ModelContextMapping map[string]int   `json:"modelContextMapping"`
 		Providers           []ProviderConfig `json:"providers"`
 	} `json:"provider"`
@@ -102,25 +104,20 @@ func Load(projectDir string) (Config, error) {
 		ToolResult: defaultToolResultConfig(),
 	}
 
-	path, data := findSettingsFile(projectDir)
-	if data != nil {
-		var sf settingsFile
-		if err := json.Unmarshal(data, &sf); err != nil {
-			return Config{}, fmt.Errorf("parse %s: %w", path, err)
-		}
-		cfg.Model = strings.TrimSpace(sf.Provider.Model)
-		cfg.MaxTokens = sf.Provider.MaxTokens
-		cfg.ModelContextMapping = sf.Provider.ModelContextMapping
-		cfg.Providers = sf.Provider.Providers
-		cfg.Debug = sf.Debug.Enabled
-		cfg.Yolo = sf.Yolo.Enabled
-		cfg.ToolResult = ToolResultConfig{
-			InlineMaxLines: sf.ToolResult.InlineMaxLines,
-			HeadLines:      sf.ToolResult.HeadLines,
-			TailLines:      sf.ToolResult.TailLines,
-		}
-		cfg.MCP = sf.MCP
+	sf := loadSettingsFiles(projectDir)
+	cfg.Model = strings.TrimSpace(sf.Provider.Model)
+	cfg.MaxTokens = sf.Provider.MaxTokens
+	cfg.DefaultMode = sf.Provider.DefaultMode
+	cfg.ModelContextMapping = sf.Provider.ModelContextMapping
+	cfg.Providers = sf.Provider.Providers
+	cfg.Debug = sf.Debug.Enabled
+	cfg.Yolo = sf.Yolo.Enabled
+	cfg.ToolResult = ToolResultConfig{
+		InlineMaxLines: sf.ToolResult.InlineMaxLines,
+		HeadLines:      sf.ToolResult.HeadLines,
+		TailLines:      sf.ToolResult.TailLines,
 	}
+	cfg.MCP = sf.MCP
 	cfg.ToolResult = normalizeToolResultConfig(cfg.ToolResult)
 
 	if v := os.Getenv("ZLAUDE_YOLO"); v == "1" || v == "true" {
@@ -162,22 +159,103 @@ func Load(projectDir string) (Config, error) {
 	return cfg, nil
 }
 
-// findSettingsFile returns the path and contents of the settings file.
-// It first tries the project-level path, then falls back to ~/.cece/settings.json.
-func findSettingsFile(projectDir string) (string, []byte) {
+// loadSettingsFiles reads both project-level and user-level settings files,
+// then merges them per-field with project taking priority.
+func loadSettingsFiles(projectDir string) settingsFile {
+	var project, user settingsFile
+
 	projectPath := filepath.Join(projectDir, settingsRelPath)
 	if data, err := os.ReadFile(projectPath); err == nil {
-		return projectPath, data
+		json.Unmarshal(data, &project) //nolint:errcheck // best-effort, validated later
 	}
+
 	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", nil
+	if err == nil {
+		globalPath := filepath.Join(home, settingsRelPath)
+		if data, err := os.ReadFile(globalPath); err == nil {
+			json.Unmarshal(data, &user) //nolint:errcheck // best-effort
+		}
 	}
-	globalPath := filepath.Join(home, settingsRelPath)
-	if data, err := os.ReadFile(globalPath); err == nil {
-		return globalPath, data
+
+	return mergeSettings(project, user)
+}
+
+// mergeSettings combines two settingsFile values per-field.
+// Project takes priority; user fills in missing fields.
+func mergeSettings(project, user settingsFile) settingsFile {
+	var out settingsFile
+
+	// Provider: scalar fields — project wins if non-zero
+	if strings.TrimSpace(project.Provider.Model) != "" {
+		out.Provider.Model = project.Provider.Model
+	} else {
+		out.Provider.Model = user.Provider.Model
 	}
-	return "", nil
+	if project.Provider.MaxTokens != 0 {
+		out.Provider.MaxTokens = project.Provider.MaxTokens
+	} else {
+		out.Provider.MaxTokens = user.Provider.MaxTokens
+	}
+	if strings.TrimSpace(project.Provider.DefaultMode) != "" {
+		out.Provider.DefaultMode = project.Provider.DefaultMode
+	} else {
+		out.Provider.DefaultMode = user.Provider.DefaultMode
+	}
+
+	// ModelContextMapping: merge maps, project keys win
+	out.Provider.ModelContextMapping = mergeMap(project.Provider.ModelContextMapping, user.Provider.ModelContextMapping)
+
+	// Providers: project wins if non-empty, otherwise user
+	if len(project.Provider.Providers) > 0 {
+		out.Provider.Providers = project.Provider.Providers
+	} else {
+		out.Provider.Providers = user.Provider.Providers
+	}
+
+	// Debug: project wins if explicitly enabled
+	if project.Debug.Enabled {
+		out.Debug.Enabled = true
+	} else {
+		out.Debug.Enabled = user.Debug.Enabled
+	}
+
+	// Yolo: project wins if explicitly enabled
+	if project.Yolo.Enabled {
+		out.Yolo.Enabled = true
+	} else {
+		out.Yolo.Enabled = user.Yolo.Enabled
+	}
+
+	// ToolResult: per-field, project wins if non-zero
+	out.ToolResult.InlineMaxLines = nonZeroInt(project.ToolResult.InlineMaxLines, user.ToolResult.InlineMaxLines)
+	out.ToolResult.HeadLines = nonZeroInt(project.ToolResult.HeadLines, user.ToolResult.HeadLines)
+	out.ToolResult.TailLines = nonZeroInt(project.ToolResult.TailLines, user.ToolResult.TailLines)
+
+	// MCP: merge maps, project keys win
+	out.MCP = mergeMap(project.MCP, user.MCP)
+
+	return out
+}
+
+func nonZeroInt(a, b int) int {
+	if a != 0 {
+		return a
+	}
+	return b
+}
+
+func mergeMap[K comparable, V any](a, b map[K]V) map[K]V {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	out := make(map[K]V, len(b)+len(a))
+	for k, v := range b {
+		out[k] = v
+	}
+	for k, v := range a {
+		out[k] = v
+	}
+	return out
 }
 
 func defaultToolResultConfig() ToolResultConfig {

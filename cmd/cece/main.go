@@ -206,6 +206,11 @@ func main() {
 		return "", "", "", "", ""
 	}
 
+	// Apply default mode from config
+	if cfg.DefaultMode != "" {
+		eng.Do(protocol.SetPermissionModeAction{Mode: protocol.PermissionMode(cfg.DefaultMode)})
+	}
+
 	// Inject multi-provider model listing
 	listAllModelsFn := func(ctx context.Context) ([]protocol.ModelInfo, error) {
 		var allModels []protocol.ModelInfo
@@ -282,6 +287,7 @@ func main() {
 
 	mediator := engine.NewEngineMediator(eng, store, providerResolver, createClientFn, listAllModelsFn, mcpMgr)
 	model := ui.NewModel(mediator, cfg.Model, projectDir, contextWindow)
+	model.SetDefaultMode(cfg.DefaultMode)
 	model.SetSessions(store)
 	model.SetSkillStore(skillStore)
 

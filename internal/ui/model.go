@@ -124,6 +124,13 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 
 func (m *Model) SetSessions(store session.Store) { m.sessions = store }
 
+// SetDefaultMode sets the initial permission mode from config.
+func (m *Model) SetDefaultMode(mode string) {
+	if mode != "" {
+		m.mode = protocol.PermissionMode(mode)
+	}
+}
+
 func (m *Model) SetSkillStore(store *skill.Store) {
 	m.skillStore = store
 	if store != nil {
