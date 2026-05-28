@@ -40,10 +40,15 @@ type FunctionDelta struct {
 	Arguments string `json:"arguments"`
 }
 
+type PromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int                 `json:"prompt_tokens"`
+	CompletionTokens    int                 `json:"completion_tokens"`
+	TotalTokens         int                 `json:"total_tokens"`
+	PromptTokensDetails PromptTokensDetails `json:"prompt_tokens_details"`
 }
 
 type ResponsesEvent struct {
@@ -67,10 +72,20 @@ type ResponsesPayload struct {
 	Usage  ResponsesUsage `json:"usage"`
 }
 
+type InputTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
+type InputTokenDetails struct {
+	CacheRead int `json:"cache_read"`
+}
+
 type ResponsesUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens      int               `json:"input_tokens"`
+	OutputTokens     int               `json:"output_tokens"`
+	TotalTokens      int               `json:"total_tokens"`
+	InputTokensDetails InputTokensDetails `json:"input_tokens_details"`
+	InputTokenDetails  InputTokenDetails  `json:"input_token_details"`
 }
 
 type parserState struct {
@@ -213,7 +228,11 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- chat.ApiStreamEvent, s
 			stopReason = "tool_use"
 		}
 		if event.Response.Usage.InputTokens > 0 {
-			out <- chat.ApiStreamEvent{EventType: "message_start", InputTokens: event.Response.Usage.InputTokens}
+			cacheRead := event.Response.Usage.InputTokensDetails.CachedTokens
+			if cacheRead == 0 {
+				cacheRead = event.Response.Usage.InputTokenDetails.CacheRead
+			}
+			out <- chat.ApiStreamEvent{EventType: "message_start", InputTokens: event.Response.Usage.InputTokens, CacheReadTokens: cacheRead}
 		}
 		out <- chat.ApiStreamEvent{
 			EventType:    "message_delta",
@@ -332,8 +351,9 @@ func emitChunk(chunk *Chunk, out chan<- chat.ApiStreamEvent, state *parserState)
 
 		if chunk.Usage.PromptTokens > 0 {
 			out <- chat.ApiStreamEvent{
-				EventType:   "message_start",
-				InputTokens: chunk.Usage.PromptTokens,
+				EventType:       "message_start",
+				InputTokens:     chunk.Usage.PromptTokens,
+				CacheReadTokens: chunk.Usage.PromptTokensDetails.CachedTokens,
 			}
 		}
 

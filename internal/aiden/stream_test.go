@@ -347,3 +347,75 @@ func TestMapStopReason(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeCachedTokensChatCompletions(t *testing.T) {
+	body := sseBody(
+		`data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"}}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`,
+		``,
+		`data: {"id":"2","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":12000,"completion_tokens":5,"total_tokens":12005,"prompt_tokens_details":{"cached_tokens":9000}}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var cacheRead int
+	for _, e := range events {
+		if e.EventType == "message_start" && e.InputTokens > 0 {
+			cacheRead = e.CacheReadTokens
+		}
+	}
+	if cacheRead != 9000 {
+		t.Errorf("expected CacheReadTokens=9000, got %d", cacheRead)
+	}
+}
+
+func TestDecodeCachedTokensResponsesAPI(t *testing.T) {
+	body := sseBody(
+		`data: {"type":"response.created"}`,
+		``,
+		`data: {"type":"response.output_text.delta","delta":"hi"}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":12000,"output_tokens":3,"total_tokens":12003,"input_tokens_details":{"cached_tokens":7500}}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var cacheRead int
+	for _, e := range events {
+		if e.EventType == "message_start" && e.InputTokens > 0 {
+			cacheRead = e.CacheReadTokens
+		}
+	}
+	if cacheRead != 7500 {
+		t.Errorf("expected CacheReadTokens=7500, got %d", cacheRead)
+	}
+}
+
+func TestDecodeCachedTokensAidenNormalized(t *testing.T) {
+	body := sseBody(
+		`data: {"type":"response.created"}`,
+		``,
+		`data: {"type":"response.output_text.delta","delta":"hi"}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":12000,"output_tokens":3,"total_tokens":12003,"input_token_details":{"cache_read":6000}}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var cacheRead int
+	for _, e := range events {
+		if e.EventType == "message_start" && e.InputTokens > 0 {
+			cacheRead = e.CacheReadTokens
+		}
+	}
+	if cacheRead != 6000 {
+		t.Errorf("expected CacheReadTokens=6000, got %d", cacheRead)
+	}
+}

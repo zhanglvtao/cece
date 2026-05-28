@@ -32,11 +32,26 @@ func TestStatusBarRender(t *testing.T) {
 	if !strings.Contains(got, "Read:1") {
 		t.Fatalf("missing Read:1: %q", got)
 	}
-	if !strings.Contains(got, "in/out:5K") {
+	if !strings.Contains(got, "in/out/cache:5K") {
 		t.Fatalf("missing tokens: %q", got)
 	}
 	if !strings.Contains(got, "ctx:") {
 		t.Fatalf("missing context: %q", got)
+	}
+}
+
+func TestStatusBarCacheHitRate(t *testing.T) {
+	sb := NewStatusBar()
+	sb.UpdateModel("sonnet")
+	sb.UpdateTokens(10000, 2000)
+	sb.UpdateCache(8000, 2000)
+
+	got := sb.Render(120)
+	if !strings.Contains(got, "in/out/cache:10K/2K/10K") {
+		t.Fatalf("missing cache total: %q", got)
+	}
+	if !strings.Contains(got, " 80%") {
+		t.Fatalf("missing cache hit rate: %q", got)
 	}
 }
 
