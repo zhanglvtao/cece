@@ -1,6 +1,10 @@
 bin/
 .cece/
 .claude/
+.aiden/
+.superpowers/
 cece
 cece-bin
 cece-test
+*.test
+*.exe
