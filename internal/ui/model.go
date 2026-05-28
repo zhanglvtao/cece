@@ -190,7 +190,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBar.TickStatusSpinner()
 		return m, statusSpinnerTickCmd()
 	case filesLoadedMsg:
-		m.filePopup.OnFilesLoaded()
+		m.filePopup.OnFilesLoaded(msg.root)
 		return m, nil
 	case globalEventMsg:
 		for _, ev := range msg.events {
@@ -642,11 +642,13 @@ func (m *Model) handleFilePopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.input, cmd = m.input.Update(msg)
 
 	// Update popup filter or close if no longer matching.
-	spec := parseAtSpec(m.input.Value())
+	spec := parseAtSpec(m.input.Value(), m.projectDir)
 	if !spec.Active {
 		m.filePopup.Close()
 	} else {
-		m.filePopup.UpdateFilter(spec)
+		if loadCmd := m.filePopup.UpdateFilter(spec); loadCmd != nil {
+			return m, tea.Batch(cmd, loadCmd)
+		}
 	}
 
 	return m, cmd
@@ -655,7 +657,7 @@ func (m *Model) handleFilePopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // checkFilePopup opens the file popup when the user types @.
 func (m *Model) checkFilePopup(msg tea.KeyPressMsg) tea.Cmd {
 	if msg.String() == "@" && !m.filePopup.Active() && !m.slashPopup.Active() {
-		spec := parseAtSpec(m.input.Value())
+		spec := parseAtSpec(m.input.Value(), m.projectDir)
 		if spec.Active {
 			return m.filePopup.Open(spec)
 		}
@@ -663,11 +665,11 @@ func (m *Model) checkFilePopup(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	// Update filter if file popup is active
 	if m.filePopup.Active() {
-		spec := parseAtSpec(m.input.Value())
+		spec := parseAtSpec(m.input.Value(), m.projectDir)
 		if !spec.Active {
 			m.filePopup.Close()
 		} else {
-			m.filePopup.UpdateFilter(spec)
+			return m.filePopup.UpdateFilter(spec)
 		}
 	}
 	return nil
@@ -676,7 +678,7 @@ func (m *Model) checkFilePopup(msg tea.KeyPressMsg) tea.Cmd {
 // insertFileCompletion replaces the @query in the input with the selected file path.
 func (m *Model) insertFileCompletion(path string) {
 	value := m.input.Value()
-	spec := parseAtSpec(value)
+	spec := parseAtSpec(value, m.projectDir)
 	if !spec.Active {
 		return
 	}

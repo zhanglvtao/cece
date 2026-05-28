@@ -9,10 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const (
-	walkerMaxDepth = 8
-	walkerMaxFiles = 2000
-)
+const walkerMaxFiles = 5000
 
 var skipDirs = map[string]bool{
 	".git":         true,
@@ -21,55 +18,63 @@ var skipDirs = map[string]bool{
 	"__pycache__":  true,
 	".svn":         true,
 	".hg":          true,
-	"dist":         true,
-	"build":        true,
-	"out":          true,
 	".next":        true,
 	".nuxt":        true,
-	"target":       true,
 	".cache":       true,
 }
 
 // filesLoadedMsg is sent when the file walker finishes scanning.
-type filesLoadedMsg struct{ files []string }
+type filesLoadedMsg struct {
+	key  string // "project" or the expanded abs path
+	root string // the absolute root that was walked
+}
 
-// FileWalker scans a project directory and caches the file list.
+// FileWalker scans directories and caches file lists per root.
 type FileWalker struct {
 	projectDir string
-	files      []string
-	loaded     bool
+	cache      map[string][]string // abs root -> relative paths
+	loaded     map[string]bool
 	mu         sync.RWMutex
 }
 
 // NewFileWalker creates a new FileWalker for the given project directory.
 func NewFileWalker(projectDir string) *FileWalker {
-	return &FileWalker{projectDir: projectDir}
-}
-
-// Load starts an async walk of the project directory.
-func (w *FileWalker) Load() tea.Cmd {
-	return func() tea.Msg {
-		files := walkDir(w.projectDir)
-		w.mu.Lock()
-		w.files = files
-		w.loaded = true
-		w.mu.Unlock()
-		return filesLoadedMsg{files: files}
+	return &FileWalker{
+		projectDir: projectDir,
+		cache:      make(map[string][]string),
+		loaded:     make(map[string]bool),
 	}
 }
 
-// Files returns the cached file list (relative paths).
-func (w *FileWalker) Files() []string {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.files
+// LoadProject starts an async walk of the project directory.
+func (w *FileWalker) LoadProject() tea.Cmd {
+	return w.Load(w.projectDir, "project")
 }
 
-// Loaded returns whether the file list has been loaded.
-func (w *FileWalker) Loaded() bool {
+// Load starts an async walk of an arbitrary directory.
+func (w *FileWalker) Load(absRoot, key string) tea.Cmd {
+	return func() tea.Msg {
+		files := walkDir(absRoot)
+		w.mu.Lock()
+		w.cache[absRoot] = files
+		w.loaded[absRoot] = true
+		w.mu.Unlock()
+		return filesLoadedMsg{key: key, root: absRoot}
+	}
+}
+
+// Files returns the cached file list for the given root.
+func (w *FileWalker) Files(absRoot string) []string {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	return w.loaded
+	return w.cache[absRoot]
+}
+
+// Loaded returns whether the file list for the given root has been loaded.
+func (w *FileWalker) Loaded(absRoot string) bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.loaded[absRoot]
 }
 
 func walkDir(root string) []string {
@@ -79,19 +84,12 @@ func walkDir(root string) []string {
 			return nil
 		}
 		if info.IsDir() {
-			rel, _ := filepath.Rel(root, path)
-			relStr := filepath.ToSlash(rel)
-			base := filepath.Base(relStr)
+			base := filepath.Base(path)
 			if skipDirs[base] {
 				return filepath.SkipDir
 			}
 			// Skip hidden dirs
 			if len(base) > 1 && base[0] == '.' {
-				return filepath.SkipDir
-			}
-			// Depth limit
-			depth := strings.Count(relStr, "/")
-			if depth >= walkerMaxDepth {
 				return filepath.SkipDir
 			}
 			return nil

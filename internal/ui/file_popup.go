@@ -2,17 +2,20 @@ package ui
 
 import (
 	"path/filepath"
-	"strings"
 
 	"cece/internal/ui/picker"
 	tea "charm.land/bubbletea/v2"
 )
 
-const filePopupMaxHeight = 10
+const (
+	filePopupMaxHeight = 10
+	filePopupMaxItems  = 50 // max items to show in picker
+)
 
 // fileEntry is a single file candidate.
 type fileEntry struct {
-	path string
+	path     string // display path
+	FullPath string // absolute or insertion path
 }
 
 // FilePopup wraps a compact Picker for @ file completion.
@@ -36,8 +39,8 @@ func (p *FilePopup) Open(spec atSpec) tea.Cmd {
 	p.open = true
 	p.spec = spec
 	var cmd tea.Cmd
-	if !p.walker.Loaded() {
-		cmd = p.walker.Load()
+	if !p.walker.Loaded(spec.AbsRoot) {
+		cmd = p.walker.Load(spec.AbsRoot, spec.AbsRoot)
 	}
 	p.buildPicker()
 	p.picker.SetFilter(spec.FileName)
@@ -67,7 +70,7 @@ func (p *FilePopup) SelectDown() {
 	}
 }
 
-// SelectedFile returns the currently selected file path.
+// SelectedFile returns the currently selected file path (the insertion text).
 func (p *FilePopup) SelectedFile() (string, bool) {
 	if p.picker == nil {
 		return "", false
@@ -80,13 +83,23 @@ func (p *FilePopup) SelectedFile() (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return e.path, true
+	return e.FullPath, true
 }
 
 // UpdateFilter sets the filter query and rebuilds the filtered list.
-func (p *FilePopup) UpdateFilter(spec atSpec) {
+func (p *FilePopup) UpdateFilter(spec atSpec) tea.Cmd {
 	if p.picker == nil {
-		return
+		return nil
+	}
+	// If root changed, need to load new directory
+	if spec.AbsRoot != p.spec.AbsRoot {
+		p.spec = spec
+		if !p.walker.Loaded(spec.AbsRoot) {
+			return p.walker.Load(spec.AbsRoot, spec.AbsRoot)
+		}
+		p.buildPicker()
+		p.picker.SetFilter(spec.FileName)
+		return nil
 	}
 	p.spec = spec
 	p.rebuildEntries()
@@ -96,11 +109,12 @@ func (p *FilePopup) UpdateFilter(spec atSpec) {
 	}
 	p.picker.SetItems(items)
 	p.picker.SetFilter(spec.FileName)
+	return nil
 }
 
 // OnFilesLoaded is called when the async file walk completes.
-func (p *FilePopup) OnFilesLoaded() {
-	if p.open {
+func (p *FilePopup) OnFilesLoaded(root string) {
+	if p.open && p.spec.AbsRoot == root {
 		p.buildPicker()
 		p.picker.SetFilter(p.spec.FileName)
 	}
@@ -120,31 +134,39 @@ func (p *FilePopup) buildPicker() {
 	pk.SetCompact(true)
 	pk.SetFilterFn(func(item any, q string) bool {
 		e := item.(fileEntry)
-		return fileMatches(e, p.spec.BaseDir, q)
+		return fileMatches(e, q)
 	})
 	p.picker = pk
 }
 
-// rebuildEntries rebuilds the entry list from the walker cache,
-// filtered by the current spec's BaseDir.
+// rebuildEntries rebuilds the entry list from the walker cache.
 func (p *FilePopup) rebuildEntries() {
-	files := p.walker.Files()
-	baseDir := p.spec.BaseDir
+	files := p.walker.Files(p.spec.AbsRoot)
 	var entries []fileEntry
 	for _, f := range files {
-		if baseDir != "" && !strings.HasPrefix(f, baseDir) {
-			continue
+		// Build display path and full insertion path
+		var displayPath, fullPath string
+		if p.spec.IsAbs {
+			// For absolute paths, show relative to the baseDir
+			displayPath = f
+			fullPath = p.spec.BaseDir + f
+		} else if p.spec.BaseDir != "" {
+			displayPath = f
+			fullPath = p.spec.BaseDir + f
+		} else {
+			displayPath = f
+			fullPath = f
 		}
-		entries = append(entries, fileEntry{path: f})
+		entries = append(entries, fileEntry{path: displayPath, FullPath: fullPath})
+		if len(entries) >= filePopupMaxItems {
+			break
+		}
 	}
 	p.entries = entries
 }
 
-// fileMatches checks if a fileEntry matches the baseDir prefix and fileName filter.
-func fileMatches(e fileEntry, baseDir, fileNameQuery string) bool {
-	if baseDir != "" && !strings.HasPrefix(e.path, baseDir) {
-		return false
-	}
+// fileMatches checks if a fileEntry matches the fileName filter.
+func fileMatches(e fileEntry, fileNameQuery string) bool {
 	if fileNameQuery == "" {
 		return true
 	}
@@ -158,7 +180,7 @@ func (p *FilePopup) View(_ int) string {
 	if !p.open || p.picker == nil {
 		return ""
 	}
-	if !p.walker.Loaded() {
+	if !p.walker.Loaded(p.spec.AbsRoot) {
 		return "  Loading files..."
 	}
 	if len(p.entries) == 0 {
@@ -172,7 +194,7 @@ func (p *FilePopup) Height() int {
 	if !p.open {
 		return 0
 	}
-	if !p.walker.Loaded() {
+	if !p.walker.Loaded(p.spec.AbsRoot) {
 		return 1
 	}
 	if p.picker == nil {
