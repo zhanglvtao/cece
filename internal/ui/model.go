@@ -67,6 +67,7 @@ type Model struct {
 	input       textarea.Model
 	modal       modalState
 	slashPopup  *SlashPopup
+	filePopup   *FilePopup
 	statusBar   *StatusBar
 
 	sessions                session.Store
@@ -112,6 +113,7 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 		status:        "Ready",
 		styles:        styles,
 		slashPopup:   NewSlashPopup(styles),
+		filePopup:    NewFilePopup(projectDir),
 		transcript:   newTranscript(),
 		viewport:     viewport.New(viewport.WithWidth(80), viewport.WithHeight(20)),
 		input:        input,
@@ -187,6 +189,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusFrame++
 		m.statusBar.TickStatusSpinner()
 		return m, statusSpinnerTickCmd()
+	case filesLoadedMsg:
+		m.filePopup.OnFilesLoaded()
+		return m, nil
 	case globalEventMsg:
 		for _, ev := range msg.events {
 			m.applyEvent(ev)
@@ -205,6 +210,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		m.checkSlashPopup()
+		m.filePopup.Close()
 		return m, cmd
 	case tea.MouseWheelMsg:
 		var cmd tea.Cmd
@@ -343,6 +349,10 @@ func (m *Model) View() tea.View {
 	if popup != "" {
 		sections = append(sections, popup)
 	}
+	filePopupView := m.filePopup.View(m.width)
+	if filePopupView != "" {
+		sections = append(sections, filePopupView)
+	}
 	// Headline indicator: show latest assistant text above input during streaming
 	if headline := m.headlineView(); headline != "" {
 		sections = append(sections, headline)
@@ -375,6 +385,9 @@ func (m *Model) View() tea.View {
 		if popup != "" {
 			rowsAboveInput += strings.Count(popup, "\n") + 1
 		}
+		if filePopupView != "" {
+			rowsAboveInput += strings.Count(filePopupView, "\n") + 1
+		}
 		cur.Y += rowsAboveInput + m.styles.Input.Box.GetBorderTopSize() + m.styles.Input.Box.GetPaddingTop()
 		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft()
 		view.Cursor = cur
@@ -395,6 +408,9 @@ func (m *Model) resize() {
 	popupH := 0
 	if m.slashPopup.Active() {
 		popupH = m.slashPopup.Height()
+	}
+	if m.filePopup.Active() {
+		popupH += m.filePopup.Height()
 	}
 	inputH := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
 	// Update scroll cell in statusbar before layout
@@ -488,6 +504,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSlashPopupKey(msg)
 	}
 
+	// File popup key handling when active.
+	if m.filePopup.Active() {
+		return m.handleFilePopupKey(msg)
+	}
+
 	switch msg.String() {
 	case "ctrl+c":
 		if m.busy {
@@ -530,8 +551,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 
-	// After any input change, check if we should open the slash popup.
+	// After any input change, check if we should open the slash popup or file popup.
 	m.checkSlashPopup()
+	if fileCmd := m.checkFilePopup(msg); fileCmd != nil {
+		return m, tea.Batch(cmd, fileCmd)
+	}
 
 	return m, cmd
 }
@@ -587,6 +611,83 @@ func (m *Model) checkSlashPopup() {
 			m.slashPopup.UpdateFilter(spec.Query)
 		}
 	}
+}
+
+// handleFilePopupKey handles key events when the file (@) popup is active.
+func (m *Model) handleFilePopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "up":
+		m.filePopup.SelectUp()
+		return m, nil
+	case "down":
+		m.filePopup.SelectDown()
+		return m, nil
+	case "esc":
+		m.filePopup.Close()
+		return m, nil
+	case "tab", "enter":
+		if path, ok := m.filePopup.SelectedFile(); ok {
+			m.insertFileCompletion(path)
+			m.filePopup.Close()
+		}
+		return m, nil
+	case "space":
+		m.filePopup.Close()
+		// Fall through to insert space into textarea.
+	}
+
+	// For all other keys, pass to textarea.
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+
+	// Update popup filter or close if no longer matching.
+	spec := parseAtSpec(m.input.Value())
+	if !spec.Active {
+		m.filePopup.Close()
+	} else {
+		m.filePopup.UpdateFilter(spec)
+	}
+
+	return m, cmd
+}
+
+// checkFilePopup opens the file popup when the user types @.
+func (m *Model) checkFilePopup(msg tea.KeyPressMsg) tea.Cmd {
+	if msg.String() == "@" && !m.filePopup.Active() && !m.slashPopup.Active() {
+		spec := parseAtSpec(m.input.Value())
+		if spec.Active {
+			return m.filePopup.Open(spec)
+		}
+		return nil
+	}
+	// Update filter if file popup is active
+	if m.filePopup.Active() {
+		spec := parseAtSpec(m.input.Value())
+		if !spec.Active {
+			m.filePopup.Close()
+		} else {
+			m.filePopup.UpdateFilter(spec)
+		}
+	}
+	return nil
+}
+
+// insertFileCompletion replaces the @query in the input with the selected file path.
+func (m *Model) insertFileCompletion(path string) {
+	value := m.input.Value()
+	spec := parseAtSpec(value)
+	if !spec.Active {
+		return
+	}
+	// Replace from @ position to end of query with @path
+	endIdx := spec.StartIdx + 1 + len(spec.Query)
+	if endIdx > len(value) {
+		endIdx = len(value)
+	}
+	newValue := value[:spec.StartIdx] + "@" + path + " " + value[endIdx:]
+	m.input.SetValue(newValue)
+	m.input.CursorEnd()
 }
 
 func (m *Model) handleChatScrollKey(msg tea.KeyPressMsg) bool {
