@@ -250,6 +250,7 @@ func (s *FileStore) UpdateMeta(_ context.Context, sessionID string, meta Session
 	sess.LastInputTokens = meta.LastInputTokens
 	sess.TotalInputTokens = meta.TotalInputTokens
 	sess.TotalOutputTokens = meta.TotalOutputTokens
+	sess.StatusBar = meta.StatusBar
 	sess.UpdatedAt = time.Now()
 	return s.writeMeta(sess)
 }

@@ -12,12 +12,14 @@ import (
 
 // modelResponse holds the result of a single model stream invocation.
 type modelResponse struct {
-	stopReason     string
-	inputTokens    int
-	outputTokens   int
-	toolCalls      []ApiToolUseBlock // non-empty when stopReason == "tool_use"
-	textContent    string            // assistant text reply
-	thinkingBlocks []ApiContentBlock // thinking + redacted_thinking blocks
+	stopReason        string
+	inputTokens       int
+	outputTokens      int
+	toolCalls         []ApiToolUseBlock // non-empty when stopReason == "tool_use"
+	textContent       string            // assistant text reply
+	thinkingBlocks    []ApiContentBlock // thinking + redacted_thinking blocks
+	cacheReadTokens   int               // cache read tokens from this stream
+	cacheCreationTokens int             // cache creation tokens from this stream
 }
 
 // toolCallState tracks incremental assembly of a tool_use block across SSE events.
@@ -95,6 +97,8 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			if s.onInputTokens != nil {
 				s.onInputTokens(resp.inputTokens)
 			}
+			resp.cacheReadTokens = chunk.CacheReadTokens
+			resp.cacheCreationTokens = chunk.CacheCreationTokens
 			var toolNames []string
 			for _, def := range tools {
 				toolNames = append(toolNames, def.Name)

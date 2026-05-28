@@ -31,6 +31,7 @@ type ModelRequestStarted struct {
 	Reason               string   // "user" or "tool_result"
 	ToolResults          []string // tool result names (when Reason="tool_result")
 	EstimatedInputTokens int      // locally estimated input tokens
+	APICalls             int      // cumulative API call count (injected by Engine)
 }
 
 func (ModelRequestStarted) isEvent() {}
@@ -146,9 +147,10 @@ func (ToolExecDelta) isEvent() {}
 
 // ToolExecCompleted is emitted when a tool finishes executing.
 type ToolExecCompleted struct {
-	ID     string
-	Name   string
-	Result ToolResult
+	ID         string
+	Name       string
+	Result     ToolResult
+	ToolCounts map[string]int // cumulative tool counts (injected by Engine)
 }
 
 func (ToolExecCompleted) isEvent() {}
@@ -251,16 +253,20 @@ func (HistoryClearedEvent) isEvent() {}
 
 // SessionLoadedEvent is the response to LoadSessionAction.
 type SessionLoadedEvent struct {
-	SessionID     string
-	History       []Message
-	Model         string
-	ContextWindow int
-	LastInput     int
-	TotalInput    int
-	TotalOutput   int
-	Protocol      string
-	ConfigName    string
-	Err           string
+	SessionID          string
+	History            []Message
+	Model              string
+	ContextWindow      int
+	LastInput          int
+	TotalInput         int
+	TotalOutput        int
+	Protocol           string
+	ConfigName         string
+	APICalls           int
+	ToolCounts         map[string]int
+	CacheReadTokens    int
+	CacheCreationTokens int
+	Err                string
 }
 
 func (SessionLoadedEvent) isEvent() {}

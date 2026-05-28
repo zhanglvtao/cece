@@ -84,6 +84,28 @@ func (sb *StatusBar) ResetToolCounts() {
 	sb.apiCalls = 0
 }
 
+// SetAPICalls sets the API call counter to the given value.
+func (sb *StatusBar) SetAPICalls(n int) { sb.apiCalls = n }
+
+// SetToolCounts replaces the tool counts map with the given one.
+func (sb *StatusBar) SetToolCounts(m map[string]int) {
+	if m == nil {
+		m = make(map[string]int)
+	}
+	sb.toolCounts = m
+}
+
+// Restore restores all persistent status bar data from a snapshot.
+func (sb *StatusBar) Restore(apiCalls int, toolCounts map[string]int, cacheRead, cacheCreation int) {
+	sb.apiCalls = apiCalls
+	if toolCounts == nil {
+		toolCounts = make(map[string]int)
+	}
+	sb.toolCounts = toolCounts
+	sb.cacheReadTokens = cacheRead
+	sb.cacheCreationTokens = cacheCreation
+}
+
 // Render returns the status bar as a single line of plain text with "|" separators.
 func (sb *StatusBar) Render(width int) string {
 	var parts []string

@@ -259,7 +259,9 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.TruncationRetry:
 		m.status = "Retrying"
 	case protocol.ToolCallCompleted:
-		m.statusBar.IncrementTool(e.Name)
+		// tool count is set from ToolExecCompleted
+	case protocol.ToolExecCompleted:
+		m.statusBar.SetToolCounts(e.ToolCounts)
 	case protocol.ToolCallsReady:
 		m.openToolConfirm(e.Calls)
 		m.status = "Confirm tools"
@@ -297,6 +299,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 			if e.ContextWindow > 0 {
 				m.contextWindow = e.ContextWindow
 			}
+			m.statusBar.Restore(e.APICalls, e.ToolCounts, e.CacheReadTokens, e.CacheCreationTokens)
 			m.status = "Session loaded"
 		}
 	case protocol.HistoryClearedEvent:

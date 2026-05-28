@@ -46,6 +46,10 @@ type Engine struct {
 	lastInputTokens   int                    // last request input tokens for resume water level
 	totalInputTokens  int                    // cumulative input tokens across turns
 	totalOutputTokens int                    // cumulative output tokens across turns
+	apiCalls          int                    // cumulative API call count
+	toolCounts        map[string]int         // cumulative tool execution counts
+	cacheReadTokens   int                    // cumulative cache read tokens
+	cacheCreationTokens int                  // cumulative cache creation tokens
 	inputQueue        *userInputQueue        // queued user inputs while agent is busy
 	questionAnswers   []tool.QuestionAnswer
 	eventCh           chan protocol.Event // global event channel for async responses
@@ -62,6 +66,7 @@ func NewEngine(client chat.ModelClient, registry *tool.Registry, yolo bool, maxT
 		maxTokens:        maxTokens,
 		toolResultPolicy: chat.ToolResultPolicy{InlineMaxLines: 200, HeadLines: 80, TailLines: 80},
 		inputQueue:       &userInputQueue{},
+		toolCounts:       make(map[string]int),
 		eventCh:          make(chan protocol.Event, 4096),
 	}
 }
@@ -135,6 +140,7 @@ func (e *Engine) IncrementTokens(input, output int) (sessionID string, meta sess
 		LastInputTokens:   e.lastInputTokens,
 		TotalInputTokens:  e.totalInputTokens,
 		TotalOutputTokens: e.totalOutputTokens,
+		StatusBar:         e.statusBarSnapshotLocked(),
 	}, true
 }
 
@@ -250,6 +256,83 @@ func (e *Engine) SetTokenState(lastInput, totalInput, totalOutput int) {
 	e.lastInputTokens = lastInput
 	e.totalInputTokens = totalInput
 	e.totalOutputTokens = totalOutput
+}
+
+// IncrementAPICalls increments the API call counter.
+func (e *Engine) IncrementAPICalls() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.apiCalls++
+}
+
+// IncrementToolCount increments the tool execution counter for the given tool.
+func (e *Engine) IncrementToolCount(name string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.toolCounts == nil {
+		e.toolCounts = make(map[string]int)
+	}
+	e.toolCounts[name]++
+}
+
+// UpdateCacheTokens updates cumulative cache token counts.
+func (e *Engine) UpdateCacheTokens(read, creation int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.cacheReadTokens += read
+	e.cacheCreationTokens += creation
+}
+
+// StatusBarSnapshot returns the current status bar data for persistence.
+func (e *Engine) StatusBarSnapshot() session.StatusBarSnapshot {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.statusBarSnapshotLocked()
+}
+
+// statusBarSnapshotLocked returns a snapshot assuming the mutex is already held.
+func (e *Engine) statusBarSnapshotLocked() session.StatusBarSnapshot {
+	tc := make(map[string]int, len(e.toolCounts))
+	for k, v := range e.toolCounts {
+		tc[k] = v
+	}
+	return session.StatusBarSnapshot{
+		APICalls:            e.apiCalls,
+		ToolCounts:          tc,
+		CacheReadTokens:     e.cacheReadTokens,
+		CacheCreationTokens: e.cacheCreationTokens,
+	}
+}
+
+// SetStatusBarState restores status bar counters from a snapshot (used on session load).
+func (e *Engine) SetStatusBarState(sb session.StatusBarSnapshot) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.apiCalls = sb.APICalls
+	if sb.ToolCounts != nil {
+		e.toolCounts = make(map[string]int, len(sb.ToolCounts))
+		for k, v := range sb.ToolCounts {
+			e.toolCounts[k] = v
+		}
+	} else {
+		e.toolCounts = make(map[string]int)
+	}
+	e.cacheReadTokens = sb.CacheReadTokens
+	e.cacheCreationTokens = sb.CacheCreationTokens
+}
+
+// toolCountsSnapshot returns a copy of the tool counts map (thread-safe).
+func (e *Engine) toolCountsSnapshot() map[string]int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.toolCounts) == 0 {
+		return nil
+	}
+	tc := make(map[string]int, len(e.toolCounts))
+	for k, v := range e.toolCounts {
+		tc[k] = v
+	}
+	return tc
 }
 
 // LoadHistory replaces the conversation history from loaded messages.
@@ -489,11 +572,23 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	}()
 
 	// Bridge internal events to protocol events via the unified event bus.
+	// Inject cumulative status bar data into relevant events.
 	go func() {
 		for ev := range events {
-			if d := chat.ToDTO(ev); d != nil {
-				e.emitEvent(d)
+			d := chat.ToDTO(ev)
+			if d == nil {
+				continue
 			}
+			// Inject Engine-managed cumulative counters into protocol events.
+			switch v := d.(type) {
+			case protocol.ModelRequestStarted:
+				v.APICalls = e.apiCalls
+				d = v
+			case protocol.ToolExecCompleted:
+				v.ToolCounts = e.toolCountsSnapshot()
+				d = v
+			}
+			e.emitEvent(d)
 		}
 		e.emitEvent(protocol.TurnCompleted{})
 	}()

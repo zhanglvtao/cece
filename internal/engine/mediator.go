@@ -130,6 +130,7 @@ func (m *EngineMediator) loadSession(sessionID string) {
 	sess, err := m.store.Get(context.Background(), sessionID)
 	if err == nil {
 		m.Engine.SetTokenState(sess.LastInputTokens, sess.TotalInputTokens, sess.TotalOutputTokens)
+		m.Engine.SetStatusBarState(sess.StatusBar)
 
 		model := sess.Model
 		cw := sess.ContextWindow
@@ -149,16 +150,21 @@ func (m *EngineMediator) loadSession(sessionID string) {
 	}
 
 	model, cw, lastInput, inTok, outTok, proto, cfgName := m.Engine.SessionMeta()
+	sb := m.Engine.StatusBarSnapshot()
 	m.Engine.EmitEvent(protocol.SessionLoadedEvent{
-		SessionID:     sessionID,
-		History:       m.Engine.History(),
-		Model:         model,
-		ContextWindow: cw,
-		LastInput:     lastInput,
-		TotalInput:    inTok,
-		TotalOutput:   outTok,
-		Protocol:      proto,
-		ConfigName:    cfgName,
+		SessionID:           sessionID,
+		History:             m.Engine.History(),
+		Model:               model,
+		ContextWindow:       cw,
+		LastInput:           lastInput,
+		TotalInput:          inTok,
+		TotalOutput:         outTok,
+		Protocol:            proto,
+		ConfigName:          cfgName,
+		APICalls:            sb.APICalls,
+		ToolCounts:          sb.ToolCounts,
+		CacheReadTokens:     sb.CacheReadTokens,
+		CacheCreationTokens: sb.CacheCreationTokens,
 	})
 }
 

@@ -20,6 +20,9 @@ type TurnDeps struct {
 	DrainQueuedInputs    func() []string
 	HistorySnapshot      func() []Message
 	ResetQuestionAnswers func()
+	IncrementAPICalls    func()
+	IncrementToolCount   func(name string)
+	UpdateCacheTokens    func(read, creation int)
 }
 
 // TurnRunner owns the agent loop for one user turn.
@@ -48,6 +51,8 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 	reason := "user"
 	var toolResultNames []string
 	for {
+		r.deps.IncrementAPICalls()
+
 		resp, err := r.streamer.Stream(ctx, ModelStreamRequest{
 			Messages:    messages,
 			System:      req.System,
@@ -68,6 +73,7 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 				NewMaxTokens:  escalatedMaxTokens,
 			}
 			slog.Info("output truncated, escalating max_tokens", "from", r.maxTokens, "to", escalatedMaxTokens)
+			r.deps.IncrementAPICalls()
 			resp, err = r.streamer.Stream(ctx, ModelStreamRequest{
 				Messages:    messages,
 				System:      req.System,
@@ -79,6 +85,11 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 				events <- UIRunFailed{Err: err}
 				return
 			}
+		}
+
+		// Update cache token counters from this stream response.
+		if resp.cacheReadTokens > 0 || resp.cacheCreationTokens > 0 {
+			r.deps.UpdateCacheTokens(resp.cacheReadTokens, resp.cacheCreationTokens)
 		}
 
 		assistant := assistantMessageFromResponse(resp)
@@ -98,6 +109,9 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 		}
 
 		toolResults := r.toolExecutor.ExecuteBatch(ctx, resp.toolCalls, events)
+		for _, tc := range resp.toolCalls {
+			r.deps.IncrementToolCount(tc.Name)
+		}
 		toolResultNames = make([]string, len(resp.toolCalls))
 		for i, tc := range resp.toolCalls {
 			toolResultNames[i] = tc.Name

@@ -32,6 +32,11 @@ type TurnEngine interface {
 	SetLastInputTokens(int)
 	IncrementTokens(input, output int) (sessionID string, meta session.SessionMeta, ok bool)
 
+	// Status bar tracking (Engine is the single source of truth)
+	IncrementAPICalls()
+	IncrementToolCount(name string)
+	UpdateCacheTokens(read, creation int)
+
 	// Question answers
 	ResetQuestionAnswers()
 	GetQuestionAnswers() []tool.QuestionAnswer
