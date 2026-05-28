@@ -42,6 +42,29 @@ type ToolResultConfig struct {
 	TailLines      int
 }
 
+// MCPType specifies the transport type for an MCP server connection.
+type MCPType string
+
+const (
+	MCPStdio          MCPType = "stdio"
+	MCPsse            MCPType = "sse"
+	MCPStreamableHTTP MCPType = "streamable-http"
+)
+
+// MCPConfig describes a single MCP server connection.
+type MCPConfig struct {
+	Type     MCPType          `json:"type"`              // "stdio", "sse", or "streamable-http"
+	URL      string           `json:"url,omitempty"`     // for sse / streamable-http
+	Command  string           `json:"command,omitempty"` // for stdio
+	Args     []string         `json:"args,omitempty"`    // for stdio
+	Env      map[string]string `json:"env,omitempty"`    // for stdio
+	Headers  map[string]string `json:"headers,omitempty"` // for sse / streamable-http
+	Disabled bool             `json:"disabled,omitempty"`
+	Timeout  int              `json:"timeout,omitempty"` // seconds, default 15
+}
+
+type MCPs map[string]MCPConfig
+
 type Config struct {
 	Model               string
 	Debug               bool
@@ -50,6 +73,7 @@ type Config struct {
 	ModelContextMapping map[string]int // model ID -> max context window
 	Providers           []ProviderConfig
 	ToolResult          ToolResultConfig
+	MCP                 MCPs
 }
 
 type settingsFile struct {
@@ -70,6 +94,7 @@ type settingsFile struct {
 		HeadLines      int `json:"head_lines"`
 		TailLines      int `json:"tail_lines"`
 	} `json:"tool_result"`
+	MCP MCPs `json:"mcp"`
 }
 
 func Load(projectDir string) (Config, error) {
@@ -94,6 +119,7 @@ func Load(projectDir string) (Config, error) {
 			HeadLines:      sf.ToolResult.HeadLines,
 			TailLines:      sf.ToolResult.TailLines,
 		}
+		cfg.MCP = sf.MCP
 	}
 	cfg.ToolResult = normalizeToolResultConfig(cfg.ToolResult)
 

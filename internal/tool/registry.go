@@ -27,6 +27,11 @@ func (r *Registry) Get(name string) (Tool, bool) {
 	return t, ok
 }
 
+// Register adds a tool to the registry at runtime.
+func (r *Registry) Register(t Tool) {
+	r.tools[t.Info().Name] = t
+}
+
 // Definitions returns all tool definitions for the API request.
 func (r *Registry) Definitions() []Definition {
 	defs := make([]Definition, 0, len(r.tools))

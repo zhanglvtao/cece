@@ -18,6 +18,7 @@ import (
 	"cece/internal/config"
 	"cece/internal/engine"
 	"cece/internal/logger"
+	"cece/internal/mcp"
 	"cece/internal/prompt"
 	"cece/internal/protocol"
 	"cece/internal/session"
@@ -96,13 +97,24 @@ func main() {
 		tool.NewSkillTool(skillStore),
 	)
 
+	// Initialize session context and query model info for token budget
+	ctx := context.Background()
+
+	// Initialize MCP connections and register their tools
+	mcpMgr := mcp.NewManager()
+	if len(cfg.MCP) > 0 {
+		mcpMgr.Initialize(ctx, cfg.MCP)
+		for _, t := range mcpMgr.Tools() {
+			registry.Register(t)
+		}
+	}
+	defer mcpMgr.Close()
+
 	stablePrompt := prompt.FormatStableSystemPrompt(projectDir)
 	collector := prompt.NewDefaultSessionCollector(projectDir, registry)
 	collector.SetSkillProvider(skillStore)
 	assembler := prompt.NewContextAssembler(stablePrompt, registry, collector)
 
-	// Initialize session context and query model info for token budget
-	ctx := context.Background()
 	if _, err := assembler.RefreshSession(ctx); err != nil {
 		logger.Warn("initial session refresh failed", "error", err)
 	}
