@@ -84,15 +84,26 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message) (CompactRes
 
 // generateSummary calls the model to produce a conversation summary.
 // Sends all messages with complete tool_result content — no truncation.
+// The compact prompt is appended as a final user message (like claude-code),
+// and the system prompt is a short role instruction.
 func (c *Compactor) generateSummary(ctx context.Context, messages []Message) (string, error) {
 	systemPrompt := SystemPrompt{
 		Blocks: []SystemBlock{
-			{Text: buildCompactSystemPrompt()},
+			{Text: "You are a helpful AI assistant tasked with summarizing conversations."},
 		},
 	}
 
+	// Append the compact instruction as a user message at the end
+	compactRequest := Message{
+		Role:    UserRole,
+		Content: buildCompactUserPrompt(),
+	}
+	requestMessages := make([]Message, 0, len(messages)+1)
+	requestMessages = append(requestMessages, messages...)
+	requestMessages = append(requestMessages, compactRequest)
+
 	// No tools for summary generation
-	chunks, err := c.client.Stream(ctx, messages, systemPrompt, nil, 4096)
+	chunks, err := c.client.Stream(ctx, requestMessages, systemPrompt, nil, 4096)
 	if err != nil {
 		return "", err
 	}
@@ -179,8 +190,8 @@ func splitMessagesForCompact(messages []Message, keepRecentTurns int) (summarize
 	return messages[:splitIdx], messages[splitIdx:]
 }
 
-// buildCompactSystemPrompt returns the system prompt for summary generation.
-func buildCompactSystemPrompt() string {
+// buildCompactUserPrompt returns the user message prompt for summary generation.
+func buildCompactUserPrompt() string {
 	return `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
 
 Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.

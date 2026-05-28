@@ -143,7 +143,7 @@ func TestCompact_NothingToSummarize(t *testing.T) {
 }
 
 func TestBuildCompactSystemPrompt(t *testing.T) {
-	prompt := buildCompactSystemPrompt()
+	prompt := buildCompactUserPrompt()
 	if !strings.Contains(prompt, "summary") && !strings.Contains(prompt, "Summary") {
 		t.Error("compact prompt should mention summary")
 	}
