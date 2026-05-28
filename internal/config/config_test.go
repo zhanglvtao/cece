@@ -53,6 +53,7 @@ func TestLoadFromFileWithProviders(t *testing.T) {
 
 func TestLoadFallsBackToEnvWhenNoFile(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("HOME", dir)
 	t.Setenv("ANTHROPIC_API_KEY", "env-key")
 	t.Setenv("ANTHROPIC_MODEL", "")
 	t.Setenv("ANTHROPIC_BASE_URL", "")
@@ -74,6 +75,7 @@ func TestLoadFallsBackToEnvWhenNoFile(t *testing.T) {
 
 func TestLoadReturnsErrorWhenNoKeyAnywhere(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("HOME", dir)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	_, err := Load(dir)
@@ -243,5 +245,112 @@ func TestLoadUsesDefaultToolResultConfig(t *testing.T) {
 	}
 	if cfg.ToolResult.TailLines != 80 {
 		t.Fatalf("ToolResult.TailLines = %d, want 80", cfg.ToolResult.TailLines)
+	}
+}
+
+func TestFindSettingsFileFallsBackToGlobal(t *testing.T) {
+	homeDir := t.TempDir()
+	globalSettings := `{"provider":{"model":"global-model","providers":[{"name":"global","apiKey":"gk","baseURL":"https://global.example.com"}]}}`
+	globalPath := filepath.Join(homeDir, ".cece", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(globalPath, []byte(globalSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	path, data := findSettingsFile(projectDir)
+	if path != globalPath {
+		t.Fatalf("path = %q, want %q", path, globalPath)
+	}
+	if data == nil {
+		t.Fatal("data = nil, want non-nil")
+	}
+}
+
+func TestFindSettingsFilePrefersProject(t *testing.T) {
+	homeDir := t.TempDir()
+	globalSettings := `{"provider":{"model":"global-model","providers":[{"name":"global","apiKey":"gk","baseURL":"https://global.example.com"}]}}`
+	globalPath := filepath.Join(homeDir, ".cece", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(globalPath, []byte(globalSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectDir := t.TempDir()
+	projectSettings := `{"provider":{"model":"project-model","providers":[{"name":"project","apiKey":"pk","baseURL":"https://project.example.com"}]}}`
+	projectPath := filepath.Join(projectDir, ".cece", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(projectPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectPath, []byte(projectSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", homeDir)
+
+	path, data := findSettingsFile(projectDir)
+	if path != projectPath {
+		t.Fatalf("path = %q, want %q", path, projectPath)
+	}
+	if data == nil {
+		t.Fatal("data = nil, want non-nil")
+	}
+}
+
+func TestFindSettingsFileReturnsNilWhenNeitherExists(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	path, data := findSettingsFile(projectDir)
+	if path != "" {
+		t.Fatalf("path = %q, want empty", path)
+	}
+	if data != nil {
+		t.Fatal("data = non-nil, want nil")
+	}
+}
+
+func TestLoadFallsBackToGlobalSettings(t *testing.T) {
+	homeDir := t.TempDir()
+	globalSettings := `{
+		"provider": {
+			"model": "global-model",
+			"providers": [
+				{ "name": "global-prov", "apiKey": "global-key", "baseURL": "https://global.example.com" }
+			]
+		},
+		"debug": { "enabled": true }
+	}`
+	globalPath := filepath.Join(homeDir, ".cece", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(globalPath, []byte(globalSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	cfg, err := Load(projectDir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Model != "global-model" {
+		t.Fatalf("Model = %q, want %q", cfg.Model, "global-model")
+	}
+	if len(cfg.Providers) != 1 || cfg.Providers[0].Name != "global-prov" {
+		t.Fatalf("Providers = %+v, want [global-prov]", cfg.Providers)
+	}
+	if !cfg.Debug {
+		t.Fatalf("Debug = %v, want true", cfg.Debug)
 	}
 }

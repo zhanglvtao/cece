@@ -359,6 +359,10 @@ func (m *Model) View() tea.View {
 	if headline != "" {
 		sections = append(sections, headline)
 	}
+	queued := m.queuedListView()
+	if queued != "" {
+		sections = append(sections, queued)
+	}
 	sections = append(sections, m.inputView())
 	statusBarView := m.statusBar.Render(m.width)
 	if statusBarView != "" {
@@ -448,6 +452,24 @@ func (m *Model) refreshViewport(gotoBottom bool) {
 	if gotoBottom || atBottom {
 		m.viewport.GotoBottom()
 	}
+}
+
+// queuedListView renders the queued user messages above the input box.
+// Each message is shown on its own line with a "• " prefix.
+// Plain text only — no lipgloss styling.
+func (m *Model) queuedListView() string {
+	if len(m.queued) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, msg := range m.queued {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString("• ")
+		b.WriteString(msg)
+	}
+	return b.String()
 }
 
 func (m *Model) inputView() string {

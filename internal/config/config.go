@@ -77,9 +77,8 @@ func Load(projectDir string) (Config, error) {
 		ToolResult: defaultToolResultConfig(),
 	}
 
-	path := filepath.Join(projectDir, settingsRelPath)
-	data, err := os.ReadFile(path)
-	if err == nil {
+	path, data := findSettingsFile(projectDir)
+	if data != nil {
 		var sf settingsFile
 		if err := json.Unmarshal(data, &sf); err != nil {
 			return Config{}, fmt.Errorf("parse %s: %w", path, err)
@@ -117,7 +116,7 @@ func Load(projectDir string) (Config, error) {
 	}
 
 	if len(cfg.Providers) == 0 {
-		return Config{}, errors.New("no providers configured: add providers to .cece/settings.json or set ANTHROPIC_API_KEY")
+		return Config{}, errors.New("no providers configured: add providers to .cece/settings.json or ~/.cece/settings.json, or set ANTHROPIC_API_KEY")
 	}
 
 	if envModel := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL")); envModel != "" {
@@ -135,6 +134,24 @@ func Load(projectDir string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// findSettingsFile returns the path and contents of the settings file.
+// It first tries the project-level path, then falls back to ~/.cece/settings.json.
+func findSettingsFile(projectDir string) (string, []byte) {
+	projectPath := filepath.Join(projectDir, settingsRelPath)
+	if data, err := os.ReadFile(projectPath); err == nil {
+		return projectPath, data
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", nil
+	}
+	globalPath := filepath.Join(home, settingsRelPath)
+	if data, err := os.ReadFile(globalPath); err == nil {
+		return globalPath, data
+	}
+	return "", nil
 }
 
 func defaultToolResultConfig() ToolResultConfig {
