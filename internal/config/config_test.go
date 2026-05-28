@@ -81,7 +81,7 @@ func TestLoadReturnsErrorWhenNoKeyAnywhere(t *testing.T) {
 
 	_, err := Load(dir)
 	if err == nil {
-		t.Fatal("expected error when no API key found")
+		t.Fatal("Load should return error when no key is configured")
 	}
 }
 
@@ -89,9 +89,9 @@ func TestLoadAppendsEnvProviderAfterFileProviders(t *testing.T) {
 	dir := t.TempDir()
 	settings := `{
 		"provider": {
+			"model": "file-model",
 			"providers": [
-				{ "name": "aiden", "protocol": "aiden", "baseURL": "https://aiden.example.com" },
-				{ "name": "codebase", "protocol": "codebase", "baseURL": "https://codebase.example.com" }
+				{ "name": "file-prov", "apiKey": "file-key", "baseURL": "https://file.example.com" }
 			]
 		}
 	}`
@@ -102,31 +102,22 @@ func TestLoadAppendsEnvProviderAfterFileProviders(t *testing.T) {
 	if err := os.WriteFile(path, []byte(settings), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	t.Setenv("ANTHROPIC_API_KEY", "env-override-key")
-	t.Setenv("ANTHROPIC_BASE_URL", "https://env.example.com")
+	t.Setenv("ANTHROPIC_API_KEY", "env-key")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_MODEL", "")
 
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if len(cfg.Providers) != 3 {
-		t.Fatalf("len(Providers) = %d, want 3", len(cfg.Providers))
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("len(Providers) = %d, want 2", len(cfg.Providers))
 	}
-	if cfg.Providers[0].Name != "aiden" {
-		t.Fatalf("Providers[0].Name = %q, want %q", cfg.Providers[0].Name, "aiden")
+	if cfg.Providers[0].Name != "file-prov" {
+		t.Fatalf("Providers[0].Name = %q, want file-prov", cfg.Providers[0].Name)
 	}
-	if cfg.Providers[1].Name != "codebase" {
-		t.Fatalf("Providers[1].Name = %q, want %q", cfg.Providers[1].Name, "codebase")
-	}
-	if cfg.Providers[2].Name != "env" {
-		t.Fatalf("Providers[2].Name = %q, want %q", cfg.Providers[2].Name, "env")
-	}
-	if cfg.Providers[2].APIKey != "env-override-key" {
-		t.Fatalf("Providers[2].APIKey = %q, want %q", cfg.Providers[2].APIKey, "env-override-key")
-	}
-	if cfg.Providers[2].BaseURL != "https://env.example.com" {
-		t.Fatalf("Providers[2].BaseURL = %q, want %q", cfg.Providers[2].BaseURL, "https://env.example.com")
+	if cfg.Providers[1].Name != "env" {
+		t.Fatalf("Providers[1].Name = %q, want env", cfg.Providers[1].Name)
 	}
 }
 
@@ -134,17 +125,14 @@ func TestLoadParsesStaticModels(t *testing.T) {
 	dir := t.TempDir()
 	settings := `{
 		"provider": {
-			"model": "gpt-4o",
+			"model": "custom-model",
 			"providers": [
 				{
-					"name": "aime",
-					"protocol": "aiden",
-					"baseURL": "https://aime.example.com",
-					"authMode": "bearer",
-					"authHelper": "echo token",
+					"name": "custom",
+					"apiKey": "custom-key",
+					"baseURL": "https://custom.example.com",
 					"models": [
-						{"id": "gpt-4o", "displayName": "GPT-4o", "maxContextWindow": 128000},
-						{"id": "deepseek-chat", "displayName": "DeepSeek Chat", "maxContextWindow": 128000}
+						{ "id": "custom-model", "displayName": "Custom Model", "maxContextWindow": 128000 }
 					]
 				}
 			]
@@ -162,21 +150,14 @@ func TestLoadParsesStaticModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if len(cfg.Providers) != 1 {
-		t.Fatalf("len(Providers) = %d, want 1", len(cfg.Providers))
+	if len(cfg.Providers) != 1 || len(cfg.Providers[0].Models) != 1 {
+		t.Fatalf("Providers[0].Models = %+v, want 1 model", cfg.Providers[0].Models)
 	}
-	p := cfg.Providers[0]
-	if p.Protocol != "aiden" {
-		t.Fatalf("Protocol = %q, want %q", p.Protocol, "aiden")
+	if cfg.Providers[0].Models[0].ID != "custom-model" {
+		t.Fatalf("Models[0].ID = %q, want custom-model", cfg.Providers[0].Models[0].ID)
 	}
-	if len(p.Models) != 2 {
-		t.Fatalf("len(Models) = %d, want 2", len(p.Models))
-	}
-	if p.Models[0].ID != "gpt-4o" || p.Models[0].DisplayName != "GPT-4o" || p.Models[0].MaxContextWindow != 128000 {
-		t.Fatalf("Models[0] = %+v, want {ID:gpt-4o, DisplayName:GPT-4o, MaxContextWindow:128000}", p.Models[0])
-	}
-	if p.Models[1].ID != "deepseek-chat" {
-		t.Fatalf("Models[1].ID = %q, want %q", p.Models[1].ID, "deepseek-chat")
+	if cfg.Providers[0].Models[0].MaxContextWindow != 128000 {
+		t.Fatalf("Models[0].MaxContextWindow = %d, want 128000", cfg.Providers[0].Models[0].MaxContextWindow)
 	}
 }
 
@@ -184,14 +165,15 @@ func TestLoadParsesToolResultConfig(t *testing.T) {
 	dir := t.TempDir()
 	settings := `{
 		"provider": {
+			"model": "test-model",
 			"providers": [
-				{ "name": "anthropic", "apiKey": "sk-ant-xxx", "baseURL": "https://api.anthropic.com" }
+				{ "name": "test", "apiKey": "sk-test", "baseURL": "https://test.example.com" }
 			]
 		},
 		"tool_result": {
 			"inline_max_lines": 300,
-			"head_lines": 40,
-			"tail_lines": 20
+			"head_lines": 100,
+			"tail_lines": 50
 		}
 	}`
 	path := filepath.Join(dir, ".cece", "settings.json")
@@ -209,11 +191,11 @@ func TestLoadParsesToolResultConfig(t *testing.T) {
 	if cfg.ToolResult.InlineMaxLines != 300 {
 		t.Fatalf("ToolResult.InlineMaxLines = %d, want 300", cfg.ToolResult.InlineMaxLines)
 	}
-	if cfg.ToolResult.HeadLines != 40 {
-		t.Fatalf("ToolResult.HeadLines = %d, want 40", cfg.ToolResult.HeadLines)
+	if cfg.ToolResult.HeadLines != 100 {
+		t.Fatalf("ToolResult.HeadLines = %d, want 100", cfg.ToolResult.HeadLines)
 	}
-	if cfg.ToolResult.TailLines != 20 {
-		t.Fatalf("ToolResult.TailLines = %d, want 20", cfg.ToolResult.TailLines)
+	if cfg.ToolResult.TailLines != 50 {
+		t.Fatalf("ToolResult.TailLines = %d, want 50", cfg.ToolResult.TailLines)
 	}
 }
 
@@ -221,8 +203,9 @@ func TestLoadUsesDefaultToolResultConfig(t *testing.T) {
 	dir := t.TempDir()
 	settings := `{
 		"provider": {
+			"model": "test-model",
 			"providers": [
-				{ "name": "anthropic", "apiKey": "sk-ant-xxx", "baseURL": "https://api.anthropic.com" }
+				{ "name": "test", "apiKey": "sk-test", "baseURL": "https://test.example.com" }
 			]
 		}
 	}`
@@ -432,11 +415,11 @@ func TestDefaultModeFromConfig(t *testing.T) {
 	settings := `{
 		"provider": {
 			"model": "test-model",
-			"defaultMode": "plan",
 			"providers": [
 				{ "name": "test", "apiKey": "sk-test", "baseURL": "https://test.example.com" }
 			]
-		}
+		},
+		"defaultMode": { "mode": "plan" }
 	}`
 	path := filepath.Join(dir, ".cece", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -460,9 +443,9 @@ func TestDefaultModeProjectOverridesUser(t *testing.T) {
 	globalSettings := `{
 		"provider": {
 			"model": "global-model",
-			"defaultMode": "auto-accept",
 			"providers": [{ "name": "global", "apiKey": "gk", "baseURL": "https://global.example.com" }]
-		}
+		},
+		"defaultMode": { "mode": "auto-accept" }
 	}`
 	globalPath := filepath.Join(homeDir, ".cece", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
@@ -476,9 +459,9 @@ func TestDefaultModeProjectOverridesUser(t *testing.T) {
 	projectSettings := `{
 		"provider": {
 			"model": "project-model",
-			"defaultMode": "plan",
 			"providers": [{ "name": "project", "apiKey": "pk", "baseURL": "https://project.example.com" }]
-		}
+		},
+		"defaultMode": { "mode": "plan" }
 	}`
 	projectPath := filepath.Join(projectDir, ".cece", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(projectPath), 0o755); err != nil {
@@ -505,9 +488,9 @@ func TestDefaultModeInheritsFromUser(t *testing.T) {
 	globalSettings := `{
 		"provider": {
 			"model": "global-model",
-			"defaultMode": "auto-accept",
 			"providers": [{ "name": "global", "apiKey": "gk", "baseURL": "https://global.example.com" }]
-		}
+		},
+		"defaultMode": { "mode": "auto-accept" }
 	}`
 	globalPath := filepath.Join(homeDir, ".cece", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {

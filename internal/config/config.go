@@ -81,10 +81,12 @@ type settingsFile struct {
 	Provider struct {
 		Model               string           `json:"model"`
 		MaxTokens           int              `json:"maxTokens"`
-		DefaultMode         string           `json:"defaultMode"` // "default", "auto-accept", or "plan"
 		ModelContextMapping map[string]int   `json:"modelContextMapping"`
 		Providers           []ProviderConfig `json:"providers"`
 	} `json:"provider"`
+	DefaultMode struct {
+		Mode string `json:"mode"` // "default", "auto-accept", or "plan"
+	} `json:"defaultMode"`
 	Debug struct {
 		Enabled bool `json:"enabled"`
 	} `json:"debug"`
@@ -107,7 +109,7 @@ func Load(projectDir string) (Config, error) {
 	sf := loadSettingsFiles(projectDir)
 	cfg.Model = strings.TrimSpace(sf.Provider.Model)
 	cfg.MaxTokens = sf.Provider.MaxTokens
-	cfg.DefaultMode = sf.Provider.DefaultMode
+	cfg.DefaultMode = sf.DefaultMode.Mode
 	cfg.ModelContextMapping = sf.Provider.ModelContextMapping
 	cfg.Providers = sf.Provider.Providers
 	cfg.Debug = sf.Debug.Enabled
@@ -196,10 +198,11 @@ func mergeSettings(project, user settingsFile) settingsFile {
 	} else {
 		out.Provider.MaxTokens = user.Provider.MaxTokens
 	}
-	if strings.TrimSpace(project.Provider.DefaultMode) != "" {
-		out.Provider.DefaultMode = project.Provider.DefaultMode
+	// DefaultMode: project wins if non-empty
+	if strings.TrimSpace(project.DefaultMode.Mode) != "" {
+		out.DefaultMode.Mode = project.DefaultMode.Mode
 	} else {
-		out.Provider.DefaultMode = user.Provider.DefaultMode
+		out.DefaultMode.Mode = user.DefaultMode.Mode
 	}
 
 	// ModelContextMapping: merge maps, project keys win
