@@ -264,3 +264,43 @@ type SessionLoadedEvent struct {
 }
 
 func (SessionLoadedEvent) isEvent() {}
+
+// MCPServersListedEvent is the response to ListMCPAction.
+type MCPServersListedEvent struct {
+	Servers []MCPServerInfo
+}
+
+func (MCPServersListedEvent) isEvent() {}
+
+// MCPServerInfo describes a single MCP server for the UI.
+type MCPServerInfo struct {
+	Name      string
+	Type      string
+	Addr      string
+	Connected bool
+	ToolCount int
+	Error     string
+}
+
+// MCPServerStatusChangedEvent is emitted after connect/disconnect.
+type MCPServerStatusChangedEvent struct {
+	Name      string
+	Connected bool
+	Error     string
+}
+
+func (MCPServerStatusChangedEvent) isEvent() {}
+
+// ToolsListedEvent is the response to ListToolsAction.
+type ToolsListedEvent struct {
+	Tools []ToolInfo
+}
+
+func (ToolsListedEvent) isEvent() {}
+
+// ToolInfo describes a single tool for the UI.
+type ToolInfo struct {
+	Name        string
+	Description string
+	Source      string // "builtin" or "mcp:<server>"
+}

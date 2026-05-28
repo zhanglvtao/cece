@@ -317,6 +317,21 @@ func (m *Model) applyEvent(event protocol.Event) {
 			m.transcript.contextUsed = e.TokensAfter
 		}
 		m.statusBar.ResetToolCounts()
+	case protocol.MCPServersListedEvent:
+		m.openMCPPicker(e.Servers)
+		m.status = "MCP servers"
+	case protocol.MCPServerStatusChangedEvent:
+		if e.Error != "" {
+			m.status = fmt.Sprintf("MCP %s: %s", e.Name, e.Error)
+		} else if e.Connected {
+			m.status = fmt.Sprintf("MCP %s: connected", e.Name)
+		} else {
+			m.status = fmt.Sprintf("MCP %s: disconnected", e.Name)
+		}
+		m.transcript.appendDone(blockInfo, "mcp", m.status)
+	case protocol.ToolsListedEvent:
+		m.showToolList(e.Tools)
+		m.status = "Tools listed"
 	}
 	// Sync all status bar data from model state.
 	m.statusBar.UpdateStatus(m.status, m.busy)
@@ -812,6 +827,18 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 		if m.skillStore != nil {
 			m.transcript.appendDone(blockInfo, "skills", skill.FormatSkillList(m.skillStore.All()))
 			m.status = "Skills listed"
+		}
+		return nil
+	case "/mcp":
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.ListMCPAction{})
+			m.status = "Loading MCP servers"
+		}
+		return nil
+	case "/tool":
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.ListToolsAction{})
+			m.status = "Loading tools"
 		}
 		return nil
 	}

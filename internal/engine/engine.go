@@ -73,6 +73,14 @@ func (e *Engine) Assembler() *prompt.ContextAssembler     { return e.assembler }
 func (e *Engine) Client() chat.ModelClient                { return e.client }
 func (e *Engine) Registry() *tool.Registry                { return e.registry }
 func (e *Engine) PlanState() *tool.PlanModeState          { return e.planState }
+
+// SetMCPTools replaces all MCP tools in the registry.
+// It removes any tool whose name starts with "mcp_" then adds the given tools.
+func (e *Engine) SetMCPTools(tools []tool.Tool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.registry.SetMCPTools(tools)
+}
 func (e *Engine) Yolo() bool                              { return e.yolo }
 func (e *Engine) MaxTokens() int                          { return e.maxTokens }
 func (e *Engine) ToolResultPolicy() chat.ToolResultPolicy { return e.toolResultPolicy }

@@ -100,3 +100,27 @@ type RenameSessionAction struct {
 }
 
 func (RenameSessionAction) isAction() {}
+
+// ListMCPAction requests listing all MCP server statuses.
+type ListMCPAction struct{}
+
+func (ListMCPAction) isAction() {}
+
+// ConnectMCPAction requests connecting to an MCP server.
+type ConnectMCPAction struct {
+	Name string
+}
+
+func (ConnectMCPAction) isAction() {}
+
+// DisconnectMCPAction requests disconnecting from an MCP server.
+type DisconnectMCPAction struct {
+	Name string
+}
+
+func (DisconnectMCPAction) isAction() {}
+
+// ListToolsAction requests listing all registered tools.
+type ListToolsAction struct{}
+
+func (ListToolsAction) isAction() {}

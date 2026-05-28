@@ -17,8 +17,19 @@ import (
 // Manager manages all MCP client connections and their tools.
 type Manager struct {
 	clients map[string]*Client
+	configs config.MCPs
 	tools   []tool.Tool
 	mu      sync.Mutex
+}
+
+// ServerStatus describes the current state of an MCP server.
+type ServerStatus struct {
+	Name      string
+	Type      config.MCPType
+	Addr      string // URL for sse/streamable-http, command for stdio
+	Connected bool
+	ToolCount int
+	Error     string
 }
 
 // NewManager creates a new MCP Manager.
@@ -34,6 +45,7 @@ func (m *Manager) Initialize(ctx context.Context, configs config.MCPs) {
 	if len(configs) == 0 {
 		return
 	}
+	m.configs = configs
 
 	type result struct {
 		name   string
@@ -89,6 +101,118 @@ func (m *Manager) Initialize(ctx context.Context, configs config.MCPs) {
 
 // Tools returns all MCP tools as tool.Tool interfaces.
 func (m *Manager) Tools() []tool.Tool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]tool.Tool, len(m.tools))
+	copy(out, m.tools)
+	return out
+}
+
+// Status returns the status of all configured MCP servers.
+func (m *Manager) Status() []ServerStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var statuses []ServerStatus
+	for name, cfg := range m.configs {
+		s := ServerStatus{
+			Name: name,
+			Type: cfg.Type,
+		}
+		if cfg.Type == config.MCPStdio {
+			s.Addr = cfg.Command
+		} else {
+			s.Addr = cfg.URL
+		}
+		if _, ok := m.clients[name]; ok {
+			s.Connected = true
+			// Count tools for this server
+			count := 0
+			for _, t := range m.tools {
+				if adapter, ok := t.(*mcpAdapter); ok && adapter.server == name {
+					count++
+				}
+			}
+			s.ToolCount = count
+		} else if cfg.Disabled {
+			s.Error = "disabled"
+		}
+		statuses = append(statuses, s)
+	}
+	return statuses
+}
+
+// ConnectOne connects a single MCP server by name and registers its tools.
+func (m *Manager) ConnectOne(ctx context.Context, name string) error {
+	m.mu.Lock()
+	cfg, ok := m.configs[name]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("mcp %s: not found in config", name)
+	}
+	if _, exists := m.clients[name]; exists {
+		m.mu.Unlock()
+		return fmt.Errorf("mcp %s: already connected", name)
+	}
+	m.mu.Unlock()
+
+	c := NewClient(name, cfg)
+	if err := c.Connect(ctx); err != nil {
+		return err
+	}
+	mcpTools, err := c.ListTools(ctx)
+	if err != nil {
+		c.Close()
+		return err
+	}
+	var adapters []tool.Tool
+	for _, t := range mcpTools {
+		adapters = append(adapters, &mcpAdapter{
+			client:   c,
+			server:   name,
+			toolName: t.Name,
+			def:      convertToolDef(name, t),
+		})
+	}
+
+	m.mu.Lock()
+	m.clients[name] = c
+	m.tools = append(m.tools, adapters...)
+	m.mu.Unlock()
+	slog.Info("mcp connected", "name", name, "tools", len(adapters))
+	return nil
+}
+
+// DisconnectOne disconnects a single MCP server by name and removes its tools.
+func (m *Manager) DisconnectOne(name string) error {
+	m.mu.Lock()
+	c, ok := m.clients[name]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("mcp %s: not connected", name)
+	}
+	// Remove tools for this server
+	filtered := make([]tool.Tool, 0, len(m.tools))
+	for _, t := range m.tools {
+		if adapter, ok := t.(*mcpAdapter); ok && adapter.server == name {
+			continue
+		}
+		filtered = append(filtered, t)
+	}
+	m.tools = filtered
+	delete(m.clients, name)
+	m.mu.Unlock()
+
+	if err := c.Close(); err != nil {
+		slog.Warn("mcp close error", "name", name, "error", err)
+	}
+	slog.Info("mcp disconnected", "name", name)
+	return nil
+}
+
+// Registry returns the tool.Registry hook for dynamic tool injection/removal.
+// Used by EngineMediator to sync Registry with MCP state after connect/disconnect.
+func (m *Manager) RegistryTools() []tool.Tool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]tool.Tool, len(m.tools))

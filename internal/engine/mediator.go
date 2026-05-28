@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"cece/internal/chat"
+	"cece/internal/mcp"
 	"cece/internal/protocol"
 	"cece/internal/session"
 	"cece/internal/tool"
@@ -22,6 +23,7 @@ type EngineMediator struct {
 	providerResolver func(configName string) (apiKey, baseURL, authMode, authHelper, protocol string)
 	createClientFn   func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) chat.ModelClient
 	listAllModelsFn  func(ctx context.Context) ([]protocol.ModelInfo, error)
+	mcpManager       *mcp.Manager
 }
 
 func NewEngineMediator(
@@ -30,6 +32,7 @@ func NewEngineMediator(
 	providerResolver func(string) (string, string, string, string, string),
 	createClientFn func(string, string, string, string, string, string, string) chat.ModelClient,
 	listAllModelsFn func(context.Context) ([]protocol.ModelInfo, error),
+	mcpManager *mcp.Manager,
 ) *EngineMediator {
 	return &EngineMediator{
 		Engine:           eng,
@@ -37,6 +40,7 @@ func NewEngineMediator(
 		providerResolver: providerResolver,
 		createClientFn:   createClientFn,
 		listAllModelsFn:  listAllModelsFn,
+		mcpManager:       mcpManager,
 	}
 }
 
@@ -74,6 +78,14 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		m.setMode(a.Mode)
 	case protocol.RenameSessionAction:
 		go m.renameSession(a.SessionID, a.Title)
+	case protocol.ListMCPAction:
+		go m.listMCPServers()
+	case protocol.ConnectMCPAction:
+		go m.connectMCP(a.Name)
+	case protocol.DisconnectMCPAction:
+		go m.disconnectMCP(a.Name)
+	case protocol.ListToolsAction:
+		go m.listTools()
 	}
 }
 
@@ -217,3 +229,83 @@ func parseAuthMode(s string) int {
 
 // Ensure unused imports are handled cleanly.
 var _ = errors.New
+
+func (m *EngineMediator) listMCPServers() {
+	if m.mcpManager == nil {
+		m.Engine.EmitEvent(protocol.MCPServersListedEvent{})
+		return
+	}
+	statuses := m.mcpManager.Status()
+	var servers []protocol.MCPServerInfo
+	for _, s := range statuses {
+		servers = append(servers, protocol.MCPServerInfo{
+			Name:      s.Name,
+			Type:      string(s.Type),
+			Addr:      s.Addr,
+			Connected: s.Connected,
+			ToolCount: s.ToolCount,
+			Error:     s.Error,
+		})
+	}
+	m.Engine.EmitEvent(protocol.MCPServersListedEvent{Servers: servers})
+}
+
+func (m *EngineMediator) connectMCP(name string) {
+	if m.mcpManager == nil {
+		m.Engine.EmitEvent(protocol.MCPServerStatusChangedEvent{Name: name, Error: "mcp not configured"})
+		return
+	}
+	err := m.mcpManager.ConnectOne(context.Background(), name)
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	} else {
+		// Sync registry with new MCP tools
+		m.syncMCPTools()
+	}
+	m.Engine.EmitEvent(protocol.MCPServerStatusChangedEvent{Name: name, Connected: err == nil, Error: errMsg})
+}
+
+func (m *EngineMediator) disconnectMCP(name string) {
+	if m.mcpManager == nil {
+		m.Engine.EmitEvent(protocol.MCPServerStatusChangedEvent{Name: name, Error: "mcp not configured"})
+		return
+	}
+	err := m.mcpManager.DisconnectOne(name)
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	} else {
+		// Sync registry after removing MCP tools
+		m.syncMCPTools()
+	}
+	m.Engine.EmitEvent(protocol.MCPServerStatusChangedEvent{Name: name, Connected: false, Error: errMsg})
+}
+
+// syncMCPTools rebuilds the registry to match current MCP tool state.
+func (m *EngineMediator) syncMCPTools() {
+	if m.mcpManager == nil {
+		return
+	}
+	m.Engine.SetMCPTools(m.mcpManager.RegistryTools())
+}
+
+func (m *EngineMediator) listTools() {
+	defs := m.Engine.Registry().Definitions()
+	var tools []protocol.ToolInfo
+	for _, d := range defs {
+		source := "builtin"
+		if strings.HasPrefix(d.Name, "mcp_") {
+			parts := strings.SplitN(d.Name, "_", 3)
+			if len(parts) >= 3 {
+				source = "mcp:" + parts[1]
+			}
+		}
+		tools = append(tools, protocol.ToolInfo{
+			Name:        d.Name,
+			Description: d.Description,
+			Source:      source,
+		})
+	}
+	m.Engine.EmitEvent(protocol.ToolsListedEvent{Tools: tools})
+}

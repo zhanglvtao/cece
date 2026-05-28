@@ -280,7 +280,7 @@ func main() {
 		return allModels, nil
 	}
 
-	mediator := engine.NewEngineMediator(eng, store, providerResolver, createClientFn, listAllModelsFn)
+	mediator := engine.NewEngineMediator(eng, store, providerResolver, createClientFn, listAllModelsFn, mcpMgr)
 	model := ui.NewModel(mediator, cfg.Model, projectDir, contextWindow)
 	model.SetSessions(store)
 	model.SetSkillStore(skillStore)

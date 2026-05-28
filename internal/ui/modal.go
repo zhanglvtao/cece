@@ -22,6 +22,7 @@ const (
 	modalQuestion
 	modalModelPicker
 	modalSessionPicker
+	modalMCPPicker
 	modalRenameSession
 )
 
@@ -45,7 +46,7 @@ func (m *Model) modalHeight() int {
 	if !m.modal.active() {
 		return 0
 	}
-	if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker {
+	if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker || m.modal.kind == modalMCPPicker {
 		if m.modal.picker != nil {
 			return m.modal.picker.Height() + 1 // +1 for separator line
 		}
@@ -67,7 +68,7 @@ func (m *Model) modalView() string {
 		body = fmt.Sprintf("Approve plan %s?\n[y/enter] approve  [shift+tab] auto-accept  [n/esc] reject", m.modal.planFile)
 	case modalQuestion:
 		body = m.questionView()
-	case modalModelPicker, modalSessionPicker:
+	case modalModelPicker, modalSessionPicker, modalMCPPicker:
 		if m.modal.picker != nil {
 			body = m.modal.picker.View()
 		}
@@ -85,7 +86,7 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleApprovePlanKey(msg)
 	case modalQuestion:
 		return m.handleQuestionKey(msg)
-	case modalModelPicker, modalSessionPicker:
+	case modalModelPicker, modalSessionPicker, modalMCPPicker:
 		return m.handlePickerKey(msg)
 	case modalRenameSession:
 		return m.handleRenameSessionKey(msg)
@@ -515,6 +516,81 @@ func (m *Model) openRenameSessionDialog() bool {
 
 func (m *Model) renameSessionView() string {
 	return fmt.Sprintf("Rename session (ctrl+c/enter to save & quit, esc to quit):\n> %s▌", m.modal.textInput)
+}
+
+func (m *Model) openMCPPicker(servers []protocol.MCPServerInfo) {
+	if len(servers) == 0 {
+		m.transcript.appendDone(blockInfo, "mcp", "No MCP servers configured. Add servers to .cece/settings.json under \"mcp\".")
+		return
+	}
+	items := make([]any, len(servers))
+	for i, s := range servers {
+		items[i] = s
+	}
+	p := picker.New("MCP servers", items, modalMaxHeight, func(item any, selected bool) string {
+		s := item.(protocol.MCPServerInfo)
+		status := "disconnected"
+		if s.Connected {
+			status = fmt.Sprintf("connected (%d tools)", s.ToolCount)
+		} else if s.Error != "" {
+			status = s.Error
+		}
+		text := fmt.Sprintf("%s  %s  %s", s.Name, s.Type, status)
+		return picker.FormatItem(text, selected)
+	})
+	p.SetHelpText("[up/down] move  [enter] toggle connect/disconnect  [esc] close")
+	p.SetOnSelect(func(item any) tea.Cmd {
+		s := item.(protocol.MCPServerInfo)
+		if actor, ok := m.sender.(Actor); ok {
+			if s.Connected {
+				actor.Do(protocol.DisconnectMCPAction{Name: s.Name})
+			} else {
+				actor.Do(protocol.ConnectMCPAction{Name: s.Name})
+			}
+		}
+		return nil
+	})
+	m.modal = modalState{kind: modalMCPPicker, picker: p}
+}
+
+func (m *Model) showToolList(tools []protocol.ToolInfo) {
+	if len(tools) == 0 {
+		m.transcript.appendDone(blockInfo, "tools", "No tools registered.")
+		return
+	}
+
+	// Group by source
+	groups := make(map[string][]protocol.ToolInfo)
+	var order []string
+	for _, t := range tools {
+		if _, ok := groups[t.Source]; !ok {
+			order = append(order, t.Source)
+		}
+		groups[t.Source] = append(groups[t.Source], t)
+	}
+
+	var b strings.Builder
+	for _, source := range order {
+		label := source
+		if source == "builtin" {
+			label = "Built-in tools"
+		} else if strings.HasPrefix(source, "mcp:") {
+			label = "MCP tools (" + strings.TrimPrefix(source, "mcp:") + ")"
+		}
+		b.WriteString(label + ":\n")
+		for _, t := range groups[source] {
+			desc := t.Description
+			if desc != "" {
+				if len(desc) > 80 {
+					desc = desc[:77] + "..."
+				}
+				b.WriteString(fmt.Sprintf("  %s — %s\n", t.Name, desc))
+			} else {
+				b.WriteString(fmt.Sprintf("  %s\n", t.Name))
+			}
+		}
+	}
+	m.transcript.appendDone(blockInfo, "tools", b.String())
 }
 
 func (m *Model) handleRenameSessionKey(msg tea.KeyPressMsg) tea.Cmd {

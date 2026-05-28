@@ -32,6 +32,21 @@ func (r *Registry) Register(t Tool) {
 	r.tools[t.Info().Name] = t
 }
 
+// SetMCPTools replaces all MCP tools in the registry.
+// It removes any tool whose name starts with "mcp_", then adds the given tools.
+func (r *Registry) SetMCPTools(tools []Tool) {
+	// Remove existing MCP tools
+	for name := range r.tools {
+		if strings.HasPrefix(name, "mcp_") {
+			delete(r.tools, name)
+		}
+	}
+	// Add new MCP tools
+	for _, t := range tools {
+		r.tools[t.Info().Name] = t
+	}
+}
+
 // Definitions returns all tool definitions for the API request.
 func (r *Registry) Definitions() []Definition {
 	defs := make([]Definition, 0, len(r.tools))
