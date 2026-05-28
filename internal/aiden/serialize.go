@@ -36,7 +36,7 @@ type ResponsesInputItem struct {
 
 type AidenMsg struct {
 	Role       string          `json:"role"`
-	Content    any             `json:"content"`
+	Content    any             `json:"content,omitempty"`
 	ToolCalls  []AidenToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string          `json:"tool_call_id,omitempty"`
 }
@@ -191,11 +191,19 @@ func serializeMessage(m chat.Message) AidenMsg {
 				}
 			}
 		}
-		msg.Content = assistantText(m)
+		if text := assistantText(m); text != "" {
+			msg.Content = text
+		}
 		return msg
 	}
 
-	content := m.Content
+	var content any = m.Content
+	if content == "" {
+		content = m.TextContent()
+	}
+	if content == "" {
+		content = nil
+	}
 	return AidenMsg{
 		Role:    string(m.Role),
 		Content: content,

@@ -247,12 +247,8 @@ func TestSerializeAssistantThinkingOnlyUsesEmptyContent(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
-	content, ok := result[0].Content.(string)
-	if !ok {
-		t.Fatalf("expected assistant content as string, got %T", result[0].Content)
-	}
-	if content != "" {
-		t.Fatalf("unexpected assistant content: %q", content)
+	if result[0].Content != nil {
+		t.Fatalf("expected assistant content nil, got %v", result[0].Content)
 	}
 }
 
@@ -278,12 +274,8 @@ func TestSerializeAssistantThinkingAndToolUseKeepsEmptyContent(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
-	content, ok := result[0].Content.(string)
-	if !ok {
-		t.Fatalf("expected assistant content as string, got %T", result[0].Content)
-	}
-	if content != "" {
-		t.Fatalf("unexpected assistant content: %q", content)
+	if result[0].Content != nil {
+		t.Fatalf("expected assistant content nil, got %v", result[0].Content)
 	}
 	if len(result[0].ToolCalls) != 1 {
 		t.Fatalf("expected 1 tool call, got %d", len(result[0].ToolCalls))
@@ -311,12 +303,8 @@ func TestSerializeAssistantToolOnlyKeepsEmptyContent(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
-	content, ok := result[0].Content.(string)
-	if !ok {
-		t.Fatalf("expected assistant content as string, got %T", result[0].Content)
-	}
-	if content != "" {
-		t.Fatalf("unexpected assistant content: %q", content)
+	if result[0].Content != nil {
+		t.Fatalf("expected assistant content nil, got %v", result[0].Content)
 	}
 	if len(result[0].ToolCalls) != 1 {
 		t.Fatalf("expected 1 tool call, got %d", len(result[0].ToolCalls))
