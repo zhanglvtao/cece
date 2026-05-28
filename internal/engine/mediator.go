@@ -72,6 +72,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		go m.cycleMode()
 	case protocol.SetPermissionModeAction:
 		m.setMode(a.Mode)
+	case protocol.RenameSessionAction:
+		go m.renameSession(a.SessionID, a.Title)
 	}
 }
 
@@ -179,6 +181,15 @@ func (m *EngineMediator) setMode(mode protocol.PermissionMode) {
 	}
 	nextMode := ps.SetMode(tool.PermissionMode(mode))
 	m.emitModeChanged(nextMode)
+}
+
+func (m *EngineMediator) renameSession(sessionID, title string) {
+	if m.store == nil || sessionID == "" || title == "" {
+		return
+	}
+	if err := m.store.Rename(context.Background(), sessionID, title); err != nil {
+		slog.Error("rename session", "sessionID", sessionID, "error", err)
+	}
 }
 
 func (m *EngineMediator) emitModeChanged(mode tool.PermissionMode) {

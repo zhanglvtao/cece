@@ -551,6 +551,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cancelTurn("Cancelled")
 			return m, nil
 		}
+		if m.currentSessionID != "" && !m.currentSessionEphemeral {
+			if m.openRenameSessionDialog() {
+				return m, nil
+			}
+		}
 		return m, func() tea.Msg { return tea.Quit() }
 	case "esc":
 		if m.busy {

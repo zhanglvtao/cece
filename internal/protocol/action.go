@@ -92,3 +92,11 @@ func (ClearHistoryAction) isAction() {}
 type CompactAction struct{}
 
 func (CompactAction) isAction() {}
+
+// RenameSessionAction requests renaming the current session.
+type RenameSessionAction struct {
+	SessionID string
+	Title     string
+}
+
+func (RenameSessionAction) isAction() {}

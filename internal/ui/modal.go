@@ -22,6 +22,7 @@ const (
 	modalQuestion
 	modalModelPicker
 	modalSessionPicker
+	modalRenameSession
 )
 
 type modalState struct {
@@ -70,6 +71,8 @@ func (m *Model) modalView() string {
 		if m.modal.picker != nil {
 			body = m.modal.picker.View()
 		}
+	case modalRenameSession:
+		body = m.renameSessionView()
 	}
 	return body
 }
@@ -84,6 +87,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleQuestionKey(msg)
 	case modalModelPicker, modalSessionPicker:
 		return m.handlePickerKey(msg)
+	case modalRenameSession:
+		return m.handleRenameSessionKey(msg)
 	}
 	return nil
 }
@@ -464,7 +469,16 @@ func (m *Model) openSessionsDialog() {
 		if title == "" {
 			title = s.ID
 		}
-		return picker.FormatItem(title+"  "+s.UpdatedAt.Format("2006-01-02 15:04"), selected)
+		model := s.ConfigName
+		if model != "" {
+			model += "/"
+		}
+		model += s.Model
+		if s.Model == "" {
+			model = ""
+		}
+		timeStr := s.UpdatedAt.Format("2006-01-02 15:04")
+		return picker.FormatItem(title+"  "+model+"  "+timeStr, selected)
 	})
 	p.SetHelpText("[up/down] move  [enter] load  [esc] close")
 	p.SetOnSelect(func(item any) tea.Cmd {
@@ -478,4 +492,55 @@ func (m *Model) openSessionsDialog() {
 	})
 	m.modal = modalState{kind: modalSessionPicker, picker: p}
 	m.status = "Resume session"
+}
+
+func (m *Model) openRenameSessionDialog() bool {
+	if m.currentSessionID == "" || m.sessions == nil {
+		return false
+	}
+	sess, err := m.sessions.Get(context.Background(), m.currentSessionID)
+	if err != nil || sess == nil {
+		return false
+	}
+	title := sess.Title
+	if title == "" {
+		title = sess.ID
+	}
+	m.modal = modalState{
+		kind:      modalRenameSession,
+		textInput: title,
+	}
+	return true
+}
+
+func (m *Model) renameSessionView() string {
+	return fmt.Sprintf("Rename session (ctrl+c/enter to save & quit, esc to quit):\n> %s▌", m.modal.textInput)
+}
+
+func (m *Model) handleRenameSessionKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "ctrl+c", "enter":
+		newTitle := strings.TrimSpace(m.modal.textInput)
+		sessionID := m.currentSessionID
+		m.modal = modalState{}
+		if newTitle != "" && sessionID != "" {
+			if actor, ok := m.sender.(Actor); ok {
+				actor.Do(protocol.RenameSessionAction{SessionID: sessionID, Title: newTitle})
+			}
+		}
+		return func() tea.Msg { return tea.Quit() }
+	case "esc":
+		m.modal = modalState{}
+		return func() tea.Msg { return tea.Quit() }
+	case "backspace":
+		if m.modal.textInput != "" {
+			_, size := utf8.DecodeLastRuneInString(m.modal.textInput)
+			m.modal.textInput = m.modal.textInput[:len(m.modal.textInput)-size]
+		}
+	default:
+		if text := msg.Key().Text; text != "" {
+			m.modal.textInput += text
+		}
+	}
+	return nil
 }
