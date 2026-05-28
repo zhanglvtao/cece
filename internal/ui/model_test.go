@@ -45,8 +45,9 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	if m.busy {
 		t.Fatal("busy = true after TurnCompleted")
 	}
-	view := m.transcript.render(80, m.styles)
-	if !containsAll(view, "[you]", "hi", "assistant", "hello there") {
+	view := m.transcript.render(80, m.styles, m.palette)
+	stripped := stripANSI(view)
+	if !containsAll(stripped, "[you]", "hi", "assistant", "hello there") {
 		t.Fatalf("transcript missing expected content:\n%s", view)
 	}
 }
@@ -99,7 +100,7 @@ func TestPlanApprovalDispatchesActions(t *testing.T) {
 	if m.modal.kind != modalApprovePlan {
 		t.Fatalf("modal = %v, want approve plan", m.modal.kind)
 	}
-	if !containsAll(m.transcript.render(80, m.styles), "plan.md", "# Plan") {
+	if !containsAll(stripANSI(m.transcript.render(80, m.styles, m.palette)), "plan.md", "# Plan") {
 		t.Fatal("plan content not rendered")
 	}
 	m.handleModalKey(keyMsg("y"))
@@ -229,8 +230,8 @@ func TestSessionLoadedRebuildsTranscript(t *testing.T) {
 	if m.transcript.inputTokens != 20 || m.transcript.outputTokens != 5 || m.transcript.contextUsed != 10 {
 		t.Fatalf("tokens = %d/%d context=%d", m.transcript.inputTokens, m.transcript.outputTokens, m.transcript.contextUsed)
 	}
-	if !containsAll(m.transcript.render(80, m.styles), "hi", "answer") {
-		t.Fatalf("history not rendered:\n%s", m.transcript.render(80, m.styles))
+	if !containsAll(stripANSI(m.transcript.render(80, m.styles, m.palette)), "hi", "answer") {
+		t.Fatalf("history not rendered:\n%s", m.transcript.render(80, m.styles, m.palette))
 	}
 }
 
@@ -541,6 +542,32 @@ func containsAll(s string, parts ...string) bool {
 		}
 	}
 	return true
+}
+
+// stripANSI removes ANSI escape sequences from s for plain-text comparison.
+func stripANSI(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			// skip CSI sequence: ESC [ ... final_byte
+			i++
+			if i < len(s) && s[i] == '[' {
+				i++
+				for i < len(s) && !(s[i] >= 0x40 && s[i] <= 0x7e) {
+					i++
+				}
+				if i < len(s) {
+					i++
+				}
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 type fakeSessionStore struct{ sessions []session.Session }

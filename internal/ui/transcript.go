@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"cece/internal/protocol"
+	"cece/internal/ui/theme"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -268,7 +269,7 @@ func (t *transcript) loadMessage(msg protocol.Message) {
 	}
 }
 
-func (t *transcript) render(width int, sty Styles) string {
+func (t *transcript) render(width int, sty Styles, p theme.Palette) string {
 	if width <= 0 {
 		width = 80
 	}
@@ -277,7 +278,7 @@ func (t *transcript) render(width int, sty Styles) string {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
-		b.WriteString(renderBlock(block, width, sty))
+		b.WriteString(renderBlock(block, width, sty, p))
 	}
 	if len(t.blocks) == 0 {
 		b.WriteString("Cece ready. Type a message and press Enter.")
@@ -285,7 +286,7 @@ func (t *transcript) render(width int, sty Styles) string {
 	return b.String()
 }
 
-func renderBlock(block transcriptBlock, width int, sty Styles) string {
+func renderBlock(block transcriptBlock, width int, sty Styles, p theme.Palette) string {
 	label := string(block.kind)
 	if block.title != "" {
 		label = block.title
@@ -299,6 +300,11 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	}
 	if text == "" {
 		return sty.Chat.Label.Render("[" + label + "]")
+	}
+	// Assistant blocks get Markdown rendering; others stay plain text.
+	if block.kind == blockAssistant {
+		rendered := renderMarkdown(text, width, p)
+		return sty.Chat.Label.Render("["+label+"]") + "\n" + rendered
 	}
 	text = ansi.Wrap(text, max(20, width-4), "")
 	return sty.Chat.Label.Render("["+label+"]") + "\n" + indent(text, "  ")
