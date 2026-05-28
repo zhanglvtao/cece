@@ -209,7 +209,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		m.checkSlashPopup()
+		m.checkSlashPopupActive()
 		m.filePopup.Close()
 		return m, cmd
 	case tea.MouseWheelMsg:
@@ -236,7 +236,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.ModelRequestStarted:
 		m.busy = true
 		m.status = "Requesting"
-		m.statusBar.IncrementAPICalls()
+		m.statusBar.SetAPICalls(e.APICalls)
 	case protocol.AssistantStarted:
 		m.busy = true
 		m.status = "Streaming"
@@ -608,7 +608,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.input, cmd = m.input.Update(msg)
 
 	// After any input change, check if we should open the slash popup or file popup.
-	m.checkSlashPopup()
+	if slashCmd := m.checkSlashPopup(msg); slashCmd != nil {
+		return m, tea.Batch(cmd, slashCmd)
+	}
 	if fileCmd := m.checkFilePopup(msg); fileCmd != nil {
 		return m, tea.Batch(cmd, fileCmd)
 	}
@@ -630,8 +632,7 @@ func (m *Model) handleSlashPopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "tab", "enter":
 		if cmd, ok := m.slashPopup.SelectedCommand(); ok {
-			m.input.SetValue(cmd + " ")
-			m.input.CursorEnd()
+			m.insertSlashCompletion(cmd)
 			m.slashPopup.Close()
 		}
 		return m, nil
@@ -657,15 +658,38 @@ func (m *Model) handleSlashPopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// checkSlashPopup opens the slash popup when the input starts with "/".
-func (m *Model) checkSlashPopup() {
-	spec := parseSlashSpec(m.input.Value())
-	if spec.Active && !spec.HasArgs {
-		if !m.slashPopup.Active() {
+// checkSlashPopup opens the slash popup when the user types "/".
+func (m *Model) checkSlashPopup(msg tea.KeyPressMsg) tea.Cmd {
+	if msg.String() == "/" && !m.slashPopup.Active() && !m.filePopup.Active() {
+		spec := parseSlashSpec(m.input.Value())
+		if spec.Active {
 			m.slashPopup.Open(spec.Query)
+			return nil
+		}
+	}
+	// Update filter if slash popup is active.
+	if m.slashPopup.Active() {
+		spec := parseSlashSpec(m.input.Value())
+		if !spec.Active || spec.HasArgs {
+			m.slashPopup.Close()
 		} else {
 			m.slashPopup.UpdateFilter(spec.Query)
 		}
+	}
+	return nil
+}
+
+// checkSlashPopupActive updates or closes the slash popup based on current input.
+// Used when there's no key event (e.g. paste).
+func (m *Model) checkSlashPopupActive() {
+	if !m.slashPopup.Active() {
+		return
+	}
+	spec := parseSlashSpec(m.input.Value())
+	if !spec.Active || spec.HasArgs {
+		m.slashPopup.Close()
+	} else {
+		m.slashPopup.UpdateFilter(spec.Query)
 	}
 }
 
@@ -744,6 +768,23 @@ func (m *Model) insertFileCompletion(path string) {
 		endIdx = len(value)
 	}
 	newValue := value[:spec.StartIdx] + "@" + path + " " + value[endIdx:]
+	m.input.SetValue(newValue)
+	m.input.CursorEnd()
+}
+
+// insertSlashCompletion replaces the /command in the input with the selected command.
+func (m *Model) insertSlashCompletion(cmd string) {
+	value := m.input.Value()
+	spec := parseSlashSpec(value)
+	if !spec.Active {
+		return
+	}
+	// Replace from "/" position to end of command word with the selected command.
+	endIdx := spec.StartIdx + len(spec.Command)
+	if endIdx > len(value) {
+		endIdx = len(value)
+	}
+	newValue := value[:spec.StartIdx] + cmd + " " + value[endIdx:]
 	m.input.SetValue(newValue)
 	m.input.CursorEnd()
 }

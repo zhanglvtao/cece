@@ -6,32 +6,60 @@ import (
 )
 
 type slashSpec struct {
-	Command string
-	Query   string
-	Args    string
-	Active  bool
-	HasArgs bool
+	Command  string // e.g. "/model"
+	Query    string // e.g. "model"
+	Args     string
+	Active   bool
+	HasArgs  bool
+	StartIdx int // byte index of "/" in input
 }
 
+// parseSlashSpec finds the last "/" preceded by whitespace (or at start of
+// input) and extracts the slash command word. Works at any input position.
 func parseSlashSpec(input string) slashSpec {
-	trimmed := strings.TrimLeft(input, " \t")
-	if !strings.HasPrefix(trimmed, "/") {
+	// Find the last "/" at position 0 or preceded by whitespace.
+	slashIdx := -1
+	for i := len(input) - 1; i >= 0; i-- {
+		if input[i] == '/' {
+			if i == 0 || isSpace(input[i-1]) {
+				slashIdx = i
+				break
+			}
+		}
+	}
+	if slashIdx < 0 {
 		return slashSpec{}
 	}
-	body := strings.TrimPrefix(trimmed, "/")
-	commandPart, args, hasArgs := body, "", false
-	if idx := strings.IndexAny(body, " \t\n"); idx >= 0 {
-		commandPart = body[:idx]
-		args = strings.TrimSpace(body[idx+1:])
+
+	// Extract word from "/" to whitespace or end.
+	wordEnd := len(input)
+	for i := slashIdx + 1; i < len(input); i++ {
+		if isSpace(input[i]) {
+			wordEnd = i
+			break
+		}
+	}
+	word := input[slashIdx:wordEnd]
+
+	args := ""
+	hasArgs := false
+	if wordEnd < len(input) {
+		args = strings.TrimSpace(input[wordEnd:])
 		hasArgs = true
 	}
+
 	return slashSpec{
-		Command: "/" + commandPart,
-		Query:   commandPart,
-		Args:    args,
-		Active:  true,
-		HasArgs: hasArgs,
+		Command:  word,
+		Query:    word[1:], // strip leading "/"
+		Args:     args,
+		Active:   true,
+		HasArgs:  hasArgs,
+		StartIdx: slashIdx,
 	}
+}
+
+func isSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n'
 }
 
 func formatSlashUnknown(command string) string {
