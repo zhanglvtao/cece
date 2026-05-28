@@ -3,7 +3,6 @@ package ui
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -88,10 +87,6 @@ func walkDir(root string) []string {
 			if skipDirs[base] {
 				return filepath.SkipDir
 			}
-			// Skip hidden dirs
-			if len(base) > 1 && base[0] == '.' {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -99,10 +94,6 @@ func walkDir(root string) []string {
 			return nil
 		}
 		relStr := filepath.ToSlash(rel)
-		// Skip hidden files
-		if strings.HasPrefix(filepath.Base(relStr), ".") {
-			return nil
-		}
 		files = append(files, relStr)
 		if len(files) >= walkerMaxFiles {
 			return filepath.SkipDir
