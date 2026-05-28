@@ -352,7 +352,7 @@ func TestStatusRendersAboveInput(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
 
-	view := m.View().Content
+	view := stripAnsi(m.View().Content)
 	statusIdx := strings.Index(view, "Ready")
 	inputIdx := strings.Index(view, "Send a message")
 	metricsIdx := strings.Index(view, "sonnet")
@@ -371,6 +371,26 @@ func TestStatusRendersAboveInput(t *testing.T) {
 	if strings.Contains(view[metricsIdx:], "Ready") {
 		t.Fatalf("bottom metrics bar should not contain status")
 	}
+}
+
+// stripAnsi removes ANSI escape sequences from s.
+func stripAnsi(s string) string {
+	var out strings.Builder
+	out.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			// skip until letter
+			for i < len(s) && !(s[i] >= 'A' && s[i] <= 'Z' || s[i] >= 'a' && s[i] <= 'z') {
+				i++
+			}
+			i++ // skip the letter
+			continue
+		}
+		out.WriteByte(s[i])
+		i++
+	}
+	return out.String()
 }
 
 func TestInitOnlySubscribesEvents(t *testing.T) {
