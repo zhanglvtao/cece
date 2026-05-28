@@ -355,7 +355,8 @@ func (m *Model) View() tea.View {
 		sections = append(sections, filePopupView)
 	}
 	// Headline indicator: show latest assistant text above input during streaming
-	if headline := m.headlineView(); headline != "" {
+	headline := m.headlineView()
+	if headline != "" {
 		sections = append(sections, headline)
 	}
 	sections = append(sections, m.inputView())
@@ -388,6 +389,9 @@ func (m *Model) View() tea.View {
 		}
 		if filePopupView != "" {
 			rowsAboveInput += strings.Count(filePopupView, "\n") + 1
+		}
+		if headline != "" {
+			rowsAboveInput += strings.Count(headline, "\n") + 1
 		}
 		cur.Y += rowsAboveInput + m.styles.Input.Box.GetBorderTopSize() + m.styles.Input.Box.GetPaddingTop()
 		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft()
