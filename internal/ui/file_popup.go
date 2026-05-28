@@ -7,15 +7,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const (
-	filePopupMaxHeight = 10
-	filePopupMaxItems  = 50 // max items to show in picker
-)
+const filePopupMaxHeight = 10
 
 // fileEntry is a single file candidate.
 type fileEntry struct {
 	path     string // display path
-	FullPath string // absolute or insertion path
+	FullPath string // insertion path
 }
 
 // FilePopup wraps a compact Picker for @ file completion.
@@ -142,25 +139,15 @@ func (p *FilePopup) buildPicker() {
 // rebuildEntries rebuilds the entry list from the walker cache.
 func (p *FilePopup) rebuildEntries() {
 	files := p.walker.Files(p.spec.AbsRoot)
-	var entries []fileEntry
+	entries := make([]fileEntry, 0, len(files))
 	for _, f := range files {
-		// Build display path and full insertion path
-		var displayPath, fullPath string
-		if p.spec.IsAbs {
-			// For absolute paths, show relative to the baseDir
-			displayPath = f
-			fullPath = p.spec.BaseDir + f
-		} else if p.spec.BaseDir != "" {
-			displayPath = f
+		var fullPath string
+		if p.spec.IsAbs || p.spec.BaseDir != "" {
 			fullPath = p.spec.BaseDir + f
 		} else {
-			displayPath = f
 			fullPath = f
 		}
-		entries = append(entries, fileEntry{path: displayPath, FullPath: fullPath})
-		if len(entries) >= filePopupMaxItems {
-			break
-		}
+		entries = append(entries, fileEntry{path: f, FullPath: fullPath})
 	}
 	p.entries = entries
 }
