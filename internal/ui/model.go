@@ -381,16 +381,16 @@ func (m *Model) View() tea.View {
 	}
 	// Headline indicator: show latest assistant text above input during streaming
 	headline := m.headlineView()
+	queued := m.queuedListView()
+	// Add a blank line between viewport and status/headline (chat ↔ status gap)
+	if headline != "" || queued != "" {
+		sections = append(sections, "")
+	}
 	if headline != "" {
 		sections = append(sections, headline)
 	}
-	queued := m.queuedListView()
 	if queued != "" {
 		sections = append(sections, queued)
-	}
-	// Add a blank line between headline/queued and the input box
-	if headline != "" || queued != "" {
-		sections = append(sections, "")
 	}
 	sections = append(sections, m.inputView())
 	statusBarView := m.statusBar.Render(m.width)
@@ -423,14 +423,14 @@ func (m *Model) View() tea.View {
 		if filePopupView != "" {
 			rowsAboveInput += strings.Count(filePopupView, "\n") + 1
 		}
+		if headline != "" || queued != "" {
+			rowsAboveInput++ // blank separator line between viewport and status
+		}
 		if headline != "" {
 			rowsAboveInput += strings.Count(headline, "\n") + 1
 		}
 		if queued != "" {
 			rowsAboveInput += strings.Count(queued, "\n") + 1
-		}
-		if headline != "" || queued != "" {
-			rowsAboveInput++ // blank separator line before input
 		}
 		cur.Y += rowsAboveInput + m.styles.Input.Box.GetBorderTopSize() + m.styles.Input.Box.GetPaddingTop()
 		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft()
@@ -468,7 +468,7 @@ func (m *Model) resize() {
 	hFrame := m.styles.Input.Box.GetHorizontalFrameSize()
 	headlineH := 0
 	if m.status != "" {
-		headlineH = 1
+		headlineH = 2 // headline(1) + blank separator between viewport and headline(1)
 	}
 	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH - headlineH
 	if viewportH < 3 {
