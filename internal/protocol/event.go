@@ -207,6 +207,7 @@ type CompactedEvent struct {
 	TokensAfter    int // estimated input tokens after compaction
 	MessagesBefore int
 	MessagesAfter  int
+	Summary        string // the generated summary content
 }
 
 func (CompactedEvent) isEvent() {}

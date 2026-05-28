@@ -13,14 +13,17 @@ type StatusBar struct {
 	modelName     string
 	status        string
 	busy          bool
+	spinnerActive bool // true when status ends with "ing" — spinner animation
 	statusFrame   int
 	apiCalls      int
 	toolCounts    map[string]int
-	inputTokens   int
-	outputTokens  int
-	contextUsed   int
-	contextWindow int
-	scrollPct     int
+	inputTokens      int
+	outputTokens     int
+	contextUsed      int
+	contextWindow    int
+	scrollPct        int
+	cacheReadTokens  int
+	cacheCreationTokens int
 }
 
 var statusSpinnerFrames = []rune{'-', '\\', '|', '/'}
@@ -36,9 +39,11 @@ func NewStatusBar() *StatusBar {
 func (sb *StatusBar) UpdateModel(name string) { sb.modelName = name }
 
 // UpdateStatus updates the status text and busy flag.
+// Sets spinnerActive when status ends with "ing".
 func (sb *StatusBar) UpdateStatus(status string, busy bool) {
 	sb.status = status
 	sb.busy = busy
+	sb.spinnerActive = strings.HasSuffix(status, "ing")
 }
 
 // TickStatusSpinner advances the spinner frame.
@@ -54,6 +59,12 @@ func (sb *StatusBar) IncrementTool(name string) { sb.toolCounts[name]++ }
 func (sb *StatusBar) UpdateTokens(input, output int) {
 	sb.inputTokens = input
 	sb.outputTokens = output
+}
+
+// UpdateCache updates cumulative cache token data.
+func (sb *StatusBar) UpdateCache(read, creation int) {
+	sb.cacheReadTokens = read
+	sb.cacheCreationTokens = creation
 }
 
 // UpdateContext updates the context gauge.
@@ -77,9 +88,9 @@ func (sb *StatusBar) ResetToolCounts() {
 func (sb *StatusBar) Render(width int) string {
 	var parts []string
 
-	// status (with spinner if busy)
+	// status (with spinner if active)
 	if sb.status != "" {
-		if sb.busy {
+		if sb.spinnerActive {
 			frame := string(statusSpinnerFrames[sb.statusFrame%len(statusSpinnerFrames)])
 			parts = append(parts, frame+" "+sb.status)
 		} else {
@@ -104,6 +115,13 @@ func (sb *StatusBar) Render(width int) string {
 
 	// tokens
 	parts = append(parts, fmt.Sprintf("in/out:%s/%s", formatTokenK(sb.inputTokens), formatTokenK(sb.outputTokens)))
+
+	// cache hit rate
+	cacheTotal := sb.cacheReadTokens + sb.cacheCreationTokens
+	if cacheTotal > 0 {
+		hitRate := sb.cacheReadTokens * 100 / cacheTotal
+		parts = append(parts, fmt.Sprintf("cache:%d%%", hitRate))
+	}
 
 	// api calls
 	parts = append(parts, fmt.Sprintf("calls:%d", sb.apiCalls))

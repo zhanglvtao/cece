@@ -212,6 +212,7 @@ type UICompacted struct {
 	TokensAfter    int
 	MessagesBefore int
 	MessagesAfter  int
+	Summary        string
 }
 
 func (UICompacted) isEvent() {}

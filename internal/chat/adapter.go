@@ -133,6 +133,7 @@ func ToDTO(e Event) protocol.Event {
 			TokensAfter:    v.TokensAfter,
 			MessagesBefore: v.MessagesBefore,
 			MessagesAfter:  v.MessagesAfter,
+			Summary:        v.Summary,
 		}
 
 	case UITurnCompleted:

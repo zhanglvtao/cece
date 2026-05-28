@@ -307,7 +307,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 			m.status = fmt.Sprintf("Compacted %d→%d msgs, %dK→%dK tokens",
 				e.MessagesBefore, e.MessagesAfter,
 				(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
-			m.transcript.appendDone(blockInfo, "compact", m.status)
+			m.transcript.appendDone(blockInfo, "compact", e.Summary)
 		}
 		m.statusBar.ResetToolCounts()
 	}
@@ -460,7 +460,7 @@ func (m *Model) headlineView() string {
 }
 
 func (m *Model) statusShowsSpinner() bool {
-	return m.status == "Requesting" || m.status == "Streaming"
+	return strings.HasSuffix(m.status, "ing")
 }
 
 func (m *Model) ensureStatusSpinner() tea.Cmd {

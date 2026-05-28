@@ -307,13 +307,20 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 	e.mu.Lock()
 	e.history = append(e.history, result.Boundary)
 	historyLen := len(e.history)
+	sessionID := e.sessionID
 	e.mu.Unlock()
+
+	// Persist boundary message to session JSONL
+	if sessionID != "" {
+		e.PersistMessage(context.Background(), result.Boundary)
+	}
 
 	e.emitEvent(protocol.CompactedEvent{
 		TokensBefore:   result.TokensBefore,
 		TokensAfter:    result.TokensAfter,
 		MessagesBefore: len(snapshot),
-		MessagesAfter:  historyLen - result.SummarizeCount + 1, // boundary replaces summarized messages
+		MessagesAfter:  historyLen - result.SummarizeCount + 1,
+		Summary:        result.Boundary.Content,
 	})
 }
 
