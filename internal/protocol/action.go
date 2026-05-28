@@ -56,6 +56,13 @@ type CyclePermissionModeAction struct{}
 
 func (CyclePermissionModeAction) isAction() {}
 
+// SetPermissionModeAction requests setting the permission mode directly.
+type SetPermissionModeAction struct {
+	Mode PermissionMode
+}
+
+func (SetPermissionModeAction) isAction() {}
+
 // LoadSessionAction requests loading a session by ID.
 type LoadSessionAction struct {
 	SessionID string

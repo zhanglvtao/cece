@@ -70,6 +70,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		go m.listModels()
 	case protocol.CyclePermissionModeAction:
 		go m.cycleMode()
+	case protocol.SetPermissionModeAction:
+		m.setMode(a.Mode)
 	}
 }
 
@@ -166,9 +168,22 @@ func (m *EngineMediator) cycleMode() {
 		m.Engine.SetPlanModeState(ps)
 	}
 	nextMode := ps.CycleMode()
+	m.emitModeChanged(nextMode)
+}
 
+func (m *EngineMediator) setMode(mode protocol.PermissionMode) {
+	ps := m.Engine.PlanModeState()
+	if ps == nil {
+		ps = tool.NewPlanModeState()
+		m.Engine.SetPlanModeState(ps)
+	}
+	nextMode := ps.SetMode(tool.PermissionMode(mode))
+	m.emitModeChanged(nextMode)
+}
+
+func (m *EngineMediator) emitModeChanged(mode tool.PermissionMode) {
 	var displayText string
-	switch nextMode {
+	switch mode {
 	case tool.PermissionModeAutoAccept:
 		displayText = "Auto-accept mode"
 	case tool.PermissionModePlan:
@@ -176,7 +191,7 @@ func (m *EngineMediator) cycleMode() {
 	default:
 		displayText = "Default mode"
 	}
-	m.Engine.EmitEvent(protocol.ModeChangedEvent{Mode: protocol.PermissionMode(nextMode), Message: displayText})
+	m.Engine.EmitEvent(protocol.ModeChangedEvent{Mode: protocol.PermissionMode(mode), Message: displayText})
 }
 
 // parseAuthMode converts a string auth mode to an int matching claude.AuthMode values.

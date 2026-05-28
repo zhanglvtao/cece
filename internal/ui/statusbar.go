@@ -88,16 +88,6 @@ func (sb *StatusBar) ResetToolCounts() {
 func (sb *StatusBar) Render(width int) string {
 	var parts []string
 
-	// status (with spinner if active)
-	if sb.status != "" {
-		if sb.spinnerActive {
-			frame := string(statusSpinnerFrames[sb.statusFrame%len(statusSpinnerFrames)])
-			parts = append(parts, frame+" "+sb.status)
-		} else {
-			parts = append(parts, sb.status)
-		}
-	}
-
 	// model name
 	if sb.modelName != "" {
 		parts = append(parts, sb.modelName)

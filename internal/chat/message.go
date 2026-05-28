@@ -182,6 +182,57 @@ func MessagesAfterCompactBoundary(messages []Message) []Message {
 	return messages[boundaryIdx:]
 }
 
+// EnsureToolResultCoverage scans messages for orphaned tool_use blocks (assistant
+// messages with tool calls that have no matching tool_result in subsequent user
+// messages) and appends synthetic tool_result blocks for each missing one.
+// This prevents API 400 errors when a session is resumed after an interruption
+// that left tool calls without results.
+func EnsureToolResultCoverage(messages []Message) []Message {
+	knownResults := make(map[string]struct{})
+	for _, m := range messages {
+		for _, cb := range m.ContentBlocks {
+			if tr, ok := cb.AsToolResult(); ok {
+				knownResults[tr.ToolUseID] = struct{}{}
+			}
+		}
+	}
+
+	var orphans []ApiToolUseBlock
+	for _, m := range messages {
+		if m.Role != AssistantRole {
+			continue
+		}
+		for _, cb := range m.ContentBlocks {
+			if cb.Type == ApiToolUseContentType && cb.ToolUse != nil {
+				if _, has := knownResults[cb.ToolUse.ID]; !has {
+					orphans = append(orphans, *cb.ToolUse)
+				}
+			}
+		}
+	}
+
+	if len(orphans) == 0 {
+		return messages
+	}
+
+	synthetic := make([]ApiContentBlock, len(orphans))
+	for i, tc := range orphans {
+		synthetic[i] = ApiContentBlock{
+			Type: ApiToolResultContentType,
+			ToolResult: &ApiToolResultBlock{
+				ToolUseID: tc.ID,
+				Content:   "Tool call was interrupted and did not produce a result. You may retry this call if the result is still needed.",
+				IsError:   true,
+			},
+		}
+	}
+
+	return append(messages, Message{
+		Role:          UserRole,
+		ContentBlocks: synthetic,
+	})
+}
+
 func projectMessageForRequest(message Message) Message {
 	projected := message
 	if len(message.ContentBlocks) == 0 {

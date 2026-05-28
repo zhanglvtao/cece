@@ -17,9 +17,8 @@ func TestStatusBarRender(t *testing.T) {
 	sb.UpdateContext(30000, 200000)
 
 	got := sb.Render(120)
-	// Should contain all sections separated by " | "
-	if !strings.Contains(got, "Ready") {
-		t.Fatalf("missing status: %q", got)
+	if strings.Contains(got, "Ready") {
+		t.Fatalf("status should not appear in bottom metrics bar: %q", got)
 	}
 	if !strings.Contains(got, "sonnet") {
 		t.Fatalf("missing model: %q", got)
@@ -77,14 +76,9 @@ func TestStatusBarBusy(t *testing.T) {
 	sb := NewStatusBar()
 	sb.UpdateStatus("Streaming", true)
 	got := sb.Render(80)
-	if !strings.Contains(got, "- Streaming") {
-		t.Fatalf("busy status should show spinner: %q", got)
-	}
-
-	sb.TickStatusSpinner()
-	got = sb.Render(80)
-	if !strings.Contains(got, "\\ Streaming") {
-		t.Fatalf("spinner should advance: %q", got)
+	// Bottom metrics bar no longer includes status text
+	if strings.Contains(got, "Streaming") {
+		t.Fatalf("bottom bar should not contain status: %q", got)
 	}
 }
 

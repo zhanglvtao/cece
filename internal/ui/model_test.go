@@ -64,6 +64,25 @@ func TestToolConfirmDispatchesActions(t *testing.T) {
 	}
 
 	m.applyEvent(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
+	m.handleModalKey(keyMsg("shift+tab"))
+	if m.modal.active() {
+		t.Fatal("modal should be closed after enabling auto-accept")
+	}
+	if len(sender.actions) < 3 {
+		t.Fatalf("actions = %d, want at least 3", len(sender.actions))
+	}
+	setMode, ok := sender.actions[len(sender.actions)-2].(protocol.SetPermissionModeAction)
+	if !ok {
+		t.Fatalf("second last action = %T, want SetPermissionModeAction", sender.actions[len(sender.actions)-2])
+	}
+	if setMode.Mode != protocol.PermissionModeAutoAccept {
+		t.Fatalf("mode = %q, want auto-accept", setMode.Mode)
+	}
+	if _, ok := sender.actions[len(sender.actions)-1].(protocol.ConfirmAction); !ok {
+		t.Fatalf("last action = %T, want ConfirmAction", sender.actions[len(sender.actions)-1])
+	}
+
+	m.applyEvent(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
 	m.handleModalKey(keyMsg("n"))
 	if _, ok := sender.actions[len(sender.actions)-1].(protocol.CancelAction); !ok {
 		t.Fatalf("last action = %T, want CancelAction", sender.actions[len(sender.actions)-1])
@@ -178,9 +197,9 @@ func TestSlashModelAndSkill(t *testing.T) {
 	}
 
 	m.SetSkillStore(skill.NewStore([]*skill.Skill{{
-		Name:          "demo",
-		Description:   "demo skill",
-		Instructions:  "Do demo",
+		Name:         "demo",
+		Description:  "demo skill",
+		Instructions: "Do demo",
 	}}))
 	m.input.SetValue("/demo with args")
 	_, cmd = m.handleKey(keyMsg("enter"))
@@ -329,6 +348,31 @@ func TestSessionPickerDispatchesLoadSession(t *testing.T) {
 	}
 }
 
+func TestStatusRendersAboveInput(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
+
+	view := m.View().Content
+	statusIdx := strings.Index(view, "Ready")
+	inputIdx := strings.Index(view, "Send a message")
+	metricsIdx := strings.Index(view, "sonnet")
+	if statusIdx < 0 {
+		t.Fatalf("missing status in view")
+	}
+	if inputIdx < 0 {
+		t.Fatalf("missing input in view")
+	}
+	if metricsIdx < 0 {
+		t.Fatalf("missing metrics bar in view")
+	}
+	if statusIdx > inputIdx {
+		t.Fatalf("status should be above input; statusIdx=%d inputIdx=%d", statusIdx, inputIdx)
+	}
+	if strings.Contains(view[metricsIdx:], "Ready") {
+		t.Fatalf("bottom metrics bar should not contain status")
+	}
+}
+
 func TestInitOnlySubscribesEvents(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")
@@ -393,6 +437,8 @@ func codeForKey(s string) rune {
 		return tea.KeyEnd
 	case "tab":
 		return tea.KeyTab
+	case "shift+tab", "backtab":
+		return tea.KeyTab
 	case "backspace":
 		return tea.KeyBackspace
 	case " ":
@@ -411,6 +457,8 @@ func modForKey(s string) tea.KeyMod {
 		return tea.ModCtrl
 	case strings.HasPrefix(s, "alt+"):
 		return tea.ModAlt
+	case strings.HasPrefix(s, "shift+"):
+		return tea.ModShift
 	default:
 		return 0
 	}

@@ -104,7 +104,7 @@ func (m *Model) confirmToolsView() string {
 		}
 		b.WriteByte('\n')
 	}
-	b.WriteString("[y/enter] allow  [n/esc] deny")
+	b.WriteString("[y/enter] allow  [shift+tab] auto-accept  [n/esc] deny")
 	return b.String()
 }
 
@@ -113,6 +113,12 @@ func (m *Model) handleConfirmToolsKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "y", "enter":
 		m.modal = modalState{}
 		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.ConfirmAction{})
+		}
+	case "shift+tab", "backtab":
+		m.modal = modalState{}
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.SetPermissionModeAction{Mode: protocol.PermissionModeAutoAccept})
 			actor.Do(protocol.ConfirmAction{})
 		}
 	case "n", "esc":

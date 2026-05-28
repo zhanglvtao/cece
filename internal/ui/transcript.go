@@ -38,6 +38,8 @@ type transcript struct {
 	outputTokens     int
 	contextUsed      int
 	lastStopReason   string
+	cacheReadTokens  int
+	cacheCreationTokens int
 }
 
 func newTranscript() transcript {
@@ -107,6 +109,13 @@ func (t *transcript) apply(event protocol.Event) {
 		if e.InputTokens > 0 {
 			t.inputTokens += e.InputTokens
 			t.contextUsed = e.InputTokens
+		}
+		t.cacheReadTokens += e.CacheReadTokens
+		t.cacheCreationTokens += e.CacheCreationTokens
+		if e.CacheReadTokens > 0 || e.CacheCreationTokens > 0 {
+			total := e.CacheReadTokens + e.CacheCreationTokens
+			hitRate := e.CacheReadTokens * 100 / total
+			t.appendDone(blockInfo, "cache", fmt.Sprintf("hit %dK/%dK (%d%%)", (e.CacheReadTokens+999)/1000, (total+999)/1000, hitRate))
 		}
 	case protocol.ThinkingStarted:
 		t.currentThinking = t.append(blockThinking, "thinking", "")
@@ -289,10 +298,10 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		text = renderThinkingPreview(text)
 	}
 	if text == "" {
-		return sty.Status.Render("[" + label + "]")
+		return sty.Chat.Label.Render("[" + label + "]")
 	}
 	text = ansi.Wrap(text, max(20, width-4), "")
-	return sty.Status.Render("["+label+"]") + "\n" + indent(text, "  ")
+	return sty.Chat.Label.Render("["+label+"]") + "\n" + indent(text, "  ")
 }
 
 func renderThinkingPreview(text string) string {

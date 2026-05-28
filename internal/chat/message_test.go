@@ -105,6 +105,83 @@ func TestProjectMessagesForRequestStripsAssistantThinkingBlocks(t *testing.T) {
 	}
 }
 
+func TestEnsureToolResultCoverage_NoOrphans(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "hello"},
+		{Role: AssistantRole, Content: "hi"},
+	}
+	result := EnsureToolResultCoverage(msgs)
+	if len(result) != len(msgs) {
+		t.Fatalf("expected %d messages, got %d", len(msgs), len(result))
+	}
+}
+
+func TestEnsureToolResultCoverage_WithOrphans(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "run ls"},
+		{
+			Role: AssistantRole,
+			ContentBlocks: []ApiContentBlock{
+				{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Bash", Input: json.RawMessage(`{"cmd":"ls"}`)}},
+			},
+		},
+	}
+
+	result := EnsureToolResultCoverage(msgs)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 messages (original + synthetic), got %d", len(result))
+	}
+	last := result[len(result)-1]
+	if last.Role != UserRole {
+		t.Fatalf("synthetic message role = %q, want user", last.Role)
+	}
+	if len(last.ContentBlocks) != 1 {
+		t.Fatalf("synthetic message content blocks = %d, want 1", len(last.ContentBlocks))
+	}
+	tr, ok := last.ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatal("expected tool_result content block")
+	}
+	if tr.ToolUseID != "call_1" {
+		t.Errorf("tool_use_id = %q, want call_1", tr.ToolUseID)
+	}
+	if !tr.IsError {
+		t.Error("synthetic tool result should have IsError=true")
+	}
+}
+
+func TestEnsureToolResultCoverage_PartialOrphans(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "run both"},
+		{
+			Role: AssistantRole,
+			ContentBlocks: []ApiContentBlock{
+				{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Bash", Input: json.RawMessage(`{"cmd":"ls"}`)}},
+				{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_2", Name: "Read", Input: json.RawMessage(`{"path":"/tmp"}`)}},
+			},
+		},
+		{
+			Role: UserRole,
+			ContentBlocks: []ApiContentBlock{
+				{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "file1.txt"}},
+			},
+		},
+	}
+
+	result := EnsureToolResultCoverage(msgs)
+	if len(result) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(result))
+	}
+	last := result[len(result)-1]
+	tr, ok := last.ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatal("expected tool_result content block")
+	}
+	if tr.ToolUseID != "call_2" {
+		t.Errorf("synthetic tool_use_id = %q, want call_2", tr.ToolUseID)
+	}
+}
+
 func TestProjectMessagesForRequestKeepsUserToolResults(t *testing.T) {
 	messages := []Message{
 		{

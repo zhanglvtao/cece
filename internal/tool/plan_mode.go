@@ -164,6 +164,38 @@ func (s *PlanModeState) SetProjectDir(dir string) {
 	s.projectDir = dir
 }
 
+func (s *PlanModeState) SetMode(mode PermissionMode) PermissionMode {
+	if s == nil {
+		return PermissionModeDefault
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if mode != PermissionModeDefault && mode != PermissionModeAutoAccept && mode != PermissionModePlan {
+		mode = PermissionModeDefault
+	}
+	if s.mode == "" {
+		s.mode = PermissionModeDefault
+	}
+	if s.mode != PermissionModePlan && mode == PermissionModePlan {
+		s.prePlanMode = s.mode
+		dir := s.projectDir
+		if dir == "" {
+			dir, _ = os.Getwd()
+		}
+		s.plansDir = plansDirFor(dir)
+		s.reminderType = "full"
+		os.MkdirAll(s.plansDir, 0o755)
+	}
+	if s.mode == PermissionModePlan && mode != PermissionModePlan {
+		s.prePlanMode = ""
+		s.plansDir = ""
+		s.reminderType = ""
+	}
+	s.mode = mode
+	return s.mode
+}
+
 func (s *PlanModeState) Enter() bool {
 	if s == nil {
 		return false

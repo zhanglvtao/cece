@@ -50,6 +50,14 @@ func TestEngineModeCycles(t *testing.T) {
 	}
 }
 
+func TestEngineSetPermissionModeAction(t *testing.T) {
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.Do(protocol.SetPermissionModeAction{Mode: protocol.PermissionModeAutoAccept})
+	if eng.Mode() != protocol.PermissionModeAutoAccept {
+		t.Fatalf("mode = %q, want auto-accept", eng.Mode())
+	}
+}
+
 func TestEngineDoDispatchesActions(t *testing.T) {
 	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 

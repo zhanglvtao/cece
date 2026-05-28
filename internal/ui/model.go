@@ -423,7 +423,7 @@ func (m *Model) resize() {
 	vFrame := m.styles.Input.Box.GetVerticalFrameSize()
 	hFrame := m.styles.Input.Box.GetHorizontalFrameSize()
 	headlineH := 0
-	if m.busy && m.streamHeadline != "" {
+	if m.status != "" {
 		headlineH = 1
 	}
 	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH - headlineH
@@ -449,30 +449,39 @@ func (m *Model) inputView() string {
 	return m.styles.Input.Box.Width(m.width).Render(m.input.View())
 }
 
-// headlineView renders a one-line indicator above the input box showing the
-// latest assistant text delta while streaming. Includes a rotating spinner.
+// headlineView renders a one-line indicator above the input box.
+// Shows "<spinner> <status>" when idle (e.g. "- Ready"),
+// and "<spinner> <status> | <streamHeadline>" when busy streaming.
+// No lipgloss styling — plain text only.
 func (m *Model) headlineView() string {
-	if !m.busy || m.streamHeadline == "" {
+	if m.status == "" {
 		return ""
 	}
-	frame := string(statusSpinnerFrames[m.statusFrame%len(statusSpinnerFrames)])
-	// Take the last non-empty line of accumulated text
-	text := m.streamHeadline
-	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-	text = lines[len(lines)-1]
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return ""
+	// Build the status prefix with spinner
+	prefix := m.status
+	if m.statusShowsSpinner() {
+		frame := string(statusSpinnerFrames[m.statusFrame%len(statusSpinnerFrames)])
+		prefix = frame + " " + m.status
+	}
+	// Append streamHeadline if present, separated by " | "
+	if m.busy && m.streamHeadline != "" {
+		text := m.streamHeadline
+		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+		text = lines[len(lines)-1]
+		text = strings.TrimSpace(text)
+		if text != "" {
+			prefix += " | " + text
+		}
 	}
 	// Truncate to fit
-	maxLen := m.width - 4 // spinner + spaces
+	maxLen := m.width
 	if maxLen < 10 {
 		maxLen = 10
 	}
-	if len(text) > maxLen {
-		text = text[:maxLen-3] + "..."
+	if len(prefix) > maxLen {
+		prefix = prefix[:maxLen-3] + "..."
 	}
-	return m.styles.Status.Render(frame + " " + text)
+	return prefix
 }
 
 func (m *Model) statusShowsSpinner() bool {

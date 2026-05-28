@@ -27,6 +27,7 @@ type Styles struct {
 		ToolCallSummary lipgloss.Style
 		ToolCallOutput  lipgloss.Style
 		ThinkingLabel   lipgloss.Style // "Thought" prefix label
+		Label          lipgloss.Style // [label] in transcript blocks
 		ThinkingContent lipgloss.Style // expanded thinking content area
 		ThinkingBg      lipgloss.Style // background fill for thinking block lines
 		Box             lipgloss.Style // rounded border for chat area (idle/static)
@@ -88,6 +89,7 @@ func BuildStyles(p theme.Palette) Styles {
 
 	// Thinking — collapsible block, no background; content uses subtle color.
 	s.Chat.ThinkingLabel = base.Foreground(p.SuccessMuted).Italic(true)
+	s.Chat.Label = lipgloss.NewStyle()
 	s.Chat.ThinkingContent = lipgloss.NewStyle().Foreground(p.FgSubtle).Italic(true)
 	s.Chat.ThinkingBg = lipgloss.NewStyle()
 

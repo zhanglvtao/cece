@@ -514,6 +514,8 @@ func (e *Engine) beginInputTurn(user chat.Message) []chat.Message {
 			snapshot = append(snapshot, chat.Message{Role: chat.UserRole, Content: tool.BuildSparsePlanReminder(plansDir)})
 		}
 	}
+
+	snapshot = chat.EnsureToolResultCoverage(snapshot)
 	return snapshot
 }
 
