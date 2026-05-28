@@ -11,7 +11,6 @@ import (
 	"cece/internal/protocol"
 	"cece/internal/session"
 	"cece/internal/skill"
-	"cece/internal/ui/theme"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -63,7 +62,6 @@ type Model struct {
 	streamHeadline      string // latest assistant text for inline indicator
 
 	styles      Styles
-	palette     theme.Palette
 	transcript  transcript
 	viewport    viewport.Model
 	input       textarea.Model
@@ -114,7 +112,6 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 		contextWindow: cw,
 		status:        "Ready",
 		styles:        styles,
-		palette:       theme.DefaultPalette(),
 		slashPopup:   NewSlashPopup(styles),
 		filePopup:    NewFilePopup(projectDir),
 		transcript:   newTranscript(),
@@ -451,7 +448,7 @@ func (m *Model) resize() {
 
 func (m *Model) refreshViewport(gotoBottom bool) {
 	atBottom := m.viewport.AtBottom()
-	m.viewport.SetContent(m.transcript.render(m.width, m.styles, m.palette))
+	m.viewport.SetContent(m.transcript.render(m.width, m.styles))
 	if gotoBottom || atBottom {
 		m.viewport.GotoBottom()
 	}
