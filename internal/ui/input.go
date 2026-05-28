@@ -19,6 +19,29 @@ import (
 // treated as ordinary text input.
 var csiResidueRe = regexp.MustCompile(`^\[\d+(;\d+)*[~A-Za-z]$`)
 
+// csiSeqRe matches complete CSI escape sequences within pasted text.
+// In modifyOtherKeys mode 2, terminals encode newline (Ctrl+J, 0x0A) as
+// \x1b[27;5;106~. When bracketed paste is active, ultraviolet's paste
+// handler appends the raw bytes of such sequences into the paste buffer
+// instead of translating them back to their control characters.
+// This matches: ESC [ <params> <final> where params are digits/semicolons
+// and final is ~ or a letter.
+var csiSeqRe = regexp.MustCompile(`\x1b\[\d+(;\d+)*[~A-Za-z]`)
+
+// sanitizePasteContent removes CSI escape sequences from pasted text.
+// It also replaces the common modifyOtherKeys Ctrl+J encoding (\x1b[27;5;106~)
+// with the actual newline character it represents.
+func sanitizePasteContent(s string) string {
+	// First, replace known CSI sequences with their control character equivalents.
+	// \x1b[27;5;106~ = Ctrl+J = newline
+	s = strings.ReplaceAll(s, "\x1b[27;5;106~", "\n")
+	// \x1b[27;5;13~  = Ctrl+M = carriage return (map to newline)
+	s = strings.ReplaceAll(s, "\x1b[27;5;13~", "\n")
+	// Strip any remaining CSI sequences
+	s = csiSeqRe.ReplaceAllString(s, "")
+	return s
+}
+
 const (
 	inputMinHeight = 3
 	inputMaxHeight = 10
@@ -68,10 +91,18 @@ func (i *Input) frameSize() (hFrame, vFrame int) {
 }
 
 // Update delegates a tea.Msg to the textarea and returns any cmd.
-// It filters out CSI escape sequence residues that leak into KeyPress messages.
+// It filters out CSI escape sequence residues that leak into KeyPress messages,
+// and sanitizes PasteMsg content to remove CSI sequences leaked by the
+// bracketed paste handler.
 func (i *Input) Update(msg tea.Msg) tea.Cmd {
-	if k, ok := msg.(tea.KeyPressMsg); ok && csiResidueRe.MatchString(k.Key().Text) {
-		return nil
+	switch m := msg.(type) {
+	case tea.KeyPressMsg:
+		if csiResidueRe.MatchString(m.Key().Text) {
+			return nil
+		}
+	case tea.PasteMsg:
+		m.Content = sanitizePasteContent(m.Content)
+		msg = m
 	}
 	var cmd tea.Cmd
 	i.ta, cmd = i.ta.Update(msg)
