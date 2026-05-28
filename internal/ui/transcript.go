@@ -117,8 +117,18 @@ func (t *transcript) apply(event protocol.Event) {
 			if total == 0 {
 				total = e.CacheReadTokens + e.CacheCreationTokens
 			}
-			hitRate := e.CacheReadTokens * 100 / total
-			t.appendDone(blockInfo, "cache", fmt.Sprintf("hit %dK/%dK (%d%%)", (e.CacheReadTokens+999)/1000, (total+999)/1000, hitRate))
+			hitRate := 0
+			if total > 0 {
+				hitRate = e.CacheReadTokens * 100 / total
+			}
+			var cacheParts []string
+			if e.CacheCreationTokens > 0 {
+				cacheParts = append(cacheParts, fmt.Sprintf("created:%s", formatTokenK(e.CacheCreationTokens)))
+			}
+			cacheParts = append(cacheParts, fmt.Sprintf("hit:%s", formatTokenK(e.CacheReadTokens)))
+			cacheParts = append(cacheParts, fmt.Sprintf("input:%s", formatTokenK(total)))
+			cacheParts = append(cacheParts, fmt.Sprintf("(%d%%)", hitRate))
+			t.appendDone(blockInfo, "cache", strings.Join(cacheParts, " "))
 		}
 	case protocol.ThinkingStarted:
 		t.currentThinking = t.append(blockThinking, "thinking", "")
