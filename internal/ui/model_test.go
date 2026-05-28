@@ -136,6 +136,56 @@ func TestQuestionModalBuildsAnswerAction(t *testing.T) {
 	}
 }
 
+func TestPlanApprovalShiftTabAutoAccept(t *testing.T) {
+	sender := newRecordingSender()
+	m := NewModel(sender, "sonnet", "/tmp")
+	m.applyEvent(protocol.PlanApprovalRequested{PlanFile: "plan.md", PlanContent: "# Plan"})
+	m.handleModalKey(keyMsg("shift+tab"))
+	if m.modal.active() {
+		t.Fatal("modal should be closed after shift+tab")
+	}
+	if len(sender.actions) < 2 {
+		t.Fatalf("actions = %d, want at least 2", len(sender.actions))
+	}
+	setMode, ok := sender.actions[len(sender.actions)-2].(protocol.SetPermissionModeAction)
+	if !ok {
+		t.Fatalf("second last action = %T, want SetPermissionModeAction", sender.actions[len(sender.actions)-2])
+	}
+	if setMode.Mode != protocol.PermissionModeAutoAccept {
+		t.Fatalf("mode = %q, want auto-accept", setMode.Mode)
+	}
+	if _, ok := sender.actions[len(sender.actions)-1].(protocol.ApprovePlanAction); !ok {
+		t.Fatalf("last action = %T, want ApprovePlanAction", sender.actions[len(sender.actions)-1])
+	}
+}
+
+func TestQuestionShiftTabAutoAnswer(t *testing.T) {
+	sender := newRecordingSender()
+	m := NewModel(sender, "sonnet", "/tmp")
+	m.applyEvent(protocol.QuestionAsked{Questions: []protocol.Question{
+		{Question: "Pick one", Options: []protocol.QuestionOption{{Label: "A"}, {Label: "B"}}},
+		{Question: "Pick another", Options: []protocol.QuestionOption{{Label: "X"}, {Label: "Y"}}},
+	}})
+	// Move cursor on first question to "B"
+	m.handleModalKey(keyMsg("down"))
+	// Move cursor on second question to "Y" (need to go to q2 first)
+	m.handleModalKey(keyMsg("right"))
+	m.handleModalKey(keyMsg("down"))
+	// shift+tab should auto-answer all questions with current cursor positions
+	m.handleModalKey(keyMsg("shift+tab"))
+
+	action, ok := sender.actions[len(sender.actions)-1].(protocol.AnswerQuestionAction)
+	if !ok {
+		t.Fatalf("last action = %T, want AnswerQuestionAction", sender.actions[len(sender.actions)-1])
+	}
+	if got := action.Answers[0].Selected; len(got) != 1 || got[0] != "B" {
+		t.Fatalf("q0 selected = %v, want [B]", got)
+	}
+	if got := action.Answers[1].Selected; len(got) != 1 || got[0] != "Y" {
+		t.Fatalf("q1 selected = %v, want [Y]", got)
+	}
+}
+
 func TestModelPickerDispatchesSwitchModel(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "old", "/tmp")

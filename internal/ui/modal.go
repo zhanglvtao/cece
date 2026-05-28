@@ -63,7 +63,7 @@ func (m *Model) modalView() string {
 	case modalConfirmTools:
 		body = m.confirmToolsView()
 	case modalApprovePlan:
-		body = fmt.Sprintf("Approve plan %s?\n[y/enter] approve  [n/esc] reject", m.modal.planFile)
+		body = fmt.Sprintf("Approve plan %s?\n[y/enter] approve  [shift+tab] auto-accept  [n/esc] reject", m.modal.planFile)
 	case modalQuestion:
 		body = m.questionView()
 	case modalModelPicker, modalSessionPicker:
@@ -139,6 +139,12 @@ func (m *Model) handleApprovePlanKey(msg tea.KeyPressMsg) tea.Cmd {
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.ApprovePlanAction{})
 		}
+	case "shift+tab", "backtab":
+		m.modal = modalState{}
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.SetPermissionModeAction{Mode: protocol.PermissionModeAutoAccept})
+			actor.Do(protocol.ApprovePlanAction{})
+		}
 	case "n", "esc":
 		m.modal = modalState{}
 		if actor, ok := m.sender.(Actor); ok {
@@ -205,7 +211,7 @@ func (m *Model) questionView() string {
 			fmt.Fprintf(&b, "%s %s %s\n", cursor, mark, q.Options[i].Label)
 		}
 	}
-	b.WriteString("[up/down] move  [space] toggle  [enter] next  [esc] cancel")
+	b.WriteString("[up/down] move  [space] toggle  [enter] next  [shift+tab] auto-answer  [esc] cancel")
 	return b.String()
 }
 
@@ -280,6 +286,18 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else {
 			m.modal.selected[m.modal.qIndex] = []int{cursor}
 		}
+		return m.advanceQuestion()
+	case "shift+tab", "backtab":
+		// Auto-answer: select current cursor option for all questions, then submit.
+		for i, q := range m.modal.questions {
+			cursor := m.modal.cursors[i]
+			if cursor < len(q.Options) {
+				if !m.questionSelected(i, cursor) {
+					m.toggleQuestionSelection(i, cursor)
+				}
+			}
+		}
+		m.modal.qIndex = len(m.modal.questions) - 1
 		return m.advanceQuestion()
 	case "esc", "ctrl+c":
 		m.modal = modalState{}
