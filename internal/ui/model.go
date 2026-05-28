@@ -314,6 +314,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 				e.MessagesBefore, e.MessagesAfter,
 				(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
 			m.transcript.appendDone(blockInfo, "compact", e.Summary)
+			m.transcript.contextUsed = e.TokensAfter
 		}
 		m.statusBar.ResetToolCounts()
 	}
