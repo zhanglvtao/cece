@@ -2,11 +2,16 @@ package picker
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 )
+
+// csiResidueRe matches the visible portion of a terminal CSI escape sequence
+// that leaked into a KeyPress message as text. Example: [27;5;106~
+var csiResidueRe = regexp.MustCompile(`^\[\d+(;\d+)*[~A-Za-z]$`)
 
 // Result is returned by HandleKey to indicate what happened.
 type Result int
@@ -241,7 +246,7 @@ func (p *Picker) HandleKey(msg tea.KeyPressMsg) (Result, tea.Cmd) {
 					p.offset = 0
 				}
 			default:
-				if text := msg.Key().Text; text != "" {
+				if text := msg.Key().Text; text != "" && !csiResidueRe.MatchString(text) {
 					p.filter += text
 					p.selectedI = 0
 					p.offset = 0

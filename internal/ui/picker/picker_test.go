@@ -81,3 +81,30 @@ func TestFilter(t *testing.T) {
 		t.Fatalf("filtered view should not show banana:\n%s", view)
 	}
 }
+
+func TestCSIFilter(t *testing.T) {
+	// CSI residue patterns like [27;5;106~ should be filtered from text input
+	cases := []struct {
+		input string
+		match bool
+	}{
+		{"[27;5;106~", true},    // modifyOtherKeys Ctrl+J
+		{"[27;5;74~", true},     // modifyOtherKeys Ctrl+J (alternate)
+		{"[1;2A", true},         // shift+up
+		{"[15~", true},          // F5
+		{"[27;5;13~", true},     // modifyOtherKeys Ctrl+Enter
+		{"[1;5B", true},         // ctrl+down
+		{"hello", false},        // normal text
+		{"[", false},            // lone bracket
+		{"[abc~", false},        // non-numeric params
+		{"test[1~", false},      // not starting with [
+		{"", false},             // empty
+		{"[1", false},           // incomplete sequence
+	}
+	for _, tc := range cases {
+		got := csiResidueRe.MatchString(tc.input)
+		if got != tc.match {
+			t.Errorf("csiResidueRe.MatchString(%q) = %v, want %v", tc.input, got, tc.match)
+		}
+	}
+}

@@ -246,7 +246,7 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 				m.modal.textInput = m.modal.textInput[:len(m.modal.textInput)-size]
 			}
 		default:
-			if text := msg.Key().Text; text != "" {
+			if text := msg.Key().Text; text != "" && !csiResidueRe.MatchString(text) {
 				m.modal.textInput += text
 			}
 		}
@@ -614,7 +614,7 @@ func (m *Model) handleRenameSessionKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.modal.textInput = m.modal.textInput[:len(m.modal.textInput)-size]
 		}
 	default:
-		if text := msg.Key().Text; text != "" {
+		if text := msg.Key().Text; text != "" && !csiResidueRe.MatchString(text) {
 			m.modal.textInput += text
 		}
 	}

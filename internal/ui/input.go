@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image/color"
+	"regexp"
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
@@ -10,6 +11,13 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 )
+
+// csiResidueRe matches the visible portion of a terminal CSI escape sequence
+// that leaked into a KeyPress message as text. Example: [27;5;106~
+// These appear when ultraviolet fails to fully consume a modifyOtherKeys
+// sequence like \x1b[27;5;106~ (Ctrl+J) and the printable remainder is
+// treated as ordinary text input.
+var csiResidueRe = regexp.MustCompile(`^\[\d+(;\d+)*[~A-Za-z]$`)
 
 const (
 	inputMinHeight = 3
@@ -60,7 +68,11 @@ func (i *Input) frameSize() (hFrame, vFrame int) {
 }
 
 // Update delegates a tea.Msg to the textarea and returns any cmd.
+// It filters out CSI escape sequence residues that leak into KeyPress messages.
 func (i *Input) Update(msg tea.Msg) tea.Cmd {
+	if k, ok := msg.(tea.KeyPressMsg); ok && csiResidueRe.MatchString(k.Key().Text) {
+		return nil
+	}
 	var cmd tea.Cmd
 	i.ta, cmd = i.ta.Update(msg)
 	return cmd
