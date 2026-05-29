@@ -20,6 +20,7 @@ type FilePopup struct {
 	walker  *FileWalker
 	picker  *picker.Picker
 	entries []fileEntry
+	styles  Styles
 	open    bool
 	spec    atSpec
 }
@@ -28,6 +29,7 @@ type FilePopup struct {
 func NewFilePopup(projectDir string) *FilePopup {
 	return &FilePopup{
 		walker: NewFileWalker(projectDir),
+		styles: DefaultStyles(),
 	}
 }
 
@@ -126,7 +128,7 @@ func (p *FilePopup) buildPicker() {
 	}
 	pk := picker.New("", items, filePopupMaxHeight, func(item any, selected bool) string {
 		e := item.(fileEntry)
-		return picker.FormatItem(e.path, selected)
+		return styledPickerItem(p.styles.Picker.Cursor, e.path, selected)
 	})
 	pk.SetCompact(true)
 	pk.SetFilterFn(func(item any, q string) bool {

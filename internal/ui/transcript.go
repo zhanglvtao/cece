@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"cece/internal/protocol"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -298,6 +299,29 @@ func (t *transcript) render(width int, sty Styles) string {
 	return b.String()
 }
 
+func labelStyleForKind(kind blockKind, sty Styles) lipgloss.Style {
+	switch kind {
+	case blockUser:
+		return sty.Chat.LabelUser
+	case blockAssistant:
+		return sty.Chat.LabelAssistant
+	case blockThinking:
+		return sty.Chat.LabelThinking
+	case blockTool:
+		return sty.Chat.LabelTool
+	case blockError:
+		return sty.Chat.LabelError
+	case blockSystem:
+		return sty.Chat.LabelSystem
+	case blockPlan:
+		return sty.Chat.LabelPlan
+	case blockInfo:
+		return sty.Chat.LabelInfo
+	default:
+		return sty.Chat.LabelInfo
+	}
+}
+
 func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	label := string(block.kind)
 	if block.title != "" {
@@ -310,16 +334,17 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	if block.kind == blockThinking {
 		text = renderThinkingPreview(text)
 	}
+	lbl := labelStyleForKind(block.kind, sty)
 	if text == "" {
-		return sty.Chat.Label.Render("[" + label + "]")
+		return lbl.Render("[" + label + "]")
 	}
 	// Plan blocks get Markdown rendering; others stay plain text.
 	if block.kind == blockPlan {
 		rendered := renderMarkdown(text, width)
-		return sty.Chat.Label.Render("["+label+"]") + "\n" + rendered
+		return lbl.Render("["+label+"]") + "\n" + rendered
 	}
 	text = ansi.Wrap(text, max(20, width-4), "")
-	return sty.Chat.Label.Render("["+label+"]") + "\n" + indent(text, "  ")
+	return lbl.Render("["+label+"]") + "\n" + indent(text, "  ")
 }
 
 func renderThinkingPreview(text string) string {

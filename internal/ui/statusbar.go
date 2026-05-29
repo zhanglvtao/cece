@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // StatusBar holds all data displayed in the bottom status line.
 // It renders as plain text with "|" separators.
 type StatusBar struct {
+	styles Styles
 	// data
 	modelName     string
 	status        string
@@ -31,6 +34,7 @@ var statusSpinnerFrames = []rune{'-', '\\', '|', '/'}
 // NewStatusBar creates a new StatusBar.
 func NewStatusBar() *StatusBar {
 	return &StatusBar{
+		styles:     DefaultStyles(),
 		toolCounts: make(map[string]int),
 	}
 }
@@ -153,9 +157,10 @@ func (sb *StatusBar) Render(width int) string {
 		parts = append(parts, fmt.Sprintf("scroll:%d%%", sb.scrollPct))
 	}
 
-	line := strings.Join(parts, " | ")
-	if width > 0 && len(line) > width {
-		line = line[:width]
+	sep := sb.styles.Status.Render(" | ")
+	line := strings.Join(parts, sep)
+	if width > 0 {
+		line = ansi.Truncate(line, width, "")
 	}
 	return line
 }

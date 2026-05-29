@@ -140,10 +140,11 @@ func (m *Model) SetSkillStore(store *skill.Store) {
 }
 
 func (m Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{func() tea.Msg { return tea.RequestBackgroundColor() }}
 	if eventer, ok := m.sender.(Eventer); ok {
-		return consumeGlobalEventsCmd(eventer.Events())
+		cmds = append(cmds, consumeGlobalEventsCmd(eventer.Events()))
 	}
-	return nil
+	return tea.Batch(cmds...)
 }
 
 func consumeGlobalEventsCmd(ch <-chan protocol.Event) tea.Cmd {
@@ -182,6 +183,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resize()
+		return m, nil
+	case tea.BackgroundColorMsg:
+		m.styles = DefaultStyles()
+		invalidateMarkdownCache()
+		m.refreshViewport(false)
 		return m, nil
 	case inputErrorMsg:
 		m.busy = false
@@ -531,11 +537,13 @@ func (m *Model) headlineView() string {
 		return ""
 	}
 	// Build the status prefix with spinner
-	prefix := m.status
+	statusText := m.status
 	if m.statusShowsSpinner() {
 		frame := string(statusSpinnerFrames[m.statusFrame%len(statusSpinnerFrames)])
-		prefix = frame + " " + m.status
+		statusText = frame + " " + m.status
 	}
+	// Colorize the status portion
+	prefix := m.styles.Headline.Render(statusText)
 	// Append streamHeadline if present, separated by " | "
 	if m.busy && m.streamHeadline != "" {
 		text := m.streamHeadline

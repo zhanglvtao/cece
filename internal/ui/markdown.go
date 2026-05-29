@@ -4,7 +4,6 @@ import (
 	"strings"
 	"sync"
 
-	"cece/internal/ui/theme"
 	"charm.land/glamour/v2"
 	"charm.land/glamour/v2/ansi"
 )
@@ -58,9 +57,7 @@ func invalidateMarkdownCache() {
 
 // buildGlamourStyle creates a monochrome ansi.StyleConfig —
 // no decorative colors, only bold/italic for structure.
-// Code blocks get a subtle background tint from the palette.
 func buildGlamourStyle() ansi.StyleConfig {
-	p := theme.DefaultPalette()
 
 	return ansi.StyleConfig{
 		Document: ansi.StyleBlock{
@@ -149,8 +146,7 @@ func buildGlamourStyle() ansi.StyleConfig {
 		},
 		Code: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				BackgroundColor: strPtr(theme.HexColor(p.BgFaint)),
-				Prefix:          "\u00a0",
+								Prefix:          "\u00a0",
 				Suffix:          "\u00a0",
 			},
 		},
@@ -189,8 +185,7 @@ func buildGlamourStyle() ansi.StyleConfig {
 				GenericInserted:     ansi.StylePrimitive{Bold: boolPtr(true)},
 				GenericStrong:       ansi.StylePrimitive{Bold: boolPtr(true)},
 				GenericSubheading:   ansi.StylePrimitive{Italic: boolPtr(true)},
-				Background:          ansi.StylePrimitive{BackgroundColor: strPtr(theme.HexColor(p.BgFaint))},
-			},
+							},
 		},
 		Table:          ansi.StyleTable{},
 		DefinitionList: ansi.StyleBlock{},

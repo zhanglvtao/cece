@@ -10,8 +10,18 @@ import (
 	"cece/internal/session"
 	"cece/internal/ui/picker"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
+
+// styledPickerItem renders a picker item with colored cursor.
+func styledPickerItem(cursorStyle lipgloss.Style, text string, selected bool) string {
+	cursor := "  "
+	if selected {
+		cursor = cursorStyle.Render("> ")
+	}
+	return cursor + text
+}
 
 type modalKind int
 
@@ -65,7 +75,7 @@ func (m *Model) modalView() string {
 	case modalConfirmTools:
 		body = m.confirmToolsView()
 	case modalApprovePlan:
-		body = fmt.Sprintf("Approve plan %s?\n[y/enter] approve  [shift+tab] auto-accept  [n/esc] reject", m.modal.planFile)
+		body = m.styles.Modal.Title.Render("Approve plan "+m.modal.planFile+"?") + "\n" + m.styles.Modal.Help.Render("[y/enter] approve  [shift+tab] auto-accept  [n/esc] reject")
 	case modalQuestion:
 		body = m.questionView()
 	case modalModelPicker, modalSessionPicker, modalMCPPicker:
@@ -100,17 +110,17 @@ func (m *Model) openToolConfirm(calls []protocol.ToolUseBlock) {
 
 func (m *Model) confirmToolsView() string {
 	var b strings.Builder
-	b.WriteString("Allow tool calls?\n")
+	b.WriteString(m.styles.Modal.Title.Render("Allow tool calls?") + "\n")
 	for _, call := range m.modal.calls {
 		args := formatJSONPreview(call.Input)
 		args = strings.ReplaceAll(args, "\n", " ")
-		b.WriteString("- " + call.Name)
+		b.WriteString("- " + m.styles.Modal.Tool.Render(call.Name))
 		if args != "" {
-			b.WriteString("  " + ansi.Truncate(args, max(20, m.width-20), "..."))
+			b.WriteString("  " + m.styles.Modal.ToolArg.Render(ansi.Truncate(args, max(20, m.width-20), "...")))
 		}
 		b.WriteByte('\n')
 	}
-	b.WriteString("[y/enter] allow  [shift+tab] auto-accept  [n/esc] deny")
+	b.WriteString(m.styles.Modal.Help.Render("[y/enter] allow  [shift+tab] auto-accept  [n/esc] deny"))
 	return b.String()
 }
 
@@ -175,11 +185,11 @@ func (m *Model) openQuestion(questions []protocol.Question) {
 
 func (m *Model) questionView() string {
 	if len(m.modal.questions) == 0 {
-		return "Question\n[esc] cancel"
+		return m.styles.Modal.Title.Render("Question") + "\n" + m.styles.Modal.Help.Render("[esc] cancel")
 	}
 	q := m.modal.questions[m.modal.qIndex]
 	var b strings.Builder
-	fmt.Fprintf(&b, "Question %d/%d\n%s\n", m.modal.qIndex+1, len(m.modal.questions), q.Question)
+	fmt.Fprintf(&b, "%s %d/%d\n%s\n", m.styles.Modal.Title.Render("Question"), m.modal.qIndex+1, len(m.modal.questions), q.Question)
 	if q.Preview != "" {
 		b.WriteString(summarizeText(q.Preview, 2000, 8) + "\n")
 	}
@@ -220,7 +230,7 @@ func (m *Model) questionView() string {
 			}
 		}
 	}
-	b.WriteString("[up/down] move  [space] toggle  [enter] next  [shift+tab] auto-answer  [esc] cancel")
+	b.WriteString(m.styles.Modal.Help.Render("[up/down] move  [space] toggle  [enter] next  [shift+tab] auto-answer  [esc] cancel"))
 	return b.String()
 }
 
@@ -400,7 +410,7 @@ func (m *Model) openModelPicker(models []protocol.ModelInfo) {
 		if provider != "" {
 			provider += "/"
 		}
-		return picker.FormatItem(provider+name, selected)
+		return styledPickerItem(m.styles.Picker.Cursor, provider+name, selected)
 	})
 	p.SetFilterFn(func(item any, q string) bool {
 		mi := item.(protocol.ModelInfo)
@@ -482,7 +492,7 @@ func (m *Model) openSessionsDialog() {
 			model = ""
 		}
 		timeStr := s.UpdatedAt.Format("2006-01-02 15:04")
-		return picker.FormatItem(title+"  "+model+"  "+timeStr, selected)
+		return styledPickerItem(m.styles.Picker.Cursor, title+"  "+model+"  "+timeStr, selected)
 	})
 	p.SetHelpText("[up/down] move  [enter] load  [esc] close")
 	p.SetOnSelect(func(item any) tea.Cmd {
@@ -539,7 +549,7 @@ func (m *Model) openMCPPicker(servers []protocol.MCPServerInfo) {
 			status = s.Error
 		}
 		text := fmt.Sprintf("%s  %s  %s", s.Name, s.Type, status)
-		return picker.FormatItem(text, selected)
+		return styledPickerItem(m.styles.Picker.Cursor, text, selected)
 	})
 	p.SetHelpText("[up/down] move  [enter] toggle connect/disconnect  [esc] close")
 	p.SetOnSelect(func(item any) tea.Cmd {

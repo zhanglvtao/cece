@@ -8,56 +8,23 @@ import (
 func TestStylesExist(t *testing.T) {
 	s := DefaultStyles()
 
-	// Chat.Assistant style should render text
-	got := s.Chat.Assistant.Render("hello")
+	got := s.Chat.LabelAssistant.Render("hello")
 	if !strings.Contains(got, "hello") {
-		t.Fatalf("Chat.Assistant.Render(\"hello\") = %q, want to contain \"hello\"", got)
+		t.Fatalf("LabelAssistant.Render(\"hello\") = %q, want to contain \"hello\"", got)
 	}
 
-	// Detail style should be italic + faint
-	got = s.Detail.Render("detail")
-	if !strings.Contains(got, "detail") {
-		t.Fatalf("Detail.Render(\"detail\") = %q, want to contain \"detail\"", got)
+	got = s.Chat.LabelError.Render("err")
+	if !strings.Contains(got, "err") {
+		t.Fatalf("LabelError.Render(\"err\") = %q, want to contain \"err\"", got)
 	}
 
-	// Status style should render
-	got = s.Status.Render("Ready")
-	if !strings.Contains(got, "Ready") {
-		t.Fatalf("Status.Render(\"Ready\") = %q, want to contain \"Ready\"", got)
+	got = s.Headline.Render("Generating")
+	if !strings.Contains(got, "Generating") {
+		t.Fatalf("Headline.Render(\"Generating\") = %q", got)
 	}
 
-	// Chat.Divider style should render
-	got = s.Chat.Divider.Render("─")
-	if !strings.Contains(got, "─") {
-		t.Fatalf("Chat.Divider.Render(\"─\") = %q, want to contain \"─\"", got)
-	}
-
-	// Chat.Logo style should render
-	got = s.Chat.Logo.Render("Cece")
-	if !strings.Contains(got, "Cece") {
-		t.Fatalf("Chat.Logo.Render(\"Cece\") = %q, want to contain \"Cece\"", got)
-	}
-
-	// Input.Prompt style should render
-	got = s.Input.Prompt.Render("> ")
+	got = s.Picker.Cursor.Render("> ")
 	if !strings.Contains(got, ">") {
-		t.Fatalf("Input.Prompt.Render(\"> \") = %q, want to contain \">\"", got)
-	}
-}
-
-func TestDetailStyleIsFaint(t *testing.T) {
-	s := DefaultStyles()
-	if !s.Detail.GetItalic() {
-		t.Fatal("Detail style should be italic")
-	}
-	if !s.Detail.GetFaint() {
-		t.Fatal("Detail style should be faint")
-	}
-}
-
-func TestStatusStyleIsFaint(t *testing.T) {
-	s := DefaultStyles()
-	if !s.Status.GetFaint() {
-		t.Fatal("Status style should be faint")
+		t.Fatalf("Picker.Cursor.Render(\"> \") = %q", got)
 	}
 }

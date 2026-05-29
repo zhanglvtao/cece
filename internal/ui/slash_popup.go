@@ -30,12 +30,13 @@ type slashEntry struct {
 type SlashPopup struct {
 	picker *picker.Picker
 	entries []slashEntry
+	styles  Styles
 	open   bool
 }
 
 // NewSlashPopup creates a new SlashPopup component.
-func NewSlashPopup(_ Styles) *SlashPopup {
-	return &SlashPopup{}
+func NewSlashPopup(sty Styles) *SlashPopup {
+	return &SlashPopup{styles: sty}
 }
 
 // SetSkills rebuilds the candidate list from builtin commands + skills.
@@ -62,7 +63,7 @@ func (p *SlashPopup) buildPicker() {
 		if e.description != "" {
 			text += "  " + e.description
 		}
-		return picker.FormatItem(text, selected)
+		return styledPickerItem(p.styles.Picker.Cursor, text, selected)
 	})
 	pk.SetCompact(true)
 	pk.SetFilterFn(func(item any, q string) bool {

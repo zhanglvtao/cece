@@ -85,8 +85,8 @@ func NewInput(styles Styles) *Input {
 // of the input box style.
 func (i *Input) frameSize() (hFrame, vFrame int) {
 	// Both focused and blurred have the same frame size
-	hFrame = i.styles.Input.BoxFocused.GetHorizontalFrameSize()
-	vFrame = i.styles.Input.BoxFocused.GetVerticalFrameSize()
+	hFrame = i.styles.Input.Box.GetHorizontalFrameSize()
+	vFrame = i.styles.Input.Box.GetVerticalFrameSize()
 	return
 }
 
@@ -156,10 +156,10 @@ func (i *Input) Cursor() *tea.Cursor {
 		return nil
 	}
 	hFrame, vFrame := i.frameSize()
-	cur.X += i.styles.Input.BoxFocused.GetBorderLeftSize() +
-		i.styles.Input.BoxFocused.GetPaddingLeft()
-	cur.Y += vFrame - i.styles.Input.BoxFocused.GetBorderBottomSize() -
-		i.styles.Input.BoxFocused.GetPaddingBottom()
+	cur.X += i.styles.Input.Box.GetBorderLeftSize() +
+		i.styles.Input.Box.GetPaddingLeft()
+	cur.Y += vFrame - i.styles.Input.Box.GetBorderBottomSize() -
+		i.styles.Input.Box.GetPaddingBottom()
 	_ = hFrame // hFrame already accounted for in X via border+padding
 	return cur
 }
