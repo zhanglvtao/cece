@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"cece/internal/protocol"
-	"cece/internal/ui/theme"
 	"charm.land/lipgloss/v2"
 )
 
@@ -29,10 +28,10 @@ func (m *Model) taskBarView() string {
 	if len(m.tasks) == 0 {
 		return ""
 	}
-	return renderTaskBar(m.tasks, m.width)
+	return renderTaskBar(m.tasks, m.width, m.styles)
 }
 
-func renderTaskBar(tasks []protocol.TaskItem, width int) string {
+func renderTaskBar(tasks []protocol.TaskItem, width int, styles Styles) string {
 	var b strings.Builder
 	show := tasks
 	overflow := 0
@@ -50,7 +49,7 @@ func renderTaskBar(tasks []protocol.TaskItem, width int) string {
 		if width > 0 && len(line) > width {
 			line = line[:width-3] + "..."
 		}
-		line = taskStatusStyle(t.Status).Render(line)
+		line = taskStyleFromStatus(t.Status, styles).Render(line)
 		b.WriteString(line)
 		b.WriteByte('\n')
 	}
@@ -60,14 +59,14 @@ func renderTaskBar(tasks []protocol.TaskItem, width int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func taskStatusStyle(status string) lipgloss.Style {
+func taskStyleFromStatus(status string, s Styles) lipgloss.Style {
 	switch status {
 	case "pending":
-		return lipgloss.NewStyle().Foreground(theme.FgMuted)
+		return s.Task.Pending
 	case "in_progress":
-		return lipgloss.NewStyle().Foreground(theme.Primary)
+		return s.Task.InProgress
 	case "completed":
-		return lipgloss.NewStyle().Foreground(theme.Green)
+		return s.Task.Completed
 	default:
 		return lipgloss.NewStyle()
 	}

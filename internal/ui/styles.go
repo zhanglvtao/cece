@@ -50,6 +50,11 @@ type Styles struct {
 		Tool      lipgloss.Style
 		Scroll    lipgloss.Style
 	}
+	Task struct {
+		Pending    lipgloss.Style
+		InProgress lipgloss.Style
+		Completed  lipgloss.Style
+	}
 }
 
 // DefaultStyles returns the style set built from ANSI terminal colors.
@@ -112,6 +117,10 @@ func DefaultStyles() Styles {
 	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.Green)
 	s.Status.Tool = lipgloss.NewStyle().Foreground(theme.Yellow)
 	s.Status.Scroll = lipgloss.NewStyle().Foreground(theme.FgMuted)
+
+	s.Task.Pending = lipgloss.NewStyle().Foreground(theme.FgMuted)
+	s.Task.InProgress = lipgloss.NewStyle().Foreground(theme.Primary)
+	s.Task.Completed = lipgloss.NewStyle().Foreground(theme.Green)
 
 	return s
 }
