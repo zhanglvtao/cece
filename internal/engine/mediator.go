@@ -86,6 +86,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		go m.disconnectMCP(a.Name)
 	case protocol.ListToolsAction:
 		go m.listTools()
+	case protocol.DryRunRequestAction:
+		m.Engine.DryRunRequest(a.Input)
 	}
 }
 
