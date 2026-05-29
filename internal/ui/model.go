@@ -318,7 +318,6 @@ func (m *Model) applyEvent(event protocol.Event) {
 		}
 	case protocol.HistoryClearedEvent:
 		m.transcript.reset()
-		m.statusBar.ResetToolCounts()
 		m.status = "Cleared"
 	case protocol.CompactingEvent:
 		m.status = "Compacting"

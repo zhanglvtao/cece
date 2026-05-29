@@ -362,9 +362,7 @@ func (e *Engine) LoadHistory(ctx context.Context, sessionID string, msgs []agent
 func (e *Engine) ClearHistory() {
 	e.mu.Lock()
 	e.history = nil
-	e.totalInputTokens = 0
-	e.totalOutputTokens = 0
-	e.lastInputTokens = 0
+	// Keep token counters across clears so status bar statistics persist.
 	e.mu.Unlock()
 	e.emitEvent(protocol.HistoryClearedEvent{})
 }

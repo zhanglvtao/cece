@@ -52,7 +52,18 @@ func newTranscript() transcript {
 }
 
 func (t *transcript) reset() {
+	// Preserve token statistics across clears.
+	inputTok := t.inputTokens
+	outputTok := t.outputTokens
+	cacheRead := t.cacheReadTokens
+	cacheCreation := t.cacheCreationTokens
+	ctxUsed := t.contextUsed
 	*t = newTranscript()
+	t.inputTokens = inputTok
+	t.outputTokens = outputTok
+	t.cacheReadTokens = cacheRead
+	t.cacheCreationTokens = cacheCreation
+	t.contextUsed = ctxUsed
 }
 
 func (t *transcript) append(kind blockKind, title, text string) int {
@@ -338,8 +349,8 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	if text == "" {
 		return lbl.Render("[" + label + "]")
 	}
-	// Plan blocks get Markdown rendering; others stay plain text.
-	if block.kind == blockPlan {
+	// Markdown-rendered blocks: plan and completed assistant messages.
+	if block.kind == blockPlan || (block.kind == blockAssistant && block.done) {
 		rendered := renderMarkdown(text, width)
 		return lbl.Render("["+label+"]") + "\n" + rendered
 	}
