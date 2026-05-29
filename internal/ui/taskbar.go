@@ -28,10 +28,10 @@ func (m *Model) taskBarView() string {
 	if len(m.tasks) == 0 {
 		return ""
 	}
-	return renderTaskBar(m.tasks, m.width, m.styles)
+	return renderTaskBar(m.tasks, m.width, m.statusFrame, m.styles)
 }
 
-func renderTaskBar(tasks []protocol.TaskItem, width int, styles Styles) string {
+func renderTaskBar(tasks []protocol.TaskItem, width int, frame int, styles Styles) string {
 	var b strings.Builder
 	show := tasks
 	overflow := 0
@@ -40,7 +40,7 @@ func renderTaskBar(tasks []protocol.TaskItem, width int, styles Styles) string {
 		overflow = len(tasks) - maxTaskBarLines
 	}
 	for _, t := range show {
-		icon := taskStatusIcon(t.Status)
+		icon := taskStatusIcon(t.Status, frame)
 		text := t.Content
 		if t.Status == "in_progress" && t.ActiveForm != "" {
 			text = t.ActiveForm
@@ -72,12 +72,12 @@ func taskStyleFromStatus(status string, s Styles) lipgloss.Style {
 	}
 }
 
-func taskStatusIcon(status string) string {
+func taskStatusIcon(status string, frame int) string {
 	switch status {
 	case "pending":
 		return "○"
 	case "in_progress":
-		return "●"
+		return string(statusSpinnerFrames[frame%len(statusSpinnerFrames)])
 	case "completed":
 		return "✓"
 	default:

@@ -196,7 +196,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport(true)
 		return m, nil
 	case statusSpinnerTickMsg:
-		if !m.statusShowsSpinner() {
+		if !m.statusShowsSpinner() && !m.hasInProgressTask() {
 			m.statusSpinnerActive = false
 			return m, nil
 		}
@@ -569,7 +569,7 @@ func (m *Model) statusShowsSpinner() bool {
 }
 
 func (m *Model) ensureStatusSpinner() tea.Cmd {
-	if !m.statusShowsSpinner() {
+	if !m.statusShowsSpinner() && !m.hasInProgressTask() {
 		m.statusSpinnerActive = false
 		return nil
 	}
@@ -578,6 +578,15 @@ func (m *Model) ensureStatusSpinner() tea.Cmd {
 	}
 	m.statusSpinnerActive = true
 	return statusSpinnerTickCmd()
+}
+
+func (m *Model) hasInProgressTask() bool {
+	for _, t := range m.tasks {
+		if t.Status == "in_progress" {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
