@@ -895,6 +895,7 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.ClearHistoryAction{})
 			m.status = "Cleared"
+			m.tasks = nil
 		}
 		return nil
 	case "/compact":

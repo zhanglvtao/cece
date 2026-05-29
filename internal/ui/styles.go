@@ -106,12 +106,12 @@ func DefaultStyles() Styles {
 	s.Headline = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Queued = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Status.Separator = lipgloss.NewStyle().Foreground(theme.FgMuted).Faint(true)
-	s.Status.Model = lipgloss.NewStyle().Foreground(theme.Fg)
-	s.Status.Context = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	s.Status.Model = lipgloss.NewStyle().Foreground(theme.Primary)
+	s.Status.Context = lipgloss.NewStyle().Foreground(theme.Blue)
 	s.Status.Tokens = lipgloss.NewStyle().Foreground(theme.FgSubtle)
-	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.Green)
 	s.Status.Tool = lipgloss.NewStyle().Foreground(theme.Yellow)
-	s.Status.Scroll = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	s.Status.Scroll = lipgloss.NewStyle().Foreground(theme.FgMuted)
 
 	return s
 }

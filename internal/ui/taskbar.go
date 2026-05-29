@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"cece/internal/protocol"
+	"cece/internal/ui/theme"
+	"charm.land/lipgloss/v2"
 )
 
 const maxTaskBarLines = 6
@@ -48,6 +50,7 @@ func renderTaskBar(tasks []protocol.TaskItem, width int) string {
 		if width > 0 && len(line) > width {
 			line = line[:width-3] + "..."
 		}
+		line = taskStatusStyle(t.Status).Render(line)
 		b.WriteString(line)
 		b.WriteByte('\n')
 	}
@@ -55,6 +58,19 @@ func renderTaskBar(tasks []protocol.TaskItem, width int) string {
 		b.WriteString(fmt.Sprintf("  ... +%d more", overflow))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func taskStatusStyle(status string) lipgloss.Style {
+	switch status {
+	case "pending":
+		return lipgloss.NewStyle().Foreground(theme.FgMuted)
+	case "in_progress":
+		return lipgloss.NewStyle().Foreground(theme.Primary)
+	case "completed":
+		return lipgloss.NewStyle().Foreground(theme.Green)
+	default:
+		return lipgloss.NewStyle()
+	}
 }
 
 func taskStatusIcon(status string) string {
