@@ -18,6 +18,7 @@ type TurnDeps struct {
 	PersistMessage       func(context.Context, Message)
 	UpdateSessionMeta    func(context.Context, modelResponse)
 	DrainQueuedInputs    func() []string
+	DrainModeReminder    func() string
 	HistorySnapshot      func() []Message
 	ResetQuestionAnswers func()
 	IncrementAPICalls    func()
@@ -137,6 +138,12 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 		}
 
 		messages = r.deps.HistorySnapshot()
+		// Inject mode change reminder if pending.
+		if r.deps.DrainModeReminder != nil {
+			if reminder := r.deps.DrainModeReminder(); reminder != "" {
+				messages = append(messages, Message{Role: UserRole, Content: reminder})
+			}
+		}
 		// Next model call is triggered by tool results (or user intervention).
 		reason = "tool_result"
 	}

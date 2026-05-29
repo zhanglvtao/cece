@@ -141,6 +141,9 @@ func ToDTO(e Event) protocol.Event {
 
 	case TaskUpdated:
 		return protocol.TaskUpdatedEvent{Tasks: taskItemsToDTO(v.Tasks)}
+
+	case ModeChangedDuringExec:
+		return protocol.ModeChangedEvent{Mode: protocol.PermissionMode(v.Mode), Message: v.Message}
 	}
 	return nil
 }

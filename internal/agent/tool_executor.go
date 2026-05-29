@@ -105,6 +105,21 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 		}
 	}
 
+	// Check if mode changed during execution (e.g. ExitPlanMode).
+	if e.planState != nil && e.planState.Mode() != execMode {
+		newMode := e.planState.Mode()
+		var msg string
+		switch newMode {
+		case tool.PermissionModeAutoAccept:
+			msg = "Auto-accept mode"
+		case tool.PermissionModePlan:
+			msg = "Entered plan mode"
+		default:
+			msg = "Default mode"
+		}
+		ch <- ModeChangedDuringExec{Mode: newMode, Message: msg}
+	}
+
 	blocks := make([]ApiContentBlock, len(calls))
 	for i, call := range calls {
 		result := resultMap[i]
@@ -136,7 +151,6 @@ func NormalizeToolResultPolicy(policy ToolResultPolicy) ToolResultPolicy {
 	return policy
 }
 
-// chanEmitter adapts an event channel to the tool.Emitter interface.
 type chanEmitter struct {
 	ch chan<- Event
 	id string

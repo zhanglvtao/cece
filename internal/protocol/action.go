@@ -63,6 +63,14 @@ type SetPermissionModeAction struct {
 
 func (SetPermissionModeAction) isAction() {}
 
+// SetExitTargetModeAction sets the target mode for Exit() to use instead of prePlanMode.
+// Must be called before ApprovePlanAction to avoid SetMode racing with Exit().
+type SetExitTargetModeAction struct {
+	Mode PermissionMode
+}
+
+func (SetExitTargetModeAction) isAction() {}
+
 // LoadSessionAction requests loading a session by ID.
 type LoadSessionAction struct {
 	SessionID string

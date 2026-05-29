@@ -104,12 +104,14 @@ func ExitPlanModeReminder() string {
 // ── PlanModeState ───────────────────────────────────────────────────────────
 
 type PlanModeState struct {
-	mu           sync.Mutex
-	mode         PermissionMode
-	prePlanMode  PermissionMode
-	plansDir     string // e.g. /xxx/.cece/plans
-	reminderType string // "full" | "sparse" | ""
-	projectDir   string
+	mu                 sync.Mutex
+	mode               PermissionMode
+	prePlanMode        PermissionMode
+	plansDir           string // e.g. /xxx/.cece/plans
+	reminderType       string // "full" | "sparse" | ""
+	projectDir         string
+	exitTargetMode     PermissionMode // set before ApprovePlan; Exit() uses this instead of prePlanMode
+	pendingModeReminder string        // non-empty when mode changed; drained before next LLM call
 }
 
 func NewPlanModeState() *PlanModeState {
@@ -164,6 +166,42 @@ func (s *PlanModeState) SetProjectDir(dir string) {
 	s.projectDir = dir
 }
 
+// SetExitTargetMode sets the target mode for Exit() to use instead of prePlanMode.
+// Called before ApprovePlan to avoid SetMode racing with Exit().
+func (s *PlanModeState) SetExitTargetMode(mode PermissionMode) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.exitTargetMode = mode
+}
+
+// DrainModeReminder returns and clears the pending mode change reminder.
+// Called before each LLM call in the agent loop.
+func (s *PlanModeState) DrainModeReminder() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.pendingModeReminder
+	s.pendingModeReminder = ""
+	return r
+}
+
+// modeReminderFor returns the reminder text for a given mode transition.
+func modeReminderFor(mode PermissionMode) string {
+	switch mode {
+	case PermissionModeAutoAccept:
+		return "<system-reminder>\nSwitched to auto-accept mode. All tool calls are pre-approved.\n</system-reminder>"
+	case PermissionModePlan:
+		return "" // plan mode reminders are handled separately via reminderType
+	default:
+		return "<system-reminder>\nSwitched to default mode. Write-effect tools require confirmation.\n</system-reminder>"
+	}
+}
+
 func (s *PlanModeState) SetMode(mode PermissionMode) PermissionMode {
 	if s == nil {
 		return PermissionModeDefault
@@ -192,7 +230,12 @@ func (s *PlanModeState) SetMode(mode PermissionMode) PermissionMode {
 		s.plansDir = ""
 		s.reminderType = ""
 	}
+	oldMode := s.mode
 	s.mode = mode
+	// Only set reminder when mode actually changed.
+	if oldMode != mode && modeReminderFor(mode) != "" {
+		s.pendingModeReminder = modeReminderFor(mode)
+	}
 	return s.mode
 }
 
@@ -235,10 +278,21 @@ func (s *PlanModeState) Exit() bool {
 	if s.prePlanMode == "" || s.prePlanMode == PermissionModePlan {
 		s.prePlanMode = PermissionModeDefault
 	}
-	s.mode = s.prePlanMode
+	// Determine target mode: exitTargetMode overrides prePlanMode.
+	targetMode := s.prePlanMode
+	if s.exitTargetMode != "" && s.exitTargetMode != PermissionModePlan {
+		targetMode = s.exitTargetMode
+	}
+	oldMode := s.mode
+	s.mode = targetMode
 	s.prePlanMode = ""
+	s.exitTargetMode = ""
 	s.plansDir = ""
 	s.reminderType = ""
+	// Set reminder when mode actually changed.
+	if oldMode != targetMode && modeReminderFor(targetMode) != "" {
+		s.pendingModeReminder = modeReminderFor(targetMode)
+	}
 	return true
 }
 

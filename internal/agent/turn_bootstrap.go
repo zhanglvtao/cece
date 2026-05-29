@@ -87,6 +87,7 @@ func (b *TurnBootstrap) turnDeps() TurnDeps {
 			b.sessionCoordinator.UpdateMeta(ctx, sessionID, meta)
 		},
 		DrainQueuedInputs:  eng.DrainQueuedInputs,
+		DrainModeReminder:  eng.PlanState().DrainModeReminder,
 		HistorySnapshot:    eng.HistorySnapshot,
 		IncrementAPICalls:  eng.IncrementAPICalls,
 		IncrementToolCount: eng.IncrementToolCount,

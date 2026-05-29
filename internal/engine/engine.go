@@ -506,6 +506,10 @@ func (e *Engine) Do(action protocol.Action) {
 		e.ClearHistory()
 	case protocol.SetPermissionModeAction:
 		e.setMode(a.Mode)
+	case protocol.SetExitTargetModeAction:
+		if ps := e.PlanModeState(); ps != nil {
+			ps.SetExitTargetMode(tool.PermissionMode(a.Mode))
+		}
 	}
 }
 

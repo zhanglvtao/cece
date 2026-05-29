@@ -158,7 +158,7 @@ func (m *Model) handleApprovePlanKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "shift+tab", "backtab":
 		m.modal = modalState{}
 		if actor, ok := m.sender.(Actor); ok {
-			actor.Do(protocol.SetPermissionModeAction{Mode: protocol.PermissionModeAutoAccept})
+			actor.Do(protocol.SetExitTargetModeAction{Mode: protocol.PermissionModeAutoAccept})
 			actor.Do(protocol.ApprovePlanAction{})
 		}
 	case "n", "esc":

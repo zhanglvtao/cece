@@ -228,3 +228,12 @@ type TaskUpdated struct {
 }
 
 func (TaskUpdated) isEvent() {}
+
+// ModeChangedDuringExec is emitted when permission mode changes during tool execution
+// (e.g. ExitPlanMode). The UI should update its mode display.
+type ModeChangedDuringExec struct {
+	Mode    tool.PermissionMode
+	Message string
+}
+
+func (ModeChangedDuringExec) isEvent() {}

@@ -148,9 +148,9 @@ func TestPlanApprovalShiftTabAutoAccept(t *testing.T) {
 	if len(sender.actions) < 2 {
 		t.Fatalf("actions = %d, want at least 2", len(sender.actions))
 	}
-	setMode, ok := sender.actions[len(sender.actions)-2].(protocol.SetPermissionModeAction)
+	setMode, ok := sender.actions[len(sender.actions)-2].(protocol.SetExitTargetModeAction)
 	if !ok {
-		t.Fatalf("second last action = %T, want SetPermissionModeAction", sender.actions[len(sender.actions)-2])
+		t.Fatalf("second last action = %T, want SetExitTargetModeAction", sender.actions[len(sender.actions)-2])
 	}
 	if setMode.Mode != protocol.PermissionModeAutoAccept {
 		t.Fatalf("mode = %q, want auto-accept", setMode.Mode)

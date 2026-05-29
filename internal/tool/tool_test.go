@@ -1034,3 +1034,121 @@ func TestGetRequiredFieldsFromMapAny(t *testing.T) {
 		t.Fatalf("got %v, want [command path]", fields)
 	}
 }
+
+// ── PlanModeState: exitTargetMode & pendingModeReminder ──────────────────────
+
+func TestExitWithExitTargetMode(t *testing.T) {
+	s := NewPlanModeState()
+	s.SetProjectDir(t.TempDir())
+	s.Enter()
+	if s.Mode() != PermissionModePlan {
+		t.Fatalf("mode = %q, want plan", s.Mode())
+	}
+	// Set exit target to auto-accept before Exit
+	s.SetExitTargetMode(PermissionModeAutoAccept)
+	if !s.Exit() {
+		t.Fatal("Exit() = false, want true")
+	}
+	if s.Mode() != PermissionModeAutoAccept {
+		t.Fatalf("mode after Exit = %q, want auto-accept", s.Mode())
+	}
+}
+
+func TestExitWithoutExitTargetMode(t *testing.T) {
+	s := NewPlanModeState()
+	s.SetProjectDir(t.TempDir())
+	s.Enter()
+	if !s.Exit() {
+		t.Fatal("Exit() = false, want true")
+	}
+	if s.Mode() != PermissionModeDefault {
+		t.Fatalf("mode after Exit = %q, want default", s.Mode())
+	}
+}
+
+func TestSetModeSetsPendingReminder(t *testing.T) {
+	s := NewPlanModeState()
+	s.SetMode(PermissionModeAutoAccept)
+	reminder := s.DrainModeReminder()
+	if reminder == "" {
+		t.Fatal("DrainModeReminder() = empty, want non-empty reminder")
+	}
+	if !strings.Contains(reminder, "auto-accept") {
+		t.Fatalf("reminder = %q, want to contain 'auto-accept'", reminder)
+	}
+}
+
+func TestSetModeSameModeNoReminder(t *testing.T) {
+	s := NewPlanModeState()
+	s.SetMode(PermissionModeAutoAccept)
+	_ = s.DrainModeReminder()
+	// Set same mode again — no reminder
+	s.SetMode(PermissionModeAutoAccept)
+	reminder := s.DrainModeReminder()
+	if reminder != "" {
+		t.Fatalf("DrainModeReminder() = %q, want empty (same mode)", reminder)
+	}
+}
+
+func TestExitWithTargetModeSetsReminder(t *testing.T) {
+	s := NewPlanModeState()
+	s.SetProjectDir(t.TempDir())
+	s.Enter()
+	s.SetExitTargetMode(PermissionModeAutoAccept)
+	s.Exit()
+	reminder := s.DrainModeReminder()
+	if reminder == "" {
+		t.Fatal("DrainModeReminder() = empty after Exit with target mode, want non-empty")
+	}
+	if !strings.Contains(reminder, "auto-accept") {
+		t.Fatalf("reminder = %q, want to contain 'auto-accept'", reminder)
+	}
+}
+
+func TestDrainModeReminderClears(t *testing.T) {
+	s := NewPlanModeState()
+	s.SetMode(PermissionModeAutoAccept)
+	first := s.DrainModeReminder()
+	if first == "" {
+		t.Fatal("first drain = empty")
+	}
+	second := s.DrainModeReminder()
+	if second != "" {
+		t.Fatalf("second drain = %q, want empty", second)
+	}
+}
+
+func TestConsecutiveModeChangesOverrideReminder(t *testing.T) {
+	s := NewPlanModeState()
+	s.SetMode(PermissionModeAutoAccept)
+	s.SetMode(PermissionModeDefault)
+	reminder := s.DrainModeReminder()
+	if !strings.Contains(reminder, "default") {
+		t.Fatalf("reminder = %q, want to contain 'default' (last mode wins)", reminder)
+	}
+}
+
+func TestExitTargetModeClearedAfterExit(t *testing.T) {
+	s := NewPlanModeState()
+	s.SetProjectDir(t.TempDir())
+	s.Enter()
+	s.SetExitTargetMode(PermissionModeAutoAccept)
+	s.Exit()
+	if s.Mode() != PermissionModeAutoAccept {
+		t.Fatalf("mode after Exit = %q, want auto-accept", s.Mode())
+	}
+	// Enter plan mode again and exit without target
+	// prePlanMode is auto-accept, so Exit restores to auto-accept
+	s.Enter()
+	s.Exit()
+	if s.Mode() != PermissionModeAutoAccept {
+		t.Fatalf("mode after second Exit = %q, want auto-accept (prePlanMode restored)", s.Mode())
+	}
+	// Start from default mode, enter plan, exit — should be default
+	s.SetMode(PermissionModeDefault)
+	s.Enter()
+	s.Exit()
+	if s.Mode() != PermissionModeDefault {
+		t.Fatalf("mode after Exit from default = %q, want default", s.Mode())
+	}
+}
