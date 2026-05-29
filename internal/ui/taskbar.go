@@ -68,7 +68,7 @@ func taskStyleFromStatus(status string, s Styles) lipgloss.Style {
 	case "completed":
 		return s.Task.Completed
 	default:
-		return lipgloss.NewStyle()
+		return s.Task.Pending
 	}
 }
 
