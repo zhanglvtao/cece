@@ -8,7 +8,7 @@ import (
 
 const (
 	toolPreviewBytes    = 2000
-	toolPreviewMaxLines = 20
+	toolPreviewMaxLines = 3
 )
 
 func formatJSONPreview(raw json.RawMessage) string {
@@ -19,11 +19,24 @@ func formatJSONPreview(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return summarizeText(string(raw), 1000, 15)
 	}
-	pretty, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return summarizeText(string(raw), 1000, 15)
+	m, ok := v.(map[string]any)
+	if !ok {
+		compact, err := json.Marshal(v)
+		if err != nil {
+			return summarizeText(string(raw), 1000, 15)
+		}
+		return summarizeText(string(compact), 1000, 15)
 	}
-	return summarizeText(string(pretty), 1000, 15)
+	var lines []string
+	for key, val := range m {
+		compact, err := json.Marshal(val)
+		if err != nil {
+			lines = append(lines, key+": "+fmt.Sprint(val))
+		} else {
+			lines = append(lines, key+": "+string(compact))
+		}
+	}
+	return summarizeText(strings.Join(lines, "\n"), 1000, 15)
 }
 
 func summarizeText(s string, maxBytes, maxLines int) string {
@@ -38,11 +51,9 @@ func summarizeText(s string, maxBytes, maxLines int) string {
 	}
 	lines := strings.Split(s, "\n")
 	if len(lines) > maxLines {
-		head := maxLines / 2
-		tail := maxLines - head
-		kept := append([]string{}, lines[:head]...)
+		kept := make([]string, 0, maxLines+1)
+		kept = append(kept, lines[:maxLines]...)
 		kept = append(kept, fmt.Sprintf("... %d lines hidden ...", len(lines)-maxLines))
-		kept = append(kept, lines[len(lines)-tail:]...)
 		lines = kept
 		truncated = true
 	}

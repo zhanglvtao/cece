@@ -81,7 +81,7 @@ func (t *transcript) ensureAssistant() int {
 	if t.currentAssistant >= 0 && t.currentAssistant < len(t.blocks) {
 		return t.currentAssistant
 	}
-	t.currentAssistant = t.append(blockAssistant, "assistant", "")
+	t.currentAssistant = t.append(blockAssistant, "cece", "")
 	return t.currentAssistant
 }
 
@@ -155,7 +155,7 @@ func (t *transcript) apply(event protocol.Event) {
 		t.blocks[idx].done = true
 		t.currentThinking = -1
 	case protocol.AssistantStarted:
-		t.currentAssistant = t.append(blockAssistant, "assistant", "")
+		t.currentAssistant = t.append(blockAssistant, "cece", "")
 	case protocol.AssistantDelta:
 		idx := t.ensureAssistant()
 		t.blocks[idx].text += e.Text
@@ -280,7 +280,7 @@ func (t *transcript) loadMessage(msg protocol.Message) {
 				}
 			case protocol.TextContentType:
 				hasText = true
-				t.appendDone(blockAssistant, "assistant", b.Text)
+				t.appendDone(blockAssistant, "cece", b.Text)
 			case protocol.ToolUseContentType:
 				if b.ToolUse != nil {
 					t.appendDone(blockTool, "tool: "+b.ToolUse.Name, formatJSONPreview(b.ToolUse.Input))
@@ -288,7 +288,7 @@ func (t *transcript) loadMessage(msg protocol.Message) {
 			}
 		}
 		if !hasText && msg.Content != "" {
-			t.appendDone(blockAssistant, "assistant", msg.Content)
+			t.appendDone(blockAssistant, "cece", msg.Content)
 		}
 	}
 }
@@ -355,6 +355,11 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		return lbl.Render("["+label+"]") + "\n" + rendered
 	}
 	text = ansi.Wrap(text, max(20, width-4), "")
+	// Dimmed text for thinking blocks.
+	if block.kind == blockThinking {
+		dimmed := sty.Chat.LabelThinking
+		return lbl.Render("["+label+"]") + "\n" + indent(dimmed.Render(text), "  ")
+	}
 	return lbl.Render("["+label+"]") + "\n" + indent(text, "  ")
 }
 

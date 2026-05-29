@@ -79,7 +79,11 @@ func (g *InteractionGate) wait(ctx context.Context) error {
 }
 
 func shouldAutoApproveToolCalls(calls []ApiToolUseBlock) bool {
-	return len(calls) == 1 && calls[0].Name == tool.EnterPlanModeToolName
+	if len(calls) != 1 {
+		return false
+	}
+	name := calls[0].Name
+	return name == tool.EnterPlanModeToolName || name == tool.TaskToolName
 }
 
 func hasExitPlanMode(calls []ApiToolUseBlock) bool {

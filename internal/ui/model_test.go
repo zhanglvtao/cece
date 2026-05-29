@@ -46,7 +46,7 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 		t.Fatal("busy = true after TurnCompleted")
 	}
 	view := m.transcript.render(80, m.styles)
-	if !containsAll(view, "[you]", "hi", "assistant", "hello there") {
+	if !containsAll(view, "[you]", "hi", "cece", "hello there") {
 		t.Fatalf("transcript missing expected content:\n%s", view)
 	}
 }
