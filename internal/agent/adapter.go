@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 		"encoding/json"
@@ -7,43 +7,43 @@ import (
 	"cece/internal/tool"
 )
 
-// ToDTO converts an internal chat.Event to a protocol.Event.
+// ToDTO converts an internal agent.Event to a protocol.Event.
 // Returns nil for unrecognized event types.
 func ToDTO(e Event) protocol.Event {
 	switch v := e.(type) {
-	case UISessionCreated:
+	case SessionCreated:
 		return protocol.SessionCreated{ID: v.ID, Title: v.Title}
 
-	case UIUserMessageAdded:
+	case UserMessageAdded:
 		return protocol.UserMessageAdded{Message: MessageToDTO(v.Message)}
 
-	case UISystemReminderAdded:
+	case SystemReminderAdded:
 		return protocol.SystemReminderAdded{Content: v.Content}
 
-	case UIModelRequestStarted:
+	case ModelRequestStarted:
 		return protocol.ModelRequestStarted{
 			Reason:               v.Reason,
 			ToolResults:          v.ToolResults,
 			EstimatedInputTokens: v.EstimatedInputTokens,
 		}
 
-	case UIAssistantStarted:
+	case AssistantStarted:
 		return protocol.AssistantStarted{}
 
-	case UIAssistantDelta:
+	case AssistantDelta:
 		return protocol.AssistantDelta{Text: v.Text}
 
-	case UIAssistantCompleted:
+	case AssistantCompleted:
 		return protocol.AssistantCompleted{Duration: v.Duration}
 
-	case UIRunFailed:
+	case RunFailed:
 		errMsg := ""
 		if v.Err != nil {
 			errMsg = v.Err.Error()
 		}
 		return protocol.RunFailed{Err: errMsg}
 
-	case UIStreamStarted:
+	case StreamStarted:
 		return protocol.StreamStarted{
 			Model:               v.Model,
 			InputTokens:         v.InputTokens,
@@ -52,14 +52,14 @@ func ToDTO(e Event) protocol.Event {
 			CacheReadTokens:     v.CacheReadTokens,
 		}
 
-	case UIStreamEventDetail:
+	case StreamEventDetail:
 		return protocol.StreamEventDetail{
 			EventType: v.EventType,
 			Detail:    v.Detail,
 			Text:      v.Text,
 		}
 
-	case UIStreamCompleted:
+	case StreamCompleted:
 		return protocol.StreamCompleted{
 			OutputTokens: v.OutputTokens,
 			StopReason:   v.StopReason,
@@ -67,36 +67,36 @@ func ToDTO(e Event) protocol.Event {
 			ToolCalls:    v.ToolCalls,
 		}
 
-	case UITruncationRetry:
+	case TruncationRetry:
 		return protocol.TruncationRetry{
 			Attempt:       v.Attempt,
 			PrevMaxTokens: v.PrevMaxTokens,
 			NewMaxTokens:  v.NewMaxTokens,
 		}
 
-	case UIToolCallStarted:
+	case ToolCallStarted:
 		return protocol.ToolCallStarted{ID: v.ID, Name: v.Name}
 
-	case UIToolCallDelta:
+	case ToolCallDelta:
 		return protocol.ToolCallDelta{ID: v.ID, Delta: v.Input}
 
-	case UIToolCallCompleted:
+	case ToolCallCompleted:
 		return protocol.ToolCallCompleted{ID: v.ID, Name: v.Name, Input: v.Input}
 
-	case UIToolCallsReady:
+	case ToolCallsReady:
 		calls := make([]protocol.ToolUseBlock, len(v.Calls))
 		for i, c := range v.Calls {
 			calls[i] = toolUseBlockToDTO(c)
 		}
 		return protocol.ToolCallsReady{Calls: calls}
 
-	case UIToolExecStarted:
+	case ToolExecStarted:
 		return protocol.ToolExecStarted{ID: v.ID, Name: v.Name}
 
-	case UIToolExecDelta:
+	case ToolExecDelta:
 		return protocol.ToolExecDelta{ID: v.ID, Text: v.Text}
 
-	case UIToolExecCompleted:
+	case ToolExecCompleted:
 		return protocol.ToolExecCompleted{
 			ID:   v.ID,
 			Name: v.Name,
@@ -106,28 +106,28 @@ func ToDTO(e Event) protocol.Event {
 			},
 		}
 
-	case UIThinkingStarted:
+	case ThinkingStarted:
 		return protocol.ThinkingStarted{Index: v.Index}
 
-	case UIThinkingDelta:
+	case ThinkingDelta:
 		return protocol.ThinkingDelta{Text: v.Text}
 
-	case UIThinkingCompleted:
+	case ThinkingCompleted:
 		return protocol.ThinkingCompleted{Text: v.Text, Signature: v.Signature}
 
-	case UIPlanApprovalRequested:
+	case PlanApprovalRequested:
 		return protocol.PlanApprovalRequested{PlanContent: v.PlanContent, PlanFile: v.PlanFile}
 
-	case UIQuestionAsked:
+	case QuestionAsked:
 		return protocol.QuestionAsked{CallID: v.CallID, Questions: questionsToDTO(v.Questions)}
 
-	case UIQueuedInputPromoted:
+	case QueuedInputPromoted:
 		return protocol.QueuedInputPromoted{}
 
-	case UICompacting:
+	case Compacting:
 		return protocol.CompactingEvent{}
 
-	case UICompacted:
+	case Compacted:
 		return protocol.CompactedEvent{
 			TokensBefore:   v.TokensBefore,
 			TokensAfter:    v.TokensAfter,
@@ -136,7 +136,7 @@ func ToDTO(e Event) protocol.Event {
 			Summary:        v.Summary,
 		}
 
-	case UITurnCompleted:
+	case TurnCompleted:
 		return protocol.TurnCompleted{}
 	}
 	return nil

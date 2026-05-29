@@ -6,20 +6,20 @@ import (
 	"errors"
 	"testing"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/prompt"
 	"cece/internal/protocol"
 	"cece/internal/tool"
 )
 
 type fakeClient struct {
-	chunks    []chat.ApiStreamEvent
+	chunks    []agent.ApiStreamEvent
 	maxTokens int
 }
 
-func (f *fakeClient) Stream(_ context.Context, _ []chat.Message, _ chat.SystemPrompt, _ []tool.Definition, maxTokens int) (<-chan chat.ApiStreamEvent, error) {
+func (f *fakeClient) Stream(_ context.Context, _ []agent.Message, _ agent.SystemPrompt, _ []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
 	f.maxTokens = maxTokens
-	out := make(chan chat.ApiStreamEvent, len(f.chunks))
+	out := make(chan agent.ApiStreamEvent, len(f.chunks))
 	for _, chunk := range f.chunks {
 		out <- chunk
 	}
@@ -120,9 +120,9 @@ func TestEngineHistoryRoundTrip(t *testing.T) {
 	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 
 	// Load some history
-	msgs := []chat.Message{
-		{Role: chat.UserRole, Content: "hello"},
-		{Role: chat.AssistantRole, Content: "hi there"},
+	msgs := []agent.Message{
+		{Role: agent.UserRole, Content: "hello"},
+		{Role: agent.AssistantRole, Content: "hi there"},
 	}
 	eng.LoadHistory(context.Background(), "test-session", msgs)
 
@@ -133,14 +133,14 @@ func TestEngineHistoryRoundTrip(t *testing.T) {
 	if len(history) != 2 {
 		t.Fatalf("len(history) = %d, want 2", len(history))
 	}
-	if history[0].Role != string(chat.UserRole) {
+	if history[0].Role != string(agent.UserRole) {
 		t.Fatalf("history[0].Role = %q, want user", history[0].Role)
 	}
 }
 
 func TestEngineTurnEngineInterface(t *testing.T) {
-	// Verify Engine satisfies chat.TurnEngine at compile time
-	var _ chat.TurnEngine = (*Engine)(nil)
+	// Verify Engine satisfies agent.TurnEngine at compile time
+	var _ agent.TurnEngine = (*Engine)(nil)
 
 	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 

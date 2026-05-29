@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 )
 func sseBody(lines ...string) io.ReadCloser {
 	return io.NopCloser(strings.NewReader(strings.Join(lines, "\n") + "\n"))
 }
 
-func collectEvents(ch <-chan chat.ApiStreamEvent) ([]chat.ApiStreamEvent, error) {
-	var events []chat.ApiStreamEvent
+func collectEvents(ch <-chan agent.ApiStreamEvent) ([]agent.ApiStreamEvent, error) {
+	var events []agent.ApiStreamEvent
 	for e := range ch {
 		if e.Err != nil {
 			return events, e.Err
@@ -74,7 +74,7 @@ func TestDecodeMessageStartFromFirstOutput(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var startEvent *chat.ApiStreamEvent
+	var startEvent *agent.ApiStreamEvent
 	for i := range events {
 		if events[i].EventType == "message_start" {
 			startEvent = &events[i]
@@ -309,7 +309,7 @@ func TestDecodeTokenUsageEvent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var delta *chat.ApiStreamEvent
+	var delta *agent.ApiStreamEvent
 	for i := range events {
 		if events[i].EventType == "message_delta" {
 			delta = &events[i]

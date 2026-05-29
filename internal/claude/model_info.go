@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/httpretry"
 	"cece/internal/logger"
 	"io"
@@ -22,12 +22,12 @@ type apiModelInfo struct {
 	ContextLength    int    `json:"context_length"`
 }
 
-func (a apiModelInfo) toChat() chat.ModelInfo {
+func (a apiModelInfo) toChat() agent.ModelInfo {
 	cw := a.MaxContextWindow
 	if cw <= 0 {
 		cw = a.ContextLength
 	}
-	return chat.ModelInfo{
+	return agent.ModelInfo{
 		ID:               a.ID,
 		DisplayName:      a.DisplayName,
 		MaxContextWindow: cw,
@@ -35,7 +35,7 @@ func (a apiModelInfo) toChat() chat.ModelInfo {
 }
 
 // GetModelInfo queries the Anthropic /v1/models/{model} endpoint for model metadata.
-func (c *Client) GetModelInfo(ctx context.Context) (*chat.ModelInfo, error) {
+func (c *Client) GetModelInfo(ctx context.Context) (*agent.ModelInfo, error) {
 	url := strings.TrimRight(c.baseURL, "/") + "/v1/models/" + c.model
 
 	makeRequest := func() (*http.Request, error) {
@@ -76,7 +76,7 @@ func (c *Client) GetModelInfo(ctx context.Context) (*chat.ModelInfo, error) {
 }
 
 // ListModels queries GET /v1/models for all available models.
-func (c *Client) ListModels(ctx context.Context) ([]chat.ModelInfo, error) {
+func (c *Client) ListModels(ctx context.Context) ([]agent.ModelInfo, error) {
 	url := strings.TrimRight(c.baseURL, "/") + "/v1/models"
 
 	makeRequest := func() (*http.Request, error) {
@@ -110,7 +110,7 @@ func (c *Client) ListModels(ctx context.Context) ([]chat.ModelInfo, error) {
 		return nil, fmt.Errorf("decode list models response: %w", err)
 	}
 
-	result := make([]chat.ModelInfo, len(envelope.Data))
+	result := make([]agent.ModelInfo, len(envelope.Data))
 	for i, m := range envelope.Data {
 		result[i] = m.toChat()
 	}

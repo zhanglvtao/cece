@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 )
 
 // helper: build SSE body from lines
@@ -13,8 +13,8 @@ func sseBody(lines ...string) io.ReadCloser {
 	return io.NopCloser(strings.NewReader(strings.Join(lines, "\n") + "\n"))
 }
 
-func collectEvents(ch <-chan chat.ApiStreamEvent) ([]chat.ApiStreamEvent, error) {
-	var events []chat.ApiStreamEvent
+func collectEvents(ch <-chan agent.ApiStreamEvent) ([]agent.ApiStreamEvent, error) {
+	var events []agent.ApiStreamEvent
 	for e := range ch {
 		if e.Err != nil {
 			return events, e.Err
@@ -26,9 +26,9 @@ func collectEvents(ch <-chan chat.ApiStreamEvent) ([]chat.ApiStreamEvent, error)
 
 func TestDecodeTextDeltas(t *testing.T) {
 	body := sseBody(
-		`data: {"id":"1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}`,
+		`data: {"id":"1","object":"agent.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}`,
 		``,
-		`data: {"id":"2","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"lo"}}]}`,
+		`data: {"id":"2","object":"agent.completion.chunk","choices":[{"index":0,"delta":{"content":"lo"}}]}`,
 		``,
 		`data: [DONE]`,
 		``,
@@ -84,7 +84,7 @@ func TestDecodeMessageStartWithUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	var startEvent *chat.ApiStreamEvent
+	var startEvent *agent.ApiStreamEvent
 	for i := range events {
 		if events[i].EventType == "message_start" {
 			startEvent = &events[i]

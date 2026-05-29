@@ -12,7 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"cece/internal/aiden"
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/claude"
 	"cece/internal/codebase"
 	"cece/internal/config"
@@ -27,7 +27,7 @@ import (
 	"cece/internal/ui"
 )
 
-func createClient(pc config.ProviderConfig, model string, configName string) chat.ModelClient {
+func createClient(pc config.ProviderConfig, model string, configName string) agent.ModelClient {
 	if configName == "" {
 		for _, sm := range pc.Models {
 			if sm.ID == model {
@@ -122,7 +122,7 @@ func main() {
 	// Context window: GetModelInfo -> ListModels lookup -> config mapping -> 200K default
 	var contextWindow int
 	if lister, ok := client.(interface {
-		GetModelInfo(context.Context) (chat.ModelInfo, error)
+		GetModelInfo(context.Context) (agent.ModelInfo, error)
 	}); ok {
 		if info, err := lister.GetModelInfo(ctx); err != nil {
 			logger.Warn("model info query failed, trying ListModels", "error", err)
@@ -134,7 +134,7 @@ func main() {
 	}
 	if contextWindow <= 0 {
 		if lister, ok := client.(interface {
-			ListModels(context.Context) ([]chat.ModelInfo, error)
+			ListModels(context.Context) ([]agent.ModelInfo, error)
 		}); ok {
 			if models, err := lister.ListModels(ctx); err != nil {
 				contextWindow = cfg.ContextWindowFor(cfg.Model)
@@ -161,7 +161,7 @@ func main() {
 	eng := engine.NewEngine(client, registry, cfg.Yolo, cfg.MaxTokens, assembler, projectDir)
 	eng.SetPlanModeState(planState)
 	eng.SetModelInfo(cfg.Model, contextWindow)
-	eng.SetToolResultPolicy(chat.ToolResultPolicy{
+	eng.SetToolResultPolicy(agent.ToolResultPolicy{
 		InlineMaxLines: cfg.ToolResult.InlineMaxLines,
 		HeadLines:      cfg.ToolResult.HeadLines,
 		TailLines:      cfg.ToolResult.TailLines,
@@ -173,7 +173,7 @@ func main() {
 	eng.SetStore(store)
 
 	// Inject client factory for cross-protocol model switching
-	createClientFn := func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) chat.ModelClient {
+	createClientFn := func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient {
 		pc := config.ProviderConfig{
 			Protocol:   protocol,
 			APIKey:     apiKey,
@@ -222,10 +222,10 @@ func main() {
 				defer wg.Done()
 
 				// Try API-based listing first
-				var models []chat.ModelInfo
+				var models []agent.ModelInfo
 				tmpClient := createClient(pc, "", "")
 				if lister, ok := tmpClient.(interface {
-					ListModels(context.Context) ([]chat.ModelInfo, error)
+					ListModels(context.Context) ([]agent.ModelInfo, error)
 				}); ok {
 					if result, err := lister.ListModels(ctx); err == nil {
 						models = result
@@ -241,9 +241,9 @@ func main() {
 
 				// Fallback to static model list from config
 				if len(models) == 0 && len(pc.Models) > 0 {
-					models = make([]chat.ModelInfo, len(pc.Models))
+					models = make([]agent.ModelInfo, len(pc.Models))
 					for i, sm := range pc.Models {
-						models[i] = chat.ModelInfo{
+						models[i] = agent.ModelInfo{
 							ID:               sm.ID,
 							DisplayName:      sm.DisplayName,
 							MaxContextWindow: sm.MaxContextWindow,

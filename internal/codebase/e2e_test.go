@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 )
 
 func TestStreamE2E(t *testing.T) {
@@ -17,8 +17,8 @@ func TestStreamE2E(t *testing.T) {
 	client.SetAuthHelper("bytedcli --json auth get-codebase-jwt-token | python3 -c \"import sys,json;print(json.load(sys.stdin)['data']['jwt'])\"")
 
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "Say hello in 3 words, nothing else."}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "Say hello in 3 words, nothing else."}},
+		agent.SystemPrompt{},
 		nil,
 		50,
 	)
@@ -63,8 +63,8 @@ func TestStreamE2EWithReasoning(t *testing.T) {
 	client.SetAuthHelper("bytedcli --json auth get-codebase-jwt-token | python3 -c \"import sys,json;print(json.load(sys.stdin)['data']['jwt'])\"")
 
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "What is 2+3? Just give the number."}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "What is 2+3? Just give the number."}},
+		agent.SystemPrompt{},
 		nil,
 		50,
 	)

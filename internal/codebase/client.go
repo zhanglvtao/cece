@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"cece/internal/auth"
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/httpretry"
 	"cece/internal/logger"
 	"cece/internal/tool"
@@ -71,8 +71,8 @@ func extractRequestID(resp *http.Response) string {
 	return ""
 }
 
-func (c *Client) Stream(ctx context.Context, messages []chat.Message, system chat.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan chat.ApiStreamEvent, error) {
-	projectedMessages := chat.ProjectMessagesForRequest(messages)
+func (c *Client) Stream(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
+	projectedMessages := agent.ProjectMessagesForRequest(messages)
 	payload := CodebaseRequest{
 		Model:      c.model,
 		ConfigName: c.configName,
@@ -145,7 +145,7 @@ func (c *Client) Stream(ctx context.Context, messages []chat.Message, system cha
 
 	slog.Info("codebase stream connected", "status", 200)
 
-	out := make(chan chat.ApiStreamEvent)
+	out := make(chan agent.ApiStreamEvent)
 	go func() {
 		defer close(out)
 
@@ -162,7 +162,7 @@ func (c *Client) Stream(ctx context.Context, messages []chat.Message, system cha
 					retried = true
 					innerReader, err = doRequest()
 					if err != nil {
-						out <- chat.ApiStreamEvent{Err: err}
+						out <- agent.ApiStreamEvent{Err: err}
 						return
 					}
 					slog.Info("codebase stream retry connected", "model", c.model, "attempt", attempt+1)

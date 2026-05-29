@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 )
 
 func TestStreamSendsSystemPrompt(t *testing.T) {
@@ -27,8 +27,8 @@ func TestStreamSendsSystemPrompt(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("test-key", "claude-sonnet-4-6", server.URL, AuthModeAPIKey)
-	system := chat.SystemPrompt{
-		Blocks: []chat.SystemBlock{
+	system := agent.SystemPrompt{
+		Blocks: []agent.SystemBlock{
 			{Text: "You are helpful.", CacheControl: map[string]string{"type": "ephemeral"}},
 			{Text: "Use Chinese."},
 			{Text: "cwd: /repo", CacheControl: map[string]string{"type": "ephemeral"}},
@@ -100,7 +100,7 @@ func TestStreamOmitsSystemWhenEmpty(t *testing.T) {
 
 	client := NewClient("test-key", "claude-sonnet-4-6", server.URL, AuthModeAPIKey)
 
-	_, err := client.Stream(context.Background(), nil, chat.SystemPrompt{}, nil, 1024)
+	_, err := client.Stream(context.Background(), nil, agent.SystemPrompt{}, nil, 1024)
 	if err != nil {
 		t.Fatalf("Stream() error: %v", err)
 	}

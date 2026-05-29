@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 	"context"
@@ -58,7 +58,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 	}
 
 	estimated := estimateRequestTokens(req.System, req.Messages, tools)
-	ch <- UIModelRequestStarted{
+	ch <- ModelRequestStarted{
 		Reason:               req.Reason,
 		ToolResults:          req.ToolResults,
 		EstimatedInputTokens: estimated,
@@ -85,7 +85,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		}
 
 		if chunk.EventType != "" && !chunk.Done {
-			ch <- UIStreamEventDetail{
+			ch <- StreamEventDetail{
 				EventType: chunk.EventType,
 				Detail:    chunk.Detail,
 				Text:      truncate(chunk.Delta, 60),
@@ -103,7 +103,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			for _, def := range tools {
 				toolNames = append(toolNames, def.Name)
 			}
-			ch <- UIStreamStarted{
+			ch <- StreamStarted{
 				InputTokens:         resp.inputTokens,
 				Tools:               toolNames,
 				CacheCreationTokens: chunk.CacheCreationTokens,
@@ -124,7 +124,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				id:   chunk.ToolCallID,
 				name: chunk.ToolCallName,
 			}
-			ch <- UIToolCallStarted{
+			ch <- ToolCallStarted{
 				ID:    chunk.ToolCallID,
 				Name:  chunk.ToolCallName,
 				Index: chunk.Index,
@@ -133,7 +133,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		if chunk.Detail == "input_json_delta" && chunk.ToolCallInput != "" {
 			if ts, ok := toolInputStates[chunk.Index]; ok {
 				ts.input.WriteString(chunk.ToolCallInput)
-				ch <- UIToolCallDelta{
+				ch <- ToolCallDelta{
 					ID:    ts.id,
 					Index: chunk.Index,
 					Input: chunk.ToolCallInput,
@@ -149,7 +149,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 					Name:  ts.name,
 					Input: raw,
 				})
-				ch <- UIToolCallCompleted{
+				ch <- ToolCallCompleted{
 					ID:    ts.id,
 					Name:  ts.name,
 					Input: raw,
@@ -162,14 +162,14 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		if chunk.EventType == "content_block_start" && chunk.IsThinking {
 			thinkingIndex = chunk.Index
 			thinkingBuf.Reset()
-			ch <- UIThinkingStarted{Index: chunk.Index}
+			ch <- ThinkingStarted{Index: chunk.Index}
 		}
 		if chunk.EventType == "content_block_start" && chunk.IsRedactedThinking {
 			redactedThinkingIndex = chunk.Index
 		}
 		if chunk.Detail == "thinking_delta" && chunk.ThinkingDelta != "" {
 			thinkingBuf.WriteString(chunk.ThinkingDelta)
-			ch <- UIThinkingDelta{Text: chunk.ThinkingDelta}
+			ch <- ThinkingDelta{Text: chunk.ThinkingDelta}
 		}
 		if chunk.EventType == "content_block_stop" && thinkingIndex >= 0 && chunk.Index == thinkingIndex {
 			fullThinking := thinkingBuf.String()
@@ -183,7 +183,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 					Signature: sig,
 				},
 			})
-			ch <- UIThinkingCompleted{Text: fullThinking, Signature: sig}
+			ch <- ThinkingCompleted{Text: fullThinking, Signature: sig}
 		}
 		if chunk.EventType == "content_block_stop" && redactedThinkingIndex >= 0 && chunk.Index == redactedThinkingIndex {
 			resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
@@ -198,11 +198,11 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		// Text delta (excludes thinking_delta which is routed above)
 		if chunk.Delta != "" && chunk.Detail != "thinking_delta" {
 			if !assistantStarted {
-				ch <- UIAssistantStarted{}
+				ch <- AssistantStarted{}
 				assistantStarted = true
 			}
 			textBuf.WriteString(chunk.Delta)
-			ch <- UIAssistantDelta{Text: chunk.Delta}
+			ch <- AssistantDelta{Text: chunk.Delta}
 		}
 
 		if chunk.Done {
@@ -211,7 +211,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			for _, tc := range resp.toolCalls {
 				callNames = append(callNames, tc.Name)
 			}
-			ch <- UIStreamCompleted{
+			ch <- StreamCompleted{
 				OutputTokens: resp.outputTokens,
 				StopReason:   resp.stopReason,
 				Duration:     time.Since(start),

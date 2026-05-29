@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/httpretry"
 	"cece/internal/logger"
 	"cece/internal/tool"
@@ -105,8 +105,8 @@ func (c *Client) setAuthHeaders(ctx context.Context, h http.Header) error {
 	return nil
 }
 
-func (c *Client) Stream(ctx context.Context, messages []chat.Message, system chat.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan chat.ApiStreamEvent, error) {
-	projectedMessages := chat.ProjectMessagesForRequest(messages)
+func (c *Client) Stream(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
+	projectedMessages := agent.ProjectMessagesForRequest(messages)
 
 	// Build system blocks for Anthropic wire format
 	var systemBlocks []any
@@ -209,9 +209,9 @@ func extractRequestID(resp *http.Response) string {
 	return ""
 }
 
-// serializeMessage converts a chat.Message into the Anthropic wire format.
+// serializeMessage converts a agent.Message into the Anthropic wire format.
 // Supports: plain text, ContentBlocks (text + tool_use), and tool_result.
-func serializeMessage(m chat.Message) any {
+func serializeMessage(m agent.Message) any {
 	type textBlock struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
@@ -230,7 +230,7 @@ func serializeMessage(m chat.Message) any {
 	}
 
 	// tool_result messages (user role with ToolResult blocks)
-	if m.Role == chat.UserRole && len(m.ContentBlocks) > 0 {
+	if m.Role == agent.UserRole && len(m.ContentBlocks) > 0 {
 		if _, ok := m.ContentBlocks[0].AsToolResult(); ok {
 			var blocks []any
 			for _, cb := range m.ContentBlocks {
@@ -255,7 +255,7 @@ func serializeMessage(m chat.Message) any {
 		var blocks []any
 		for _, cb := range m.ContentBlocks {
 			switch cb.Type {
-			case chat.ApiThinkingContentType:
+			case agent.ApiThinkingContentType:
 				if cb.Thinking != nil {
 					blocks = append(blocks, map[string]any{
 						"type":      "thinking",
@@ -263,16 +263,16 @@ func serializeMessage(m chat.Message) any {
 						"signature": cb.Thinking.Signature,
 					})
 				}
-			case chat.ApiRedactedThinkingContentType:
+			case agent.ApiRedactedThinkingContentType:
 				if cb.Thinking != nil {
 					blocks = append(blocks, map[string]any{
 						"type":      "redacted_thinking",
 						"signature": cb.Thinking.Signature,
 					})
 				}
-			case chat.ApiTextContentType:
+			case agent.ApiTextContentType:
 				blocks = append(blocks, textBlock{Type: "text", Text: cb.Text})
-			case chat.ApiToolUseContentType:
+			case agent.ApiToolUseContentType:
 				if cb.ToolUse != nil {
 					blocks = append(blocks, toolUseBlock{
 						Type:  "tool_use",

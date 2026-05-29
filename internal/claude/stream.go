@@ -7,12 +7,12 @@ import (
 	"io"
 	"strings"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/logger"
 )
 
-func decodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
-	out := make(chan chat.ApiStreamEvent)
+func decodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
+	out := make(chan agent.ApiStreamEvent)
 
 	go func() {
 		defer close(out)
@@ -63,13 +63,13 @@ func decodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 			}
 
 			if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
-				out <- chat.ApiStreamEvent{Err: err}
+				out <- agent.ApiStreamEvent{Err: err}
 				return false
 			}
 
 			switch envelope.Type {
 			case "message_start":
-				out <- chat.ApiStreamEvent{
+				out <- agent.ApiStreamEvent{
 					EventType:           "message_start",
 					InputTokens:         envelope.Message.Usage.InputTokens,
 					CacheCreationTokens: envelope.Message.Usage.CacheCreationTokens,
@@ -77,48 +77,48 @@ func decodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 				}
 			case "content_block_start":
 				if envelope.ContentBlock.Type == "tool_use" {
-					out <- chat.ApiStreamEvent{
+					out <- agent.ApiStreamEvent{
 						EventType:    "content_block_start",
 						ToolCallID:   envelope.ContentBlock.ID,
 						ToolCallName: envelope.ContentBlock.Name,
 						Index:        envelope.Index,
 					}
 				} else if envelope.ContentBlock.Type == "thinking" {
-					out <- chat.ApiStreamEvent{
+					out <- agent.ApiStreamEvent{
 						EventType:  "content_block_start",
 						Index:      envelope.Index,
 						IsThinking: true,
 					}
 				} else if envelope.ContentBlock.Type == "redacted_thinking" {
-					out <- chat.ApiStreamEvent{
+					out <- agent.ApiStreamEvent{
 						EventType:          "content_block_start",
 						Index:              envelope.Index,
 						IsRedactedThinking: true,
 					}
 				} else {
 					// text block start — no actionable data yet
-					out <- chat.ApiStreamEvent{
+					out <- agent.ApiStreamEvent{
 						EventType: "content_block_start",
 						Index:     envelope.Index,
 					}
 				}
 			case "content_block_delta":
 				if envelope.Delta.Type == "input_json_delta" {
-					out <- chat.ApiStreamEvent{
+					out <- agent.ApiStreamEvent{
 						EventType:     "content_block_delta",
 						Detail:        "input_json_delta",
 						ToolCallInput: envelope.Delta.PartialJSON,
 						Index:         envelope.Index,
 					}
 				} else if envelope.Delta.Type == "thinking_delta" {
-					out <- chat.ApiStreamEvent{
+					out <- agent.ApiStreamEvent{
 						EventType:     "content_block_delta",
 						Detail:        "thinking_delta",
 						ThinkingDelta: envelope.Delta.Thinking,
 						Index:         envelope.Index,
 					}
 				} else if envelope.Delta.Text != "" {
-					out <- chat.ApiStreamEvent{
+					out <- agent.ApiStreamEvent{
 						Delta:     envelope.Delta.Text,
 						EventType: "content_block_delta",
 						Detail:    envelope.Delta.Type,
@@ -126,23 +126,23 @@ func decodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 					}
 				}
 			case "content_block_stop":
-				out <- chat.ApiStreamEvent{
+				out <- agent.ApiStreamEvent{
 					EventType:         "content_block_stop",
 					Index:             envelope.Index,
 					ThinkingSignature: envelope.Signature,
 				}
 			case "message_delta":
-				out <- chat.ApiStreamEvent{
+				out <- agent.ApiStreamEvent{
 					EventType:    "message_delta",
 					Detail:       "stop_reason",
 					OutputTokens: envelope.Usage.OutputTokens,
 					StopReason:   envelope.Delta.StopReason,
 				}
 			case "message_stop":
-				out <- chat.ApiStreamEvent{Done: true}
+				out <- agent.ApiStreamEvent{Done: true}
 				return false
 			case "error":
-				out <- chat.ApiStreamEvent{Err: errors.New(envelope.Error.Message)}
+				out <- agent.ApiStreamEvent{Err: errors.New(envelope.Error.Message)}
 				return false
 			}
 
@@ -164,7 +164,7 @@ func decodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 		}
 
 		if err := scanner.Err(); err != nil {
-			out <- chat.ApiStreamEvent{Err: err}
+			out <- agent.ApiStreamEvent{Err: err}
 			return
 		}
 

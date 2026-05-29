@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"cece/internal/auth"
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/httpretry"
 	"cece/internal/logger"
 	"cece/internal/tool"
@@ -121,8 +121,8 @@ func extractRequestID(resp *http.Response) string {
 	return ""
 }
 
-func (c *Client) Stream(ctx context.Context, messages []chat.Message, system chat.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan chat.ApiStreamEvent, error) {
-	projectedMessages := chat.ProjectMessagesForRequest(messages)
+func (c *Client) Stream(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
+	projectedMessages := agent.ProjectMessagesForRequest(messages)
 	if usesResponsesAPI(c.model) {
 		return c.streamResponses(ctx, projectedMessages, system, tools, maxTokens)
 	}
@@ -156,7 +156,7 @@ func (c *Client) Stream(ctx context.Context, messages []chat.Message, system cha
 	return DecodeStreamEvent(resp.Body), nil
 }
 
-func (c *Client) streamResponses(ctx context.Context, messages []chat.Message, system chat.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan chat.ApiStreamEvent, error) {
+func (c *Client) streamResponses(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
 	payload := ResponsesRequest{
 		Model:           c.model,
 		Instructions:    serializeSystemInstructions(system),
@@ -201,7 +201,7 @@ type aidenModel struct {
 	MaxContextWindow int    `json:"max_context_window"`
 }
 
-func (m aidenModel) toChat() chat.ModelInfo {
+func (m aidenModel) toChat() agent.ModelInfo {
 	cw := m.MaxInputTokens
 	if cw <= 0 {
 		cw = m.ContextLength
@@ -215,14 +215,14 @@ func (m aidenModel) toChat() chat.ModelInfo {
 		displayName = m.ID
 	}
 
-	return chat.ModelInfo{
+	return agent.ModelInfo{
 		ID:               m.ID,
 		DisplayName:      displayName,
 		MaxContextWindow: cw,
 	}
 }
 
-func (c *Client) ListModels(ctx context.Context) ([]chat.ModelInfo, error) {
+func (c *Client) ListModels(ctx context.Context) ([]agent.ModelInfo, error) {
 	url := strings.TrimRight(c.baseURL, "/") + "/v1/models"
 
 	resp, err := c.doRequestWithRetry(ctx, http.MethodGet, url, nil, nil)
@@ -238,7 +238,7 @@ func (c *Client) ListModels(ctx context.Context) ([]chat.ModelInfo, error) {
 		return nil, fmt.Errorf("decode list models response: %w", err)
 	}
 
-	result := make([]chat.ModelInfo, len(envelope.Data))
+	result := make([]agent.ModelInfo, len(envelope.Data))
 	for i, m := range envelope.Data {
 		result[i] = m.toChat()
 	}
@@ -246,15 +246,15 @@ func (c *Client) ListModels(ctx context.Context) ([]chat.ModelInfo, error) {
 	return result, nil
 }
 
-func (c *Client) GetModelInfo(ctx context.Context) (chat.ModelInfo, error) {
+func (c *Client) GetModelInfo(ctx context.Context) (agent.ModelInfo, error) {
 	models, err := c.ListModels(ctx)
 	if err != nil {
-		return chat.ModelInfo{}, err
+		return agent.ModelInfo{}, err
 	}
 	for _, m := range models {
 		if m.ID == c.model {
 			return m, nil
 		}
 	}
-	return chat.ModelInfo{}, fmt.Errorf("model %q not found in listing", c.model)
+	return agent.ModelInfo{}, fmt.Errorf("model %q not found in listing", c.model)
 }

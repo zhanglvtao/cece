@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 )
 
 func TestStreamRequestStripsThinkingBlocks(t *testing.T) {
@@ -25,34 +25,34 @@ func TestStreamRequestStripsThinkingBlocks(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("test-key", "claude-sonnet", server.URL, AuthModeAPIKey)
-	ch, err := client.Stream(context.Background(), []chat.Message{{
-		Role:    chat.AssistantRole,
+	ch, err := client.Stream(context.Background(), []agent.Message{{
+		Role:    agent.AssistantRole,
 		Content: "Visible answer.",
-		ContentBlocks: []chat.ApiContentBlock{
+		ContentBlocks: []agent.ApiContentBlock{
 			{
-				Type: chat.ApiThinkingContentType,
-				Thinking: &chat.ApiThinkingBlock{
+				Type: agent.ApiThinkingContentType,
+				Thinking: &agent.ApiThinkingBlock{
 					Text:      "let me think",
 					Signature: "sig_visible",
 				},
 			},
 			{
-				Type: chat.ApiRedactedThinkingContentType,
-				Thinking: &chat.ApiThinkingBlock{
+				Type: agent.ApiRedactedThinkingContentType,
+				Thinking: &agent.ApiThinkingBlock{
 					Signature: "sig_redacted",
 				},
 			},
-			{Type: chat.ApiTextContentType, Text: "Visible answer."},
+			{Type: agent.ApiTextContentType, Text: "Visible answer."},
 			{
-				Type: chat.ApiToolUseContentType,
-				ToolUse: &chat.ApiToolUseBlock{
+				Type: agent.ApiToolUseContentType,
+				ToolUse: &agent.ApiToolUseBlock{
 					ID:    "toolu_1",
 					Name:  "Read",
 					Input: json.RawMessage(`{"file_path":"/tmp/x"}`),
 				},
 			},
 		},
-	}}, chat.SystemPrompt{}, nil, 256)
+	}}, agent.SystemPrompt{}, nil, 256)
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}

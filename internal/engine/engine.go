@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/logger"
 	"cece/internal/prompt"
 	"cece/internal/protocol"
@@ -20,21 +20,21 @@ const defaultKeepRecentTurns = 2
 // Engine is the core agent engine. It manages conversation state, dispatches
 // user input to the agent loop, and emits protocol.Events on a channel.
 //
-// Engine implements chat.TurnEngine (for TurnBootstrap) and satisfies the
+// Engine implements agent.TurnEngine (for TurnBootstrap) and satisfies the
 // ui.Sender / ui.Actor / ui.Eventer interfaces consumed by the BubbleTea UI.
 type Engine struct {
 	mu                sync.Mutex
-	client            chat.ModelClient
+	client            agent.ModelClient
 	registry          *tool.Registry
 	assembler         *prompt.ContextAssembler
 	projectDir        string
 	planState         *tool.PlanModeState
-	history           []chat.Message
+	history           []agent.Message
 	cancel            context.CancelFunc
 	confirmCh         chan struct{} // set per Input call, cleared on completion
 	yolo              bool          // auto-approve tool execution without UI confirmation
 	maxTokens         int           // configurable max output tokens
-	toolResultPolicy  chat.ToolResultPolicy
+	toolResultPolicy  agent.ToolResultPolicy
 	ContextWindowFor  func(model string) int // returns context window for a model ID
 	store             session.Store          // optional persistence backend
 	sessionID         string                 // current session ID, empty = not yet created
@@ -55,7 +55,7 @@ type Engine struct {
 	eventCh           chan protocol.Event // global event channel for async responses
 }
 
-func NewEngine(client chat.ModelClient, registry *tool.Registry, yolo bool, maxTokens int, assembler *prompt.ContextAssembler, projectDir string) *Engine {
+func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, maxTokens int, assembler *prompt.ContextAssembler, projectDir string) *Engine {
 	return &Engine{
 		client:           client,
 		registry:         registry,
@@ -64,7 +64,7 @@ func NewEngine(client chat.ModelClient, registry *tool.Registry, yolo bool, maxT
 		planState:        tool.NewPlanModeState(),
 		yolo:             yolo,
 		maxTokens:        maxTokens,
-		toolResultPolicy: chat.ToolResultPolicy{InlineMaxLines: 200, HeadLines: 80, TailLines: 80},
+		toolResultPolicy: agent.ToolResultPolicy{InlineMaxLines: 200, HeadLines: 80, TailLines: 80},
 		inputQueue:       &userInputQueue{},
 		toolCounts:       make(map[string]int),
 		eventCh:          make(chan protocol.Event, 4096),
@@ -75,7 +75,7 @@ func NewEngine(client chat.ModelClient, registry *tool.Registry, yolo bool, maxT
 
 func (e *Engine) ProjectDir() string                      { return e.projectDir }
 func (e *Engine) Assembler() *prompt.ContextAssembler     { return e.assembler }
-func (e *Engine) Client() chat.ModelClient                { return e.client }
+func (e *Engine) Client() agent.ModelClient                { return e.client }
 func (e *Engine) Registry() *tool.Registry                { return e.registry }
 func (e *Engine) PlanState() *tool.PlanModeState          { return e.planState }
 
@@ -88,7 +88,7 @@ func (e *Engine) SetMCPTools(tools []tool.Tool) {
 }
 func (e *Engine) Yolo() bool                              { return e.yolo }
 func (e *Engine) MaxTokens() int                          { return e.maxTokens }
-func (e *Engine) ToolResultPolicy() chat.ToolResultPolicy { return e.toolResultPolicy }
+func (e *Engine) ToolResultPolicy() agent.ToolResultPolicy { return e.toolResultPolicy }
 func (e *Engine) SessionID() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -100,20 +100,20 @@ func (e *Engine) HistoryLen() int {
 	return len(e.history)
 }
 
-func (e *Engine) AppendHistory(msg chat.Message) {
+func (e *Engine) AppendHistory(msg agent.Message) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.history = append(e.history, msg)
 }
 
-func (e *Engine) PersistMessage(ctx context.Context, msg chat.Message) {
-	chat.NewSessionCoordinator(e.store).PersistMessage(ctx, e.SessionID(), msg)
+func (e *Engine) PersistMessage(ctx context.Context, msg agent.Message) {
+	agent.NewSessionCoordinator(e.store).PersistMessage(ctx, e.SessionID(), msg)
 }
 
-func (e *Engine) HistorySnapshot() []chat.Message {
+func (e *Engine) HistorySnapshot() []agent.Message {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	out := make([]chat.Message, len(e.history))
+	out := make([]agent.Message, len(e.history))
 	copy(out, e.history)
 	return out
 }
@@ -202,8 +202,8 @@ func (e *Engine) PlanMode() protocol.PermissionMode {
 	return e.Mode()
 }
 
-func (e *Engine) SetToolResultPolicy(policy chat.ToolResultPolicy) {
-	e.toolResultPolicy = chat.NormalizeToolResultPolicy(policy)
+func (e *Engine) SetToolResultPolicy(policy agent.ToolResultPolicy) {
+	e.toolResultPolicy = agent.NormalizeToolResultPolicy(policy)
 }
 
 func (e *Engine) SetStore(store session.Store) {
@@ -212,7 +212,7 @@ func (e *Engine) SetStore(store session.Store) {
 
 // SetClient replaces the underlying ModelClient. Used by the mediator
 // when switching models across protocols.
-func (e *Engine) SetClient(client chat.ModelClient) {
+func (e *Engine) SetClient(client agent.ModelClient) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.client = client
@@ -336,7 +336,7 @@ func (e *Engine) toolCountsSnapshot() map[string]int {
 }
 
 // LoadHistory replaces the conversation history from loaded messages.
-func (e *Engine) LoadHistory(ctx context.Context, sessionID string, msgs []chat.Message) {
+func (e *Engine) LoadHistory(ctx context.Context, sessionID string, msgs []agent.Message) {
 	e.mu.Lock()
 	e.history = msgs
 	e.sessionID = sessionID
@@ -363,19 +363,19 @@ func (e *Engine) ClearHistory() {
 // Old messages are preserved in history for UI scrollback.
 func (e *Engine) CompactHistory(ctx context.Context) {
 	e.mu.Lock()
-	snapshot := make([]chat.Message, len(e.history))
+	snapshot := make([]agent.Message, len(e.history))
 	copy(snapshot, e.history)
 	client := e.client
 	e.mu.Unlock()
 
 	// Only compact messages after the last boundary.
 	// Pre-boundary messages were already summarized and shouldn't be re-sent.
-	compactable := chat.MessagesAfterCompactBoundary(snapshot)
+	compactable := agent.MessagesAfterCompactBoundary(snapshot)
 
 	slog.Info("compact started", "history_len", len(snapshot), "compactable", len(compactable))
 	e.emitEvent(protocol.CompactingEvent{})
 
-	compactor := chat.NewCompactor(client, defaultKeepRecentTurns)
+	compactor := agent.NewCompactor(client, defaultKeepRecentTurns)
 	result, err := compactor.Compact(ctx, compactable)
 	if err != nil {
 		slog.Error("compact failed", "error", err)
@@ -427,7 +427,7 @@ func (e *Engine) History() []protocol.Message {
 
 	out := make([]protocol.Message, len(e.history))
 	for i, m := range e.history {
-		out[i] = chat.MessageToDTO(m)
+		out[i] = agent.MessageToDTO(m)
 	}
 	return out
 }
@@ -523,7 +523,7 @@ func (e *Engine) emitModeChanged(mode tool.PermissionMode) {
 // AnswerQuestion stores the user's answers and signals the agent loop to continue.
 func (e *Engine) AnswerQuestion(answers []protocol.QuestionAnswer) {
 	e.mu.Lock()
-	e.questionAnswers = chat.DtoAnswersToInternal(answers)
+	e.questionAnswers = agent.DtoAnswersToInternal(answers)
 	e.mu.Unlock()
 	e.Confirm()
 }
@@ -538,10 +538,10 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	user := chat.Message{Role: chat.UserRole, Content: input}
+	user := agent.Message{Role: agent.UserRole, Content: input}
 	snapshot := e.beginInputTurn(user)
 
-	sessionCoordinator := chat.NewSessionCoordinator(e.store)
+	sessionCoordinator := agent.NewSessionCoordinator(e.store)
 	newSession := sessionCoordinator.StartTurn(ctx, input, e.SessionID(), e.isSessionCreated())
 	if newSession.ID != "" {
 		e.mu.Lock()
@@ -551,7 +551,7 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	}
 	e.PersistMessage(ctx, user)
 
-	events := make(chan chat.Event)
+	events := make(chan agent.Event)
 	confirmCh := make(chan struct{}, 1)
 
 	e.mu.Lock()
@@ -568,14 +568,14 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 			e.mu.Unlock()
 		}()
 
-		chat.NewTurnBootstrap(e, sessionCoordinator, confirmCh).Run(ctx, input, user, snapshot, newSession, events)
+		agent.NewTurnBootstrap(e, sessionCoordinator, confirmCh).Run(ctx, input, user, snapshot, newSession, events)
 	}()
 
 	// Bridge internal events to protocol events via the unified event bus.
 	// Inject cumulative status bar data into relevant events.
 	go func() {
 		for ev := range events {
-			d := chat.ToDTO(ev)
+			d := agent.ToDTO(ev)
 			if d == nil {
 				continue
 			}
@@ -596,13 +596,13 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	return nil
 }
 
-func (e *Engine) beginInputTurn(user chat.Message) []chat.Message {
+func (e *Engine) beginInputTurn(user agent.Message) []agent.Message {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.history = append(e.history, user)
 	// Build snapshot: only messages after the last compact boundary
-	raw := chat.MessagesAfterCompactBoundary(e.history)
-	snapshot := make([]chat.Message, len(raw))
+	raw := agent.MessagesAfterCompactBoundary(e.history)
+	snapshot := make([]agent.Message, len(raw))
 	copy(snapshot, raw)
 	// Inject plan mode reminder if active.
 	if e.planState != nil && e.planState.Mode() == tool.PermissionModePlan {
@@ -611,14 +611,14 @@ func (e *Engine) beginInputTurn(user chat.Message) []chat.Message {
 		slog.Info("plan mode injection check", "reminderType", reminderType, "plansDir", plansDir)
 		switch reminderType {
 		case "full":
-			snapshot = append(snapshot, chat.Message{Role: chat.UserRole, Content: tool.BuildFullPlanReminder(plansDir)})
+			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildFullPlanReminder(plansDir)})
 			e.planState.SetReminderType("sparse")
 		case "sparse":
-			snapshot = append(snapshot, chat.Message{Role: chat.UserRole, Content: tool.BuildSparsePlanReminder(plansDir)})
+			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildSparsePlanReminder(plansDir)})
 		}
 	}
 
-	snapshot = chat.EnsureToolResultCoverage(snapshot)
+	snapshot = agent.EnsureToolResultCoverage(snapshot)
 	return snapshot
 }
 

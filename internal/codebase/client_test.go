@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/tool"
 )
 
@@ -34,8 +34,8 @@ func TestStreamSendsCorrectPayload(t *testing.T) {
 
 	client := NewClient("test-key", "openrouter-2o__dev", "openrouter-2o", server.URL)
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{Blocks: []chat.SystemBlock{{Text: "You are helpful."}}},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{Blocks: []agent.SystemBlock{{Text: "You are helpful."}}},
 		[]tool.Definition{{Name: "Bash", Description: "Run", InputSchema: map[string]any{"type": "object"}}},
 		1024,
 	)
@@ -82,8 +82,8 @@ func TestStreamSetsBearerAuthAndBusinessID(t *testing.T) {
 
 	client := NewClient("sk-test-token", "model", "config", server.URL)
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	if err != nil {
@@ -112,8 +112,8 @@ func TestStreamHandlesAPIError(t *testing.T) {
 
 	client := NewClient("key", "bad-model", "config", server.URL)
 	_, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	if err == nil {
@@ -135,8 +135,8 @@ func TestStreamWithNoTools(t *testing.T) {
 
 	client := NewClient("key", "model", "config", server.URL)
 	ch, _ := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	for range ch {
@@ -160,34 +160,34 @@ func TestStreamStripsThinkingFromPayload(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("test-key", "openrouter-2o__dev", "openrouter-2o", server.URL)
-	ch, err := client.Stream(context.Background(), []chat.Message{{
-		Role:    chat.AssistantRole,
+	ch, err := client.Stream(context.Background(), []agent.Message{{
+		Role:    agent.AssistantRole,
 		Content: "Visible answer.",
-		ContentBlocks: []chat.ApiContentBlock{
+		ContentBlocks: []agent.ApiContentBlock{
 			{
-				Type: chat.ApiThinkingContentType,
-				Thinking: &chat.ApiThinkingBlock{
+				Type: agent.ApiThinkingContentType,
+				Thinking: &agent.ApiThinkingBlock{
 					Text:      "let me think",
 					Signature: "sig_visible",
 				},
 			},
 			{
-				Type: chat.ApiRedactedThinkingContentType,
-				Thinking: &chat.ApiThinkingBlock{
+				Type: agent.ApiRedactedThinkingContentType,
+				Thinking: &agent.ApiThinkingBlock{
 					Signature: "sig_redacted",
 				},
 			},
-			{Type: chat.ApiTextContentType, Text: "Visible answer."},
+			{Type: agent.ApiTextContentType, Text: "Visible answer."},
 			{
-				Type: chat.ApiToolUseContentType,
-				ToolUse: &chat.ApiToolUseBlock{
+				Type: agent.ApiToolUseContentType,
+				ToolUse: &agent.ApiToolUseBlock{
 					ID:    "call_1",
 					Name:  "Read",
 					Input: json.RawMessage(`{"file_path":"/tmp/x"}`),
 				},
 			},
 		},
-	}}, chat.SystemPrompt{}, nil, 256)
+	}}, agent.SystemPrompt{}, nil, 256)
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
@@ -237,15 +237,15 @@ func TestStreamSecondRequestReplayUsesEmptyContentArrayForToolOnlyAssistant(t *t
 	defer server.Close()
 
 	client := NewClient("test-key", "openrouter-2o__dev", "openrouter-2o", server.URL)
-	ch, err := client.Stream(context.Background(), []chat.Message{
-		{Role: chat.UserRole, Content: "list files"},
+	ch, err := client.Stream(context.Background(), []agent.Message{
+		{Role: agent.UserRole, Content: "list files"},
 		{
-			Role: chat.AssistantRole,
-			ContentBlocks: []chat.ApiContentBlock{
-				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{Type: agent.ApiThinkingContentType, Text: "let me think..."},
 				{
-					Type: chat.ApiToolUseContentType,
-					ToolUse: &chat.ApiToolUseBlock{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
 						ID:    "call_1",
 						Name:  "Bash",
 						Input: json.RawMessage(`{"command":"ls"}`),
@@ -254,17 +254,17 @@ func TestStreamSecondRequestReplayUsesEmptyContentArrayForToolOnlyAssistant(t *t
 			},
 		},
 		{
-			Role: chat.UserRole,
-			ContentBlocks: []chat.ApiContentBlock{{
-				Type: chat.ApiToolResultContentType,
-				ToolResult: &chat.ApiToolResultBlock{
+			Role: agent.UserRole,
+			ContentBlocks: []agent.ApiContentBlock{{
+				Type: agent.ApiToolResultContentType,
+				ToolResult: &agent.ApiToolResultBlock{
 					ToolUseID: "call_1",
 					Content:   "file1.txt\nfile2.txt",
 				},
 			}},
 		},
-		{Role: chat.UserRole, Content: "continue"},
-	}, chat.SystemPrompt{}, nil, 256)
+		{Role: agent.UserRole, Content: "continue"},
+	}, agent.SystemPrompt{}, nil, 256)
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
@@ -309,8 +309,8 @@ func TestStreamRetriesOn3003(t *testing.T) {
 
 	client := NewClient("key", "model", "config", server.URL)
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	if err != nil {

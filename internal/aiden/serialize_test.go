@@ -4,14 +4,14 @@ import (
 	"encoding/json"
 	"testing"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 )
 
 func TestSerializePlainTextUserMessage(t *testing.T) {
-	msgs := []chat.Message{
-		{Role: chat.UserRole, Content: "hello"},
+	msgs := []agent.Message{
+		{Role: agent.UserRole, Content: "hello"},
 	}
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
@@ -24,11 +24,11 @@ func TestSerializePlainTextUserMessage(t *testing.T) {
 }
 
 func TestSerializePlainTextAssistantMessageUsesStringContent(t *testing.T) {
-	msgs := []chat.Message{
-		{Role: chat.AssistantRole, Content: "hi"},
+	msgs := []agent.Message{
+		{Role: agent.AssistantRole, Content: "hi"},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
@@ -41,14 +41,14 @@ func TestSerializePlainTextAssistantMessageUsesStringContent(t *testing.T) {
 }
 
 func TestSerializeSystemPrompt(t *testing.T) {
-	system := chat.SystemPrompt{
-		Blocks: []chat.SystemBlock{
+	system := agent.SystemPrompt{
+		Blocks: []agent.SystemBlock{
 			{Text: "You are helpful."},
 			{Text: "Be concise."},
 		},
 	}
-	msgs := []chat.Message{
-		{Role: chat.UserRole, Content: "hi"},
+	msgs := []agent.Message{
+		{Role: agent.UserRole, Content: "hi"},
 	}
 
 	result := SerializeMessages(msgs, system)
@@ -64,14 +64,14 @@ func TestSerializeSystemPrompt(t *testing.T) {
 }
 
 func TestSerializeAssistantWithTextAndToolUse(t *testing.T) {
-	msgs := []chat.Message{
+	msgs := []agent.Message{
 		{
-			Role: chat.AssistantRole,
-			ContentBlocks: []chat.ApiContentBlock{
-				{Type: chat.ApiTextContentType, Text: "I'll run that command."},
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{Type: agent.ApiTextContentType, Text: "I'll run that command."},
 				{
-					Type: chat.ApiToolUseContentType,
-					ToolUse: &chat.ApiToolUseBlock{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
 						ID:    "call_1",
 						Name:  "Bash",
 						Input: json.RawMessage(`{"command":"ls"}`),
@@ -81,7 +81,7 @@ func TestSerializeAssistantWithTextAndToolUse(t *testing.T) {
 		},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
@@ -111,13 +111,13 @@ func TestSerializeAssistantWithTextAndToolUse(t *testing.T) {
 }
 
 func TestSerializeToolResultMessage(t *testing.T) {
-	msgs := []chat.Message{
+	msgs := []agent.Message{
 		{
-			Role: chat.UserRole,
-			ContentBlocks: []chat.ApiContentBlock{
+			Role: agent.UserRole,
+			ContentBlocks: []agent.ApiContentBlock{
 				{
-					Type: chat.ApiToolResultContentType,
-					ToolResult: &chat.ApiToolResultBlock{
+					Type: agent.ApiToolResultContentType,
+					ToolResult: &agent.ApiToolResultBlock{
 						ToolUseID: "call_1",
 						Content:   "file1.txt\nfile2.txt",
 					},
@@ -126,7 +126,7 @@ func TestSerializeToolResultMessage(t *testing.T) {
 		},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
@@ -143,20 +143,20 @@ func TestSerializeToolResultMessage(t *testing.T) {
 }
 
 func TestSerializeMultiToolResultExpansion(t *testing.T) {
-	msgs := []chat.Message{
+	msgs := []agent.Message{
 		{
-			Role: chat.UserRole,
-			ContentBlocks: []chat.ApiContentBlock{
+			Role: agent.UserRole,
+			ContentBlocks: []agent.ApiContentBlock{
 				{
-					Type: chat.ApiToolResultContentType,
-					ToolResult: &chat.ApiToolResultBlock{
+					Type: agent.ApiToolResultContentType,
+					ToolResult: &agent.ApiToolResultBlock{
 						ToolUseID: "call_1",
 						Content:   "result1",
 					},
 				},
 				{
-					Type: chat.ApiToolResultContentType,
-					ToolResult: &chat.ApiToolResultBlock{
+					Type: agent.ApiToolResultContentType,
+					ToolResult: &agent.ApiToolResultBlock{
 						ToolUseID: "call_2",
 						Content:   "result2",
 					},
@@ -165,7 +165,7 @@ func TestSerializeMultiToolResultExpansion(t *testing.T) {
 		},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 2 {
 		t.Fatalf("expected 2 messages (expanded), got %d", len(result))
 	}
@@ -178,17 +178,17 @@ func TestSerializeMultiToolResultExpansion(t *testing.T) {
 }
 
 func TestSerializeDropsThinkingBlocks(t *testing.T) {
-	msgs := []chat.Message{
+	msgs := []agent.Message{
 		{
-			Role: chat.AssistantRole,
-			ContentBlocks: []chat.ApiContentBlock{
-				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
-				{Type: chat.ApiTextContentType, Text: "Here is the answer."},
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{Type: agent.ApiThinkingContentType, Text: "let me think..."},
+				{Type: agent.ApiTextContentType, Text: "Here is the answer."},
 			},
 		},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
@@ -198,17 +198,17 @@ func TestSerializeDropsThinkingBlocks(t *testing.T) {
 }
 
 func TestSerializeAssistantThinkingAndLegacyContentKeepsVisibleText(t *testing.T) {
-	msgs := []chat.Message{
+	msgs := []agent.Message{
 		{
-			Role:    chat.AssistantRole,
+			Role:    agent.AssistantRole,
 			Content: "Visible answer.",
-			ContentBlocks: []chat.ApiContentBlock{
-				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+			ContentBlocks: []agent.ApiContentBlock{
+				{Type: agent.ApiThinkingContentType, Text: "let me think..."},
 			},
 		},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
@@ -218,16 +218,16 @@ func TestSerializeAssistantThinkingAndLegacyContentKeepsVisibleText(t *testing.T
 }
 
 func TestSerializeAssistantThinkingOnlyUsesEmptyContent(t *testing.T) {
-	msgs := []chat.Message{
+	msgs := []agent.Message{
 		{
-			Role: chat.AssistantRole,
-			ContentBlocks: []chat.ApiContentBlock{
-				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{Type: agent.ApiThinkingContentType, Text: "let me think..."},
 			},
 		},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
@@ -237,14 +237,14 @@ func TestSerializeAssistantThinkingOnlyUsesEmptyContent(t *testing.T) {
 }
 
 func TestSerializeAssistantThinkingAndToolUseKeepsEmptyContent(t *testing.T) {
-	msgs := []chat.Message{
+	msgs := []agent.Message{
 		{
-			Role: chat.AssistantRole,
-			ContentBlocks: []chat.ApiContentBlock{
-				{Type: chat.ApiThinkingContentType, Text: "let me think..."},
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{Type: agent.ApiThinkingContentType, Text: "let me think..."},
 				{
-					Type: chat.ApiToolUseContentType,
-					ToolUse: &chat.ApiToolUseBlock{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
 						ID:    "call_1",
 						Name:  "Bash",
 						Input: json.RawMessage(`{"command":"ls"}`),
@@ -254,7 +254,7 @@ func TestSerializeAssistantThinkingAndToolUseKeepsEmptyContent(t *testing.T) {
 		},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
@@ -267,13 +267,13 @@ func TestSerializeAssistantThinkingAndToolUseKeepsEmptyContent(t *testing.T) {
 }
 
 func TestSerializeAssistantToolOnlyKeepsEmptyContent(t *testing.T) {
-	msgs := []chat.Message{
+	msgs := []agent.Message{
 		{
-			Role: chat.AssistantRole,
-			ContentBlocks: []chat.ApiContentBlock{
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
 				{
-					Type: chat.ApiToolUseContentType,
-					ToolUse: &chat.ApiToolUseBlock{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
 						ID:    "call_1",
 						Name:  "Bash",
 						Input: json.RawMessage(`{"command":"ls"}`),
@@ -283,7 +283,7 @@ func TestSerializeAssistantToolOnlyKeepsEmptyContent(t *testing.T) {
 		},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
@@ -296,13 +296,13 @@ func TestSerializeAssistantToolOnlyKeepsEmptyContent(t *testing.T) {
 }
 
 func TestSerializeJSONRoundTrip(t *testing.T) {
-	msgs := []chat.Message{
-		{Role: chat.UserRole, Content: "hi"},
-		{Role: chat.AssistantRole, Content: "hi"},
-		{Role: chat.UserRole, Content: "了解下项目结构"},
+	msgs := []agent.Message{
+		{Role: agent.UserRole, Content: "hi"},
+		{Role: agent.AssistantRole, Content: "hi"},
+		{Role: agent.UserRole, Content: "了解下项目结构"},
 	}
 
-	result := SerializeMessages(msgs, chat.SystemPrompt{})
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
 	data, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

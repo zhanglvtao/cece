@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/mcp"
 	"cece/internal/protocol"
 	"cece/internal/session"
@@ -21,7 +21,7 @@ type EngineMediator struct {
 	*Engine
 	store            session.Store
 	providerResolver func(configName string) (apiKey, baseURL, authMode, authHelper, protocol string)
-	createClientFn   func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) chat.ModelClient
+	createClientFn   func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient
 	listAllModelsFn  func(ctx context.Context) ([]protocol.ModelInfo, error)
 	mcpManager       *mcp.Manager
 }
@@ -30,7 +30,7 @@ func NewEngineMediator(
 	eng *Engine,
 	store session.Store,
 	providerResolver func(string) (string, string, string, string, string),
-	createClientFn func(string, string, string, string, string, string, string) chat.ModelClient,
+	createClientFn func(string, string, string, string, string, string, string) agent.ModelClient,
 	listAllModelsFn func(context.Context) ([]protocol.ModelInfo, error),
 	mcpManager *mcp.Manager,
 ) *EngineMediator {
@@ -115,9 +115,9 @@ func (m *EngineMediator) loadSession(sessionID string) {
 		m.Engine.EmitEvent(protocol.SessionLoadedEvent{Err: err.Error()})
 		return
 	}
-	var msgs []chat.Message
+	var msgs []agent.Message
 	for _, raw := range rawMsgs {
-		var msg chat.Message
+		var msg agent.Message
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			slog.Warn("skipping corrupt message in session", "session", sessionID, "error", err)
 			continue

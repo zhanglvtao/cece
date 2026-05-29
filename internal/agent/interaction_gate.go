@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 	"context"
@@ -47,7 +47,7 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 	}
 	if hasExitPlanMode(calls) {
 		planContent, planFile := exitPlanModePreview(calls)
-		events <- UIPlanApprovalRequested{
+		events <- PlanApprovalRequested{
 			PlanContent: planContent,
 			PlanFile:    planFile,
 		}
@@ -58,14 +58,14 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 		if g.resetQuestionAnswers != nil {
 			g.resetQuestionAnswers()
 		}
-		events <- UIQuestionAsked{
+		events <- QuestionAsked{
 			CallID:    calls[0].ID,
 			Questions: questions,
 		}
 		return g.wait(ctx)
 	}
 
-	events <- UIToolCallsReady{Calls: calls}
+	events <- ToolCallsReady{Calls: calls}
 	return g.wait(ctx)
 }
 

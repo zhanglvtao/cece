@@ -3,7 +3,7 @@ package codebase
 import (
 	"strings"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/tool"
 )
 
@@ -66,7 +66,7 @@ func textContent(text string) []CodebaseContent {
 }
 
 // SerializeMessages converts internal messages + system prompt into codebase-api format.
-func SerializeMessages(messages []chat.Message, system chat.SystemPrompt) []CodebaseMessage {
+func SerializeMessages(messages []agent.Message, system agent.SystemPrompt) []CodebaseMessage {
 	var result []CodebaseMessage
 
 	if len(system.Blocks) > 0 {
@@ -91,8 +91,8 @@ func SerializeMessages(messages []chat.Message, system chat.SystemPrompt) []Code
 }
 
 // serializeMessageExpanded returns 1+ CodebaseMessages (multi-tool-result expansion).
-func serializeMessageExpanded(m chat.Message) []CodebaseMessage {
-	if m.Role == chat.UserRole && len(m.ContentBlocks) > 0 {
+func serializeMessageExpanded(m agent.Message) []CodebaseMessage {
+	if m.Role == agent.UserRole && len(m.ContentBlocks) > 0 {
 		if _, ok := m.ContentBlocks[0].AsToolResult(); ok {
 			var msgs []CodebaseMessage
 			for _, cb := range m.ContentBlocks {
@@ -111,15 +111,15 @@ func serializeMessageExpanded(m chat.Message) []CodebaseMessage {
 	return []CodebaseMessage{serializeMessage(m)}
 }
 
-func serializeMessage(m chat.Message) CodebaseMessage {
-	if len(m.ContentBlocks) > 0 && m.Role == chat.AssistantRole {
+func serializeMessage(m agent.Message) CodebaseMessage {
+	if len(m.ContentBlocks) > 0 && m.Role == agent.AssistantRole {
 		msg := CodebaseMessage{Role: "assistant"}
 		var textParts []string
 		for _, cb := range m.ContentBlocks {
 			switch cb.Type {
-			case chat.ApiTextContentType:
+			case agent.ApiTextContentType:
 				textParts = append(textParts, cb.Text)
-			case chat.ApiToolUseContentType:
+			case agent.ApiToolUseContentType:
 				if cb.ToolUse != nil {
 					msg.ToolCalls = append(msg.ToolCalls, CodebaseToolCall{
 						Index: len(msg.ToolCalls),
@@ -131,7 +131,7 @@ func serializeMessage(m chat.Message) CodebaseMessage {
 						},
 					})
 				}
-			case chat.ApiThinkingContentType:
+			case agent.ApiThinkingContentType:
 			// ApiRedactedThinkingContentType: dropped (no text to send)
 			}
 		}

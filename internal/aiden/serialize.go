@@ -3,7 +3,7 @@ package aiden
 import (
 	"strings"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 )
 
 type ChatCompletionRequest struct {
@@ -57,7 +57,7 @@ type AidenFunction struct {
 	Arguments string `json:"arguments"`
 }
 
-func SerializeMessages(messages []chat.Message, system chat.SystemPrompt) []AidenMsg {
+func SerializeMessages(messages []agent.Message, system agent.SystemPrompt) []AidenMsg {
 	var result []AidenMsg
 
 	if s := serializeSystemInstructions(system); s != "" {
@@ -71,7 +71,7 @@ func SerializeMessages(messages []chat.Message, system chat.SystemPrompt) []Aide
 	return result
 }
 
-func SerializeResponsesInput(messages []chat.Message) []ResponsesInputItem {
+func SerializeResponsesInput(messages []agent.Message) []ResponsesInputItem {
 	var result []ResponsesInputItem
 	for _, m := range messages {
 		result = append(result, serializeResponsesMessage(m)...)
@@ -79,7 +79,7 @@ func SerializeResponsesInput(messages []chat.Message) []ResponsesInputItem {
 	return result
 }
 
-func serializeSystemInstructions(system chat.SystemPrompt) string {
+func serializeSystemInstructions(system agent.SystemPrompt) string {
 	if len(system.Blocks) == 0 {
 		return ""
 	}
@@ -93,8 +93,8 @@ func serializeSystemInstructions(system chat.SystemPrompt) string {
 	return sb.String()
 }
 
-func serializeMessageExpanded(m chat.Message) []AidenMsg {
-	if m.Role == chat.UserRole && len(m.ContentBlocks) > 0 {
+func serializeMessageExpanded(m agent.Message) []AidenMsg {
+	if m.Role == agent.UserRole && len(m.ContentBlocks) > 0 {
 		if _, ok := m.ContentBlocks[0].AsToolResult(); ok {
 			var msgs []AidenMsg
 			for _, cb := range m.ContentBlocks {
@@ -113,8 +113,8 @@ func serializeMessageExpanded(m chat.Message) []AidenMsg {
 	return []AidenMsg{serializeMessage(m)}
 }
 
-func serializeResponsesMessage(m chat.Message) []ResponsesInputItem {
-	if m.Role == chat.UserRole && len(m.ContentBlocks) > 0 {
+func serializeResponsesMessage(m agent.Message) []ResponsesInputItem {
+	if m.Role == agent.UserRole && len(m.ContentBlocks) > 0 {
 		if _, ok := m.ContentBlocks[0].AsToolResult(); ok {
 			var items []ResponsesInputItem
 			for _, cb := range m.ContentBlocks {
@@ -134,7 +134,7 @@ func serializeResponsesMessage(m chat.Message) []ResponsesInputItem {
 		}
 	}
 
-	if m.Role == chat.AssistantRole {
+	if m.Role == agent.AssistantRole {
 		var items []ResponsesInputItem
 		if text := assistantText(m); text != "" {
 			items = append(items, ResponsesInputItem{
@@ -146,7 +146,7 @@ func serializeResponsesMessage(m chat.Message) []ResponsesInputItem {
 			})
 		}
 		for _, cb := range m.ContentBlocks {
-			if cb.Type == chat.ApiToolUseContentType && cb.ToolUse != nil {
+			if cb.Type == agent.ApiToolUseContentType && cb.ToolUse != nil {
 				items = append(items, ResponsesInputItem{
 					Type:      "function_call",
 					CallID:    cb.ToolUse.ID,
@@ -171,14 +171,14 @@ func serializeResponsesMessage(m chat.Message) []ResponsesInputItem {
 	}}
 }
 
-func serializeMessage(m chat.Message) AidenMsg {
-	if m.Role == chat.AssistantRole {
+func serializeMessage(m agent.Message) AidenMsg {
+	if m.Role == agent.AssistantRole {
 		msg := AidenMsg{
 			Role: "assistant",
 		}
 		for _, cb := range m.ContentBlocks {
 			switch cb.Type {
-			case chat.ApiToolUseContentType:
+			case agent.ApiToolUseContentType:
 				if cb.ToolUse != nil {
 					msg.ToolCalls = append(msg.ToolCalls, AidenToolCall{
 						ID:   cb.ToolUse.ID,
@@ -205,10 +205,10 @@ func serializeMessage(m chat.Message) AidenMsg {
 	}
 }
 
-func assistantText(m chat.Message) string {
+func assistantText(m agent.Message) string {
 	var textParts []string
 	for _, cb := range m.ContentBlocks {
-		if cb.Type == chat.ApiTextContentType {
+		if cb.Type == agent.ApiTextContentType {
 			textParts = append(textParts, cb.Text)
 		}
 	}

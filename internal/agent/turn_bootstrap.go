@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 	"context"
@@ -21,9 +21,9 @@ func NewTurnBootstrap(engine TurnEngine, sessionCoordinator *SessionCoordinator,
 
 func (b *TurnBootstrap) Run(ctx context.Context, input string, user Message, snapshot []Message, newSession SessionStartResult, events chan<- Event) {
 	if newSession.ID != "" {
-		events <- UISessionCreated{ID: newSession.ID, Title: newSession.Title}
+		events <- SessionCreated{ID: newSession.ID, Title: newSession.Title}
 	}
-	events <- UIUserMessageAdded{Message: user}
+	events <- UserMessageAdded{Message: user}
 
 	systemPrompt := b.assembleSystemPrompt(input)
 	runner := NewTurnRunner(

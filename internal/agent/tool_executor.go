@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 	"context"
@@ -58,7 +58,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 	for i, call := range calls {
 		go func(idx int, c ApiToolUseBlock) {
 			emitter := &chanEmitter{ch: ch, id: c.ID}
-			ch <- UIToolExecStarted{ID: c.ID, Name: c.Name}
+			ch <- ToolExecStarted{ID: c.ID, Name: c.Name}
 			var result tool.Result
 			if c.Name == tool.AskUserQuestionToolName {
 				answers := []tool.QuestionAnswer(nil)
@@ -78,7 +78,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 					result = e.registry.Execute(ctx, c.Name, c.Input, emitter)
 				}
 			}
-			ch <- UIToolExecCompleted{ID: c.ID, Name: c.Name, Result: result}
+			ch <- ToolExecCompleted{ID: c.ID, Name: c.Name, Result: result}
 			results <- execResult{index: idx, result: result}
 		}(i, call)
 	}
@@ -127,7 +127,7 @@ type chanEmitter struct {
 }
 
 func (e *chanEmitter) Emit(text string) {
-	e.ch <- UIToolExecDelta{ID: e.id, Text: text}
+	e.ch <- ToolExecDelta{ID: e.id, Text: text}
 }
 
 func truncateToolResult(content string, policy ToolResultPolicy) (string, bool, int) {

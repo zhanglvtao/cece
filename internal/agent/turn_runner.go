@@ -1,4 +1,4 @@
-package chat
+package agent
 
 import (
 	"context"
@@ -61,13 +61,13 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 			ToolResults: toolResultNames,
 		}, events)
 		if err != nil {
-			events <- UIRunFailed{Err: err}
+			events <- RunFailed{Err: err}
 			return
 		}
 
 		// Silent escalation: if output was truncated, retry once with 64K.
 		if resp.stopReason == "max_tokens" {
-			events <- UITruncationRetry{
+			events <- TruncationRetry{
 				Attempt:       1,
 				PrevMaxTokens: r.maxTokens,
 				NewMaxTokens:  escalatedMaxTokens,
@@ -82,7 +82,7 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 				ToolResults: toolResultNames,
 			}, events)
 			if err != nil {
-				events <- UIRunFailed{Err: err}
+				events <- RunFailed{Err: err}
 				return
 			}
 		}
@@ -99,12 +99,12 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 
 		// No tool calls -- conversation turn is done.
 		if resp.stopReason != "tool_use" || len(resp.toolCalls) == 0 {
-			events <- UIAssistantCompleted{Duration: time.Since(turnStart)}
+			events <- AssistantCompleted{Duration: time.Since(turnStart)}
 			return
 		}
 
 		if err := r.interactionGate.WaitIfNeeded(ctx, resp.toolCalls, events); err != nil {
-			events <- UIRunFailed{Err: err}
+			events <- RunFailed{Err: err}
 			return
 		}
 
@@ -131,8 +131,8 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 				user := Message{Role: UserRole, Content: input}
 				r.deps.AppendMessage(user)
 				r.deps.PersistMessage(ctx, user)
-				events <- UIUserMessageAdded{Message: user}
-				events <- UIQueuedInputPromoted{}
+				events <- UserMessageAdded{Message: user}
+				events <- QueuedInputPromoted{}
 			}
 		}
 

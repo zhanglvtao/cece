@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/logger"
 )
 
@@ -47,9 +47,9 @@ type streamState struct {
 	outputTokens      int
 }
 
-// DecodeStreamEvent reads a codebase-api SSE stream and emits chat.ApiStreamEvent values.
-func DecodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
-	out := make(chan chat.ApiStreamEvent)
+// DecodeStreamEvent reads a codebase-api SSE stream and emits agent.ApiStreamEvent values.
+func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
+	out := make(chan agent.ApiStreamEvent)
 
 	go func() {
 		defer close(out)
@@ -88,19 +88,19 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan chat.ApiStreamEvent {
 		}
 
 		if err := scanner.Err(); err != nil {
-			out <- chat.ApiStreamEvent{Err: err}
+			out <- agent.ApiStreamEvent{Err: err}
 		}
 	}()
 
 	return out
 }
 
-func processEvent(eventType, data string, out chan<- chat.ApiStreamEvent, state *streamState) {
+func processEvent(eventType, data string, out chan<- agent.ApiStreamEvent, state *streamState) {
 	switch eventType {
 	case "output":
 		var ev OutputEvent
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			out <- chat.ApiStreamEvent{Err: err}
+			out <- agent.ApiStreamEvent{Err: err}
 			return
 		}
 		emitOutput(&ev, out, state)
@@ -117,7 +117,7 @@ func processEvent(eventType, data string, out chan<- chat.ApiStreamEvent, state 
 	case "done":
 		var ev DoneEvent
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			out <- chat.ApiStreamEvent{Err: err}
+			out <- agent.ApiStreamEvent{Err: err}
 			return
 		}
 		emitDone(&ev, out, state)
@@ -125,7 +125,7 @@ func processEvent(eventType, data string, out chan<- chat.ApiStreamEvent, state 
 	case "error":
 		var ev ErrorEvent
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			out <- chat.ApiStreamEvent{Err: fmt.Errorf("codebase error event parse failure: %s", data)}
+			out <- agent.ApiStreamEvent{Err: fmt.Errorf("codebase error event parse failure: %s", data)}
 			return
 		}
 		message := ev.Message
@@ -135,7 +135,7 @@ func processEvent(eventType, data string, out chan<- chat.ApiStreamEvent, state 
 		if ev.Error != "" && ev.Error != message {
 			message = message + "; " + ev.Error
 		}
-		out <- chat.ApiStreamEvent{Err: fmt.Errorf("codebase api error: %s (code=%d)", message, ev.Code)}
+		out <- agent.ApiStreamEvent{Err: fmt.Errorf("codebase api error: %s (code=%d)", message, ev.Code)}
 
 	case "metadata", "progress_notice", "timing_cost", "extra_info":
 		// Informational events, safely ignored
@@ -145,11 +145,11 @@ func processEvent(eventType, data string, out chan<- chat.ApiStreamEvent, state 
 	}
 }
 
-func emitOutput(ev *OutputEvent, out chan<- chat.ApiStreamEvent, state *streamState) {
+func emitOutput(ev *OutputEvent, out chan<- agent.ApiStreamEvent, state *streamState) {
 	// Synthesize message_start on first output
 	if !state.messageStarted {
 		state.messageStarted = true
-		out <- chat.ApiStreamEvent{
+		out <- agent.ApiStreamEvent{
 			EventType:   "message_start",
 			InputTokens: state.inputTokens,
 		}
@@ -160,13 +160,13 @@ func emitOutput(ev *OutputEvent, out chan<- chat.ApiStreamEvent, state *streamSt
 		if !state.thinkingOpen {
 			state.thinkingOpen = true
 			state.thinkingIndex = 0
-			out <- chat.ApiStreamEvent{
+			out <- agent.ApiStreamEvent{
 				EventType:  "content_block_start",
 				Index:      0,
 				IsThinking: true,
 			}
 		}
-		out <- chat.ApiStreamEvent{
+		out <- agent.ApiStreamEvent{
 			EventType:     "content_block_delta",
 			Detail:        "thinking_delta",
 			ThinkingDelta: ev.ReasoningContent,
@@ -176,7 +176,7 @@ func emitOutput(ev *OutputEvent, out chan<- chat.ApiStreamEvent, state *streamSt
 
 	// Transition from thinking to text: close thinking block
 	if state.thinkingOpen && ev.Response != "" {
-		out <- chat.ApiStreamEvent{
+		out <- agent.ApiStreamEvent{
 			EventType:  "content_block_stop",
 			Index:      state.thinkingIndex,
 			IsThinking: true,
@@ -192,12 +192,12 @@ func emitOutput(ev *OutputEvent, out chan<- chat.ApiStreamEvent, state *streamSt
 			if state.thinkingIndex >= 0 && state.thinkingOpen == false && state.messageStarted {
 				state.textBlockIndex = state.thinkingIndex + 1
 			}
-			out <- chat.ApiStreamEvent{
+			out <- agent.ApiStreamEvent{
 				EventType: "content_block_start",
 				Index:     state.textBlockIndex,
 			}
 		}
-		out <- chat.ApiStreamEvent{
+		out <- agent.ApiStreamEvent{
 			Delta:      ev.Response,
 			EventType:  "content_block_delta",
 			Detail:     "text_delta",
@@ -216,12 +216,12 @@ func emitOutput(ev *OutputEvent, out chan<- chat.ApiStreamEvent, state *streamSt
 			// Close any previously opened tool calls with smaller indices
 			for idx := range state.activeToolIndices {
 				if idx < tc.Index {
-					out <- chat.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+					out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
 					delete(state.activeToolIndices, idx)
 				}
 			}
 			state.activeToolIndices[tc.Index] = true
-			out <- chat.ApiStreamEvent{
+			out <- agent.ApiStreamEvent{
 				EventType:    "content_block_start",
 				ToolCallID:   tc.ID,
 				ToolCallName: tc.FunctionCall.Name,
@@ -231,7 +231,7 @@ func emitOutput(ev *OutputEvent, out chan<- chat.ApiStreamEvent, state *streamSt
 
 		// Subsequent: input_json_delta
 		if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
-			out <- chat.ApiStreamEvent{
+			out <- agent.ApiStreamEvent{
 				EventType:     "content_block_delta",
 				Detail:        "input_json_delta",
 				ToolCallInput: tc.FunctionCall.Arguments,
@@ -241,10 +241,10 @@ func emitOutput(ev *OutputEvent, out chan<- chat.ApiStreamEvent, state *streamSt
 	}
 }
 
-func emitDone(ev *DoneEvent, out chan<- chat.ApiStreamEvent, state *streamState) {
+func emitDone(ev *DoneEvent, out chan<- agent.ApiStreamEvent, state *streamState) {
 	// Close thinking block if still open
 	if state.thinkingOpen {
-		out <- chat.ApiStreamEvent{
+		out <- agent.ApiStreamEvent{
 			EventType:  "content_block_stop",
 			Index:      state.thinkingIndex,
 			IsThinking: true,
@@ -254,7 +254,7 @@ func emitDone(ev *DoneEvent, out chan<- chat.ApiStreamEvent, state *streamState)
 
 	// Close text block if open
 	if state.textBlockStarted {
-		out <- chat.ApiStreamEvent{
+		out <- agent.ApiStreamEvent{
 			EventType: "content_block_stop",
 			Index:     state.textBlockIndex,
 		}
@@ -262,15 +262,15 @@ func emitDone(ev *DoneEvent, out chan<- chat.ApiStreamEvent, state *streamState)
 
 	// Close all active tool call blocks
 	for idx := range state.activeToolIndices {
-		out <- chat.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+		out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
 	}
 
-	out <- chat.ApiStreamEvent{
+	out <- agent.ApiStreamEvent{
 		EventType:    "message_delta",
 		StopReason:   mapStopReason(ev.FinishReason),
 		OutputTokens: state.outputTokens,
 	}
-	out <- chat.ApiStreamEvent{Done: true}
+	out <- agent.ApiStreamEvent{Done: true}
 }
 
 func mapStopReason(reason string) string {

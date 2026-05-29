@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"cece/internal/chat"
+	"cece/internal/agent"
 	"cece/internal/tool"
 )
 
@@ -36,8 +36,8 @@ func TestStreamSendsCorrectPayload(t *testing.T) {
 
 	client := NewClient("test-key", "glm-5.1", server.URL)
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{Blocks: []chat.SystemBlock{{Text: "You are helpful."}}},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{Blocks: []agent.SystemBlock{{Text: "You are helpful."}}},
 		[]tool.Definition{{Name: "Bash", Description: "Run", InputSchema: map[string]any{"type": "object"}}},
 		1024,
 	)
@@ -92,8 +92,8 @@ func TestStreamGPT54UsesResponsesPayload(t *testing.T) {
 
 	client := NewClient("test-key", "gpt-5.4", server.URL)
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{Blocks: []chat.SystemBlock{{Text: "You are helpful."}}},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{Blocks: []agent.SystemBlock{{Text: "You are helpful."}}},
 		[]tool.Definition{{Name: "Read", Description: "Read file", InputSchema: map[string]any{"type": "object"}}},
 		1024,
 	)
@@ -170,17 +170,17 @@ func TestStreamGPT54SerializesAssistantHistoryAsOutputText(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("test-key", "gpt-5.4", server.URL)
-	ch, err := client.Stream(context.Background(), []chat.Message{
-		{Role: chat.UserRole, Content: "first"},
+	ch, err := client.Stream(context.Background(), []agent.Message{
+		{Role: agent.UserRole, Content: "first"},
 		{
-			Role:    chat.AssistantRole,
+			Role:    agent.AssistantRole,
 			Content: "answer",
-			ContentBlocks: []chat.ApiContentBlock{
-				{Type: chat.ApiTextContentType, Text: "answer"},
+			ContentBlocks: []agent.ApiContentBlock{
+				{Type: agent.ApiTextContentType, Text: "answer"},
 			},
 		},
-		{Role: chat.UserRole, Content: "second"},
-	}, chat.SystemPrompt{}, nil, 256)
+		{Role: agent.UserRole, Content: "second"},
+	}, agent.SystemPrompt{}, nil, 256)
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
@@ -227,8 +227,8 @@ func TestStreamUppercaseGPTPrefixUsesResponsesPayload(t *testing.T) {
 
 	client := NewClient("test-key", "GPT-5.4", server.URL)
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil,
 		256,
 	)
@@ -257,8 +257,8 @@ func TestStreamSetsBearerAuth(t *testing.T) {
 
 	client := NewClient("sk-test-token", "glm-5.1", server.URL)
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	if err != nil {
@@ -281,8 +281,8 @@ func TestStreamHandlesAPIError(t *testing.T) {
 
 	client := NewClient("key", "bad-model", server.URL)
 	_, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	if err == nil {
@@ -307,8 +307,8 @@ func TestStreamWithNoTools(t *testing.T) {
 
 	client := NewClient("key", "glm-5.1", server.URL)
 	ch, _ := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	for range ch {
@@ -345,8 +345,8 @@ func TestStreamRetriesOn401WithTokenCache(t *testing.T) {
 	client.SetAuthHelper("echo refreshed-token")
 
 	ch, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	if err != nil {
@@ -382,8 +382,8 @@ func TestStreamNoRetryOn401WithoutTokenCache(t *testing.T) {
 	// No SetAuthHelper → no tokenCache → should NOT retry
 
 	_, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	if err == nil {
@@ -407,34 +407,34 @@ func TestStreamStripsThinkingFromPayload(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("test-key", "glm-5.1", server.URL)
-	ch, err := client.Stream(context.Background(), []chat.Message{{
-		Role:    chat.AssistantRole,
+	ch, err := client.Stream(context.Background(), []agent.Message{{
+		Role:    agent.AssistantRole,
 		Content: "Visible answer.",
-		ContentBlocks: []chat.ApiContentBlock{
+		ContentBlocks: []agent.ApiContentBlock{
 			{
-				Type: chat.ApiThinkingContentType,
-				Thinking: &chat.ApiThinkingBlock{
+				Type: agent.ApiThinkingContentType,
+				Thinking: &agent.ApiThinkingBlock{
 					Text:      "let me think",
 					Signature: "sig_visible",
 				},
 			},
 			{
-				Type: chat.ApiRedactedThinkingContentType,
-				Thinking: &chat.ApiThinkingBlock{
+				Type: agent.ApiRedactedThinkingContentType,
+				Thinking: &agent.ApiThinkingBlock{
 					Signature: "sig_redacted",
 				},
 			},
-			{Type: chat.ApiTextContentType, Text: "Visible answer."},
+			{Type: agent.ApiTextContentType, Text: "Visible answer."},
 			{
-				Type: chat.ApiToolUseContentType,
-				ToolUse: &chat.ApiToolUseBlock{
+				Type: agent.ApiToolUseContentType,
+				ToolUse: &agent.ApiToolUseBlock{
 					ID:    "call_1",
 					Name:  "Read",
 					Input: json.RawMessage(`{"file_path":"/tmp/x"}`),
 				},
 			},
 		},
-	}}, chat.SystemPrompt{}, nil, 256)
+	}}, agent.SystemPrompt{}, nil, 256)
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
@@ -483,8 +483,8 @@ func TestStreamNoRetryOnNon401Error(t *testing.T) {
 	client.SetAuthHelper("echo token")
 
 	_, err := client.Stream(context.Background(),
-		[]chat.Message{{Role: chat.UserRole, Content: "hi"}},
-		chat.SystemPrompt{},
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
 		nil, 100,
 	)
 	if err == nil {
