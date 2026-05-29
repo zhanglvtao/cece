@@ -92,6 +92,7 @@ func main() {
 		tool.NewGrep(),
 		tool.NewEdit(),
 		tool.NewGlob(),
+		tool.NewWebFetch(),
 		tool.NewEnterPlanMode(planState),
 		tool.NewExitPlanMode(planState),
 		tool.NewAskUserQuestion(),
