@@ -60,6 +60,7 @@ type Model struct {
 	height              int
 
 	streamHeadline      string // latest assistant text for inline indicator
+	tasks               []protocol.TaskItem
 
 	styles      Styles
 	transcript  transcript
@@ -342,6 +343,8 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.ToolsListedEvent:
 		m.showToolList(e.Tools)
 		m.status = "Tools listed"
+	case protocol.TaskUpdatedEvent:
+		m.tasks = e.Tasks
 	}
 	// Sync all status bar data from model state.
 	m.statusBar.UpdateStatus(m.status, m.busy)
@@ -379,12 +382,16 @@ func (m *Model) View() tea.View {
 	if filePopupView != "" {
 		sections = append(sections, filePopupView)
 	}
-	// Headline indicator: show latest assistant text above input during streaming
+	// Task bar: show tasks above headline when active
+	taskBar := m.taskBarView()
 	headline := m.headlineView()
 	queued := m.queuedListView()
 	// Add a blank line between viewport and status/headline (chat ↔ status gap)
-	if headline != "" || queued != "" {
+	if taskBar != "" || headline != "" || queued != "" {
 		sections = append(sections, "")
+	}
+	if taskBar != "" {
+		sections = append(sections, taskBar)
 	}
 	if headline != "" {
 		sections = append(sections, headline)
@@ -423,8 +430,11 @@ func (m *Model) View() tea.View {
 		if filePopupView != "" {
 			rowsAboveInput += strings.Count(filePopupView, "\n") + 1
 		}
-		if headline != "" || queued != "" {
+		if taskBar != "" || headline != "" || queued != "" {
 			rowsAboveInput++ // blank separator line between viewport and status
+		}
+		if taskBar != "" {
+			rowsAboveInput += strings.Count(taskBar, "\n") + 1
 		}
 		if headline != "" {
 			rowsAboveInput += strings.Count(headline, "\n") + 1
@@ -470,7 +480,8 @@ func (m *Model) resize() {
 	if m.status != "" {
 		headlineH = 2 // headline(1) + blank separator between viewport and headline(1)
 	}
-	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH - headlineH
+	taskBarH := m.taskBarHeight()
+	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH - headlineH - taskBarH
 	if viewportH < 3 {
 		viewportH = 3
 	}

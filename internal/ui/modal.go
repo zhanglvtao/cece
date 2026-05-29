@@ -215,6 +215,9 @@ func (m *Model) questionView() string {
 				mark = "[x]"
 			}
 			fmt.Fprintf(&b, "%s %s %s\n", cursor, mark, q.Options[i].Label)
+			if q.Options[i].Description != "" {
+				fmt.Fprintf(&b, "      %s\n", q.Options[i].Description)
+			}
 		}
 	}
 	b.WriteString("[up/down] move  [space] toggle  [enter] next  [shift+tab] auto-answer  [esc] cancel")

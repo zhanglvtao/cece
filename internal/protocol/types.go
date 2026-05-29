@@ -91,6 +91,13 @@ type ToolResultBlock struct {
 	TotalLines int    `json:"total_lines,omitempty"`
 }
 
+// TaskItem represents a single task for UI display.
+type TaskItem struct {
+	Content    string `json:"content"`
+	ActiveForm string `json:"activeForm"`
+	Status     string `json:"status"`
+}
+
 // PermissionMode represents the current permission mode.
 type PermissionMode string
 

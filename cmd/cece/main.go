@@ -83,6 +83,7 @@ func main() {
 	planState.SetProjectDir(projectDir)
 	// Initialize skill system
 	skillStore := skill.NewStore(skill.DiscoverAll(projectDir))
+	taskList := tool.NewTaskList()
 
 	registry := tool.NewRegistry(
 		tool.NewBash(),
@@ -95,6 +96,7 @@ func main() {
 		tool.NewExitPlanMode(planState),
 		tool.NewAskUserQuestion(),
 		tool.NewSkillTool(skillStore),
+		tool.NewTask(taskList),
 	)
 
 	// Initialize session context and query model info for token budget
@@ -160,6 +162,7 @@ func main() {
 
 	eng := engine.NewEngine(client, registry, cfg.Yolo, cfg.MaxTokens, assembler, projectDir)
 	eng.SetPlanModeState(planState)
+	eng.SetTaskList(taskList)
 	eng.SetModelInfo(cfg.Model, contextWindow)
 	eng.SetToolResultPolicy(agent.ToolResultPolicy{
 		InlineMaxLines: cfg.ToolResult.InlineMaxLines,

@@ -17,6 +17,7 @@ type TurnEngine interface {
 	Client() ModelClient
 	Registry() *tool.Registry
 	PlanState() *tool.PlanModeState
+	TaskList() *tool.TaskList
 	Yolo() bool
 	MaxTokens() int
 	ToolResultPolicy() ToolResultPolicy

@@ -221,3 +221,10 @@ func (Compacted) isEvent() {}
 type TurnCompleted struct{}
 
 func (TurnCompleted) isEvent() {}
+
+// TaskUpdated is emitted when the task list changes.
+type TaskUpdated struct {
+	Tasks []tool.TaskItem
+}
+
+func (TaskUpdated) isEvent() {}

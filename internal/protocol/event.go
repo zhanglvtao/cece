@@ -297,6 +297,13 @@ type MCPServerStatusChangedEvent struct {
 
 func (MCPServerStatusChangedEvent) isEvent() {}
 
+// TaskUpdatedEvent is emitted when the task list changes.
+type TaskUpdatedEvent struct {
+	Tasks []TaskItem
+}
+
+func (TaskUpdatedEvent) isEvent() {}
+
 // ToolsListedEvent is the response to ListToolsAction.
 type ToolsListedEvent struct {
 	Tools []ToolInfo

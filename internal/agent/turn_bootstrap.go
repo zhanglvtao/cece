@@ -67,7 +67,7 @@ func (b *TurnBootstrap) newInteractionGate() *InteractionGate {
 
 func (b *TurnBootstrap) newToolExecutor() *ToolExecutor {
 	eng := b.engine
-	return NewToolExecutor(eng.Registry(), eng.PlanState(), eng.ToolResultPolicy(), func() []tool.QuestionAnswer {
+	return NewToolExecutor(eng.Registry(), eng.PlanState(), eng.TaskList(), eng.ToolResultPolicy(), func() []tool.QuestionAnswer {
 		return append([]tool.QuestionAnswer(nil), eng.GetQuestionAnswers()...)
 	})
 }

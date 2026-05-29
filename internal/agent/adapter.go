@@ -138,6 +138,9 @@ func ToDTO(e Event) protocol.Event {
 
 	case TurnCompleted:
 		return protocol.TurnCompleted{}
+
+	case TaskUpdated:
+		return protocol.TaskUpdatedEvent{Tasks: taskItemsToDTO(v.Tasks)}
 	}
 	return nil
 }
@@ -279,6 +282,21 @@ func parseAskUserQuestions(input json.RawMessage) ([]tool.Question, error) {
 		return nil, err
 	}
 	return wrapper.Questions, nil
+}
+
+func taskItemsToDTO(items []tool.TaskItem) []protocol.TaskItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]protocol.TaskItem, len(items))
+	for i, item := range items {
+		out[i] = protocol.TaskItem{
+			Content:    item.Content,
+			ActiveForm: item.ActiveForm,
+			Status:     string(item.Status),
+		}
+	}
+	return out
 }
 
 // escalatedMaxTokens is the output token limit used when a response

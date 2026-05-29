@@ -21,14 +21,16 @@ type ToolResultPolicy struct {
 type ToolExecutor struct {
 	registry       *tool.Registry
 	planState      *tool.PlanModeState
+	taskList       *tool.TaskList
 	resultPolicy   ToolResultPolicy
 	answerProvider func() []tool.QuestionAnswer
 }
 
-func NewToolExecutor(registry *tool.Registry, planState *tool.PlanModeState, policy ToolResultPolicy, answerProvider func() []tool.QuestionAnswer) *ToolExecutor {
+func NewToolExecutor(registry *tool.Registry, planState *tool.PlanModeState, taskList *tool.TaskList, policy ToolResultPolicy, answerProvider func() []tool.QuestionAnswer) *ToolExecutor {
 	return &ToolExecutor{
 		registry:       registry,
 		planState:      planState,
+		taskList:       taskList,
 		resultPolicy:   NormalizeToolResultPolicy(policy),
 		answerProvider: answerProvider,
 	}
@@ -87,6 +89,20 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 	for range calls {
 		r := <-results
 		resultMap[r.index] = r.result
+	}
+
+	// Check if task list was updated during execution.
+	if e.taskList != nil {
+		hasTaskCall := false
+		for _, call := range calls {
+			if call.Name == tool.TaskToolName {
+				hasTaskCall = true
+				break
+			}
+		}
+		if hasTaskCall {
+			ch <- TaskUpdated{Tasks: e.taskList.Snapshot()}
+		}
 	}
 
 	blocks := make([]ApiContentBlock, len(calls))

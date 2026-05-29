@@ -29,6 +29,7 @@ type Engine struct {
 	assembler         *prompt.ContextAssembler
 	projectDir        string
 	planState         *tool.PlanModeState
+	taskList          *tool.TaskList
 	history           []agent.Message
 	cancel            context.CancelFunc
 	confirmCh         chan struct{} // set per Input call, cleared on completion
@@ -62,6 +63,7 @@ func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, max
 		assembler:        assembler,
 		projectDir:       projectDir,
 		planState:        tool.NewPlanModeState(),
+		taskList:         tool.NewTaskList(),
 		yolo:             yolo,
 		maxTokens:        maxTokens,
 		toolResultPolicy: agent.ToolResultPolicy{InlineMaxLines: 200, HeadLines: 80, TailLines: 80},
@@ -78,6 +80,7 @@ func (e *Engine) Assembler() *prompt.ContextAssembler     { return e.assembler }
 func (e *Engine) Client() agent.ModelClient                { return e.client }
 func (e *Engine) Registry() *tool.Registry                { return e.registry }
 func (e *Engine) PlanState() *tool.PlanModeState          { return e.planState }
+func (e *Engine) TaskList() *tool.TaskList               { return e.taskList }
 
 // SetMCPTools replaces all MCP tools in the registry.
 // It removes any tool whose name starts with "mcp_" then adds the given tools.
@@ -189,6 +192,15 @@ func (e *Engine) SetPlanModeState(state *tool.PlanModeState) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.planState = state
+}
+
+func (e *Engine) SetTaskList(tl *tool.TaskList) {
+	if tl == nil {
+		tl = tool.NewTaskList()
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.taskList = tl
 }
 
 func (e *Engine) Mode() protocol.PermissionMode {
