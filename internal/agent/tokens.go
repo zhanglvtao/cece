@@ -7,13 +7,13 @@ import (
 	"cece/internal/tool"
 )
 
-// estimateRequestTokens approximates the number of input tokens in a model
+// EstimateRequestTokens approximates the number of input tokens in a model
 // request before it is sent. The estimate covers system prompt, conversation
 // messages (text + tool_use input + tool_result content) and tool definitions.
 //
 // It uses the heuristic estimator from the prompt package — cheap and
 // synchronous, intended for pre-flight UI display, not billing.
-func estimateRequestTokens(system SystemPrompt, messages []Message, tools []tool.Definition) int {
+func EstimateRequestTokens(system SystemPrompt, messages []Message, tools []tool.Definition) int {
 	total := 0
 
 	for _, b := range system.Blocks {

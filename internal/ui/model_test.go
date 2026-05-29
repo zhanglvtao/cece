@@ -558,3 +558,47 @@ func (f *fakeSessionStore) Get(context.Context, string) (*session.Session, error
 func (f *fakeSessionStore) Rename(context.Context, string, string) error                  { return nil }
 func (f *fakeSessionStore) Delete(context.Context, string) error                          { return nil }
 func (f *fakeSessionStore) UpdateMeta(context.Context, string, session.SessionMeta) error { return nil }
+
+func TestSlashDryRunDispatchesAction(t *testing.T) {
+	sender := newRecordingSender()
+	m := NewModel(sender, "sonnet", "/tmp")
+	m.input.SetValue("/dryrun preview this")
+	_, cmd := m.handleKey(keyMsg("enter"))
+	if cmd != nil {
+		_ = cmd()
+	}
+	if len(sender.actions) == 0 {
+		t.Fatal("expected action")
+	}
+	action, ok := sender.actions[len(sender.actions)-1].(protocol.DryRunRequestAction)
+	if !ok {
+		t.Fatalf("last action = %T, want DryRunRequestAction", sender.actions[len(sender.actions)-1])
+	}
+	if action.Input != "preview this" {
+		t.Fatalf("input = %q, want preview this", action.Input)
+	}
+}
+
+func TestDryRunEventRendersRequestLayers(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.applyEvent(protocol.RequestDryRunEvent{
+		Input:               "preview",
+		MaxTokens:           100,
+		EstimatedInputTokens: 42,
+		PromptLayers: []protocol.PromptLayerDryRun{{
+			Name:          "stable",
+			CacheControl:  map[string]string{"type": "ephemeral"},
+			TokenEstimate: 2,
+			Content:       "system rules",
+		}},
+		Messages: []protocol.MessageDryRun{{Index: 0, Role: "user", Content: "preview"}},
+		Tools:    []protocol.ToolDryRun{{Name: "Read", Description: "read files"}},
+	})
+	view := m.transcript.render(100, m.styles)
+	if !containsAll(view, "[dryrun]", "[prompt layers]", "stable", "system rules", "[messages]", "preview", "[tools]", "Read") {
+		t.Fatalf("dryrun not rendered:\n%s", view)
+	}
+	if m.transcript.contextUsed != 42 {
+		t.Fatalf("contextUsed = %d, want 42", m.transcript.contextUsed)
+	}
+}

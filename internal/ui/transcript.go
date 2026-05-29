@@ -117,6 +117,9 @@ func (t *transcript) apply(event protocol.Event) {
 		if len(parts) > 0 {
 			t.appendDone(blockInfo, label, strings.Join(parts, " | "))
 		}
+	case protocol.RequestDryRunEvent:
+		t.contextUsed = e.EstimatedInputTokens
+		t.appendDone(blockInfo, "dryrun", formatDryRun(e))
 	case protocol.StreamStarted:
 		if e.InputTokens > 0 {
 			t.inputTokens += e.InputTokens
@@ -213,7 +216,11 @@ func (t *transcript) apply(event protocol.Event) {
 			idx = t.append(blockTool, "tool: "+e.Name, "")
 			t.toolByID[e.ID] = idx
 		}
-		result := summarizeText(e.Result.Content, toolPreviewBytes, toolPreviewMaxLines)
+		maxLines := toolPreviewMaxLines
+		if isDiffTool(e.Name) {
+			maxLines = diffPreviewMaxLines
+		}
+		result := summarizeText(e.Result.Content, toolPreviewBytes, maxLines)
 		prefix := "ok"
 		if e.Result.IsError {
 			prefix = "error"
@@ -267,7 +274,7 @@ func (t *transcript) loadMessage(msg protocol.Message) {
 		}
 		for _, b := range msg.ContentBlocks {
 			if b.Type == protocol.ToolResultContentType && b.ToolResult != nil {
-				t.appendDone(blockTool, "tool result", summarizeText(b.ToolResult.Content, toolPreviewBytes, toolPreviewMaxLines))
+				t.appendDone(blockTool, "tool result", summarizeText(b.ToolResult.Content, toolPreviewBytes, diffAwareMaxLines(b.ToolResult.Content)))
 			}
 		}
 	case "assistant":
@@ -355,6 +362,10 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		return lbl.Render("["+label+"]") + "\n" + rendered
 	}
 	text = ansi.Wrap(text, max(20, width-4), "")
+	// Diff coloring for tool blocks that contain unified diff output.
+	if block.kind == blockTool {
+		text = renderDiffText(text)
+	}
 	// Dimmed text for thinking blocks.
 	if block.kind == blockThinking {
 		dimmed := sty.Chat.LabelThinking
@@ -372,3 +383,46 @@ func renderThinkingPreview(text string) string {
 	preview = append(preview, fmt.Sprintf("... %d lines hidden ...", len(lines)-4))
 	return strings.Join(preview, "\n")
 }
+
+func formatDryRun(e protocol.RequestDryRunEvent) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("input: %s\n", e.Input))
+	b.WriteString(fmt.Sprintf("max_tokens: %d\n", e.MaxTokens))
+	b.WriteString(fmt.Sprintf("estimated_input_tokens: %d\n", e.EstimatedInputTokens))
+	b.WriteString("\n[prompt layers]\n")
+	for _, layer := range e.PromptLayers {
+		cache := "none"
+		if len(layer.CacheControl) > 0 {
+			cache = layer.CacheControl["type"]
+		}
+		b.WriteString(fmt.Sprintf("- %s tokens=%d cache=%s\n", layer.Name, layer.TokenEstimate, cache))
+		b.WriteString(indent(strings.TrimRight(layer.Content, "\n"), "  "))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n[system blocks]\n")
+	for _, block := range e.SystemBlocks {
+		cache := "none"
+		if len(block.CacheControl) > 0 {
+			cache = block.CacheControl["type"]
+		}
+		b.WriteString(fmt.Sprintf("- #%d tokens=%d cache=%s\n", block.Index, block.TokenEstimate, cache))
+		b.WriteString(indent(strings.TrimRight(block.Text, "\n"), "  "))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n[messages]\n")
+	for _, msg := range e.Messages {
+		b.WriteString(fmt.Sprintf("- #%d %s\n", msg.Index, msg.Role))
+		b.WriteString(indent(strings.TrimRight(msg.Content, "\n"), "  "))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n[tools]\n")
+	if len(e.Tools) == 0 {
+		b.WriteString("- none\n")
+	} else {
+		for _, tool := range e.Tools {
+			b.WriteString(fmt.Sprintf("- %s: %s\n", tool.Name, tool.Description))
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+

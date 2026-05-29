@@ -348,6 +348,9 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.ToolsListedEvent:
 		m.showToolList(e.Tools)
 		m.status = "Tools listed"
+	case protocol.RequestDryRunEvent:
+		m.status = "Dry run ready"
+		m.transcript.contextUsed = e.EstimatedInputTokens
 	case protocol.TaskUpdatedEvent:
 		m.tasks = e.Tasks
 	}
@@ -928,6 +931,12 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.ListToolsAction{})
 			m.status = "Loading tools"
+		}
+		return nil
+	case "/dryrun":
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.DryRunRequestAction{Input: spec.Args})
+			m.status = "Dry run"
 		}
 		return nil
 	}

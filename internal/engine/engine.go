@@ -508,6 +508,8 @@ func (e *Engine) Do(action protocol.Action) {
 		if ps := e.PlanModeState(); ps != nil {
 			ps.SetExitTargetMode(tool.PermissionMode(a.Mode))
 		}
+	case protocol.DryRunRequestAction:
+		e.DryRunRequest(a.Input)
 	}
 }
 
@@ -610,30 +612,50 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	return nil
 }
 
+func (e *Engine) DryRunRequest(input string) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		input = "<dryrun>"
+	}
+	user := agent.Message{Role: agent.UserRole, Content: input}
+	snapshot := e.previewInputTurn(user)
+	bootstrap := agent.NewTurnBootstrap(e, agent.NewSessionCoordinator(e.store), nil)
+	e.emitEvent(agent.ToDTO(bootstrap.BuildDryRunRequest(input, snapshot)))
+}
+
 func (e *Engine) beginInputTurn(user agent.Message) []agent.Message {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.history = append(e.history, user)
-	// Build snapshot: only messages after the last compact boundary
-	raw := agent.MessagesAfterCompactBoundary(e.history)
+	return buildTurnSnapshot(e.history[:len(e.history)-1], user, e.planState, true)
+}
+
+func (e *Engine) previewInputTurn(user agent.Message) []agent.Message {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return buildTurnSnapshot(e.history, user, e.planState, false)
+}
+
+func buildTurnSnapshot(history []agent.Message, user agent.Message, planState *tool.PlanModeState, consumePlanReminder bool) []agent.Message {
+	all := append(append([]agent.Message(nil), history...), user)
+	raw := agent.MessagesAfterCompactBoundary(all)
 	snapshot := make([]agent.Message, len(raw))
 	copy(snapshot, raw)
-	// Inject plan mode reminder if active.
-	if e.planState != nil && e.planState.Mode() == tool.PermissionModePlan {
-		reminderType := e.planState.ReminderType()
-		plansDir := e.planState.PlansDir()
+	if planState != nil && planState.Mode() == tool.PermissionModePlan {
+		reminderType := planState.ReminderType()
+		plansDir := planState.PlansDir()
 		slog.Info("plan mode injection check", "reminderType", reminderType, "plansDir", plansDir)
 		switch reminderType {
 		case "full":
 			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildFullPlanReminder(plansDir)})
-			e.planState.SetReminderType("sparse")
+			if consumePlanReminder {
+				planState.SetReminderType("sparse")
+			}
 		case "sparse":
 			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildSparsePlanReminder(plansDir)})
 		}
 	}
-
-	snapshot = agent.EnsureToolResultCoverage(snapshot)
-	return snapshot
+	return agent.EnsureToolResultCoverage(snapshot)
 }
 
 // ── userInputQueue ─────────────────────────────────────────────────────────

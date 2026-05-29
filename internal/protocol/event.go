@@ -36,6 +36,44 @@ type ModelRequestStarted struct {
 
 func (ModelRequestStarted) isEvent() {}
 
+type PromptLayerDryRun struct {
+	Name          string
+	CacheControl  map[string]string
+	TokenEstimate int
+	Content       string
+}
+
+type SystemBlockDryRun struct {
+	Index         int
+	CacheControl  map[string]string
+	TokenEstimate int
+	Text          string
+}
+
+type MessageDryRun struct {
+	Index   int
+	Role    string
+	Content string
+}
+
+type ToolDryRun struct {
+	Name        string
+	Description string
+}
+
+// RequestDryRunEvent contains the full request preview built without a model call.
+type RequestDryRunEvent struct {
+	Input                string
+	MaxTokens            int
+	EstimatedInputTokens  int
+	PromptLayers         []PromptLayerDryRun
+	SystemBlocks         []SystemBlockDryRun
+	Messages             []MessageDryRun
+	Tools                []ToolDryRun
+}
+
+func (RequestDryRunEvent) isEvent() {}
+
 // AssistantStarted is emitted when the assistant begins streaming.
 type AssistantStarted struct{}
 

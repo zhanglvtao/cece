@@ -10,6 +10,13 @@ type InputAction struct {
 
 func (InputAction) isAction() {}
 
+// DryRunRequestAction asks the runtime to build the current model request without sending it.
+type DryRunRequestAction struct {
+	Input string
+}
+
+func (DryRunRequestAction) isAction() {}
+
 // ConfirmAction signals the runtime to proceed with pending tool execution.
 type ConfirmAction struct{}
 

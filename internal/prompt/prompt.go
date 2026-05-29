@@ -24,6 +24,19 @@ func (l ContextLayer) CacheControl() map[string]string {
 	}
 }
 
+func (l ContextLayer) String() string {
+	switch l {
+	case ContextStable:
+		return "stable"
+	case ContextSession:
+		return "session"
+	case ContextTurn:
+		return "turn"
+	default:
+		return "unknown"
+	}
+}
+
 type AssembleResult struct {
 	Segments      []PromptSegment
 	FullText      string // 拼接纯文本（给非 Anthropic provider 或调试用）

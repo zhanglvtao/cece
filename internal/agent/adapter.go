@@ -27,6 +27,17 @@ func ToDTO(e Event) protocol.Event {
 			EstimatedInputTokens: v.EstimatedInputTokens,
 		}
 
+	case RequestDryRun:
+		return protocol.RequestDryRunEvent{
+			Input:                v.Input,
+			MaxTokens:            v.MaxTokens,
+			EstimatedInputTokens:  v.EstimatedInputTokens,
+			PromptLayers:         promptLayerDryRunsToDTO(v.PromptLayers),
+			SystemBlocks:         systemBlockDryRunsToDTO(v.SystemBlocks),
+			Messages:             messageDryRunsToDTO(v.Messages),
+			Tools:                toolDryRunsToDTO(v.Tools),
+		}
+
 	case AssistantStarted:
 		return protocol.AssistantStarted{}
 
@@ -256,6 +267,38 @@ func modelInfosToDTO(ms []ModelInfo) []protocol.ModelInfo {
 	out := make([]protocol.ModelInfo, len(ms))
 	for i, m := range ms {
 		out[i] = modelInfoToDTO(m)
+	}
+	return out
+}
+
+func promptLayerDryRunsToDTO(in []PromptLayerDryRun) []protocol.PromptLayerDryRun {
+	out := make([]protocol.PromptLayerDryRun, len(in))
+	for i, v := range in {
+		out[i] = protocol.PromptLayerDryRun(v)
+	}
+	return out
+}
+
+func systemBlockDryRunsToDTO(in []SystemBlockDryRun) []protocol.SystemBlockDryRun {
+	out := make([]protocol.SystemBlockDryRun, len(in))
+	for i, v := range in {
+		out[i] = protocol.SystemBlockDryRun(v)
+	}
+	return out
+}
+
+func messageDryRunsToDTO(in []MessageDryRun) []protocol.MessageDryRun {
+	out := make([]protocol.MessageDryRun, len(in))
+	for i, v := range in {
+		out[i] = protocol.MessageDryRun(v)
+	}
+	return out
+}
+
+func toolDryRunsToDTO(in []ToolDryRun) []protocol.ToolDryRun {
+	out := make([]protocol.ToolDryRun, len(in))
+	for i, v := range in {
+		out[i] = protocol.ToolDryRun(v)
 	}
 	return out
 }

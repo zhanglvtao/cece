@@ -33,6 +33,44 @@ type ModelRequestStarted struct {
 
 func (ModelRequestStarted) isEvent() {}
 
+type PromptLayerDryRun struct {
+	Name          string
+	CacheControl  map[string]string
+	TokenEstimate int
+	Content       string
+}
+
+type SystemBlockDryRun struct {
+	Index         int
+	CacheControl  map[string]string
+	TokenEstimate int
+	Text          string
+}
+
+type MessageDryRun struct {
+	Index   int
+	Role    string
+	Content string
+}
+
+type ToolDryRun struct {
+	Name        string
+	Description string
+}
+
+// RequestDryRun is emitted for a dryrun request preview — no model call.
+type RequestDryRun struct {
+	Input               string
+	MaxTokens           int
+	EstimatedInputTokens int
+	PromptLayers        []PromptLayerDryRun
+	SystemBlocks        []SystemBlockDryRun
+	Messages            []MessageDryRun
+	Tools               []ToolDryRun
+}
+
+func (RequestDryRun) isEvent() {}
+
 type AssistantStarted struct{}
 
 func (AssistantStarted) isEvent() {}

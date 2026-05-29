@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
+	"cece/internal/logger"
 	"cece/internal/tool"
 )
 
@@ -57,7 +59,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		tools = s.registry.Definitions()
 	}
 
-	estimated := estimateRequestTokens(req.System, req.Messages, tools)
+	estimated := EstimateRequestTokens(req.System, req.Messages, tools)
 	ch <- ModelRequestStarted{
 		Reason:               req.Reason,
 		ToolResults:          req.ToolResults,
@@ -81,6 +83,17 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 
 	for chunk := range chunks {
 		if chunk.Err != nil {
+			// Provider API parameter/validation errors (code=4001, InvalidParameter,
+			// required field, etc.) are non-fatal: return them as text so the
+			// agent loop survives instead of crashing with RunFailed.
+			if isRecoverableProviderError(chunk.Err) {
+				logger.Warn("provider param error — recovering as text response", "error", chunk.Err.Error())
+				ch <- RunFailed{Err: chunk.Err}
+				return modelResponse{
+					stopReason:  "end_turn",
+					textContent: fmt.Sprintf("[Provider Error] %s\nThe previous tool call had parameter issues that the provider rejected. You may retry.", chunk.Err.Error()),
+				}, nil
+			}
 			return modelResponse{}, chunk.Err
 		}
 
@@ -144,6 +157,12 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			if ts, ok := toolInputStates[chunk.Index]; ok {
 				delete(toolInputStates, chunk.Index)
 				raw := json.RawMessage(ts.input.String())
+				// Log suspiciously empty inputs for debugging (don't skip — let
+				// validateInput catch them so the model receives a proper error).
+				inputStr := strings.TrimSpace(ts.input.String())
+				if inputStr == "" || inputStr == "{}" || inputStr == "null" {
+					logger.Debug("tool call with empty input detected", "name", ts.name, "id", ts.id)
+				}
 				resp.toolCalls = append(resp.toolCalls, ApiToolUseBlock{
 					ID:    ts.id,
 					Name:  ts.name,
@@ -229,4 +248,38 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// isRecoverableProviderError checks whether an error from a provider API stream
+// is a recoverable parameter/validation error (as opposed to auth, network,
+// or other fatal errors). These errors should not crash the agent loop —
+// instead they are surfaced as text so the model can self-correct.
+//
+// Covers:
+//   - codebase: trae_permanent_error, code=4001, ErrParamInvalid
+//   - aiden:    InvalidParameter, required field, 400 Bad Request
+func isRecoverableProviderError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+
+	// Codebase API parameter errors
+	if strings.Contains(msg, "codebase api error") &&
+		(strings.Contains(msg, "code=4001") ||
+			strings.Contains(msg, "ErrParamInvalid") ||
+			strings.Contains(msg, "invalid param") ||
+			strings.Contains(msg, "trae_permanent_error")) {
+		return true
+	}
+
+	// Aiden API parameter errors (400 Bad Request with validation messages)
+	if strings.Contains(msg, "aiden api returned") &&
+		(strings.Contains(msg, "InvalidParameter") ||
+			strings.Contains(msg, "required field") ||
+			strings.Contains(msg, "invalid_parameter")) {
+		return true
+	}
+
+	return false
 }

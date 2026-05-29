@@ -25,7 +25,7 @@ func (b *TurnBootstrap) Run(ctx context.Context, input string, user Message, sna
 	}
 	events <- UserMessageAdded{Message: user}
 
-	systemPrompt := b.assembleSystemPrompt(input)
+	req := b.BuildTurnRequest(input, snapshot)
 	runner := NewTurnRunner(
 		b.newModelStreamer(),
 		b.newInteractionGate(),
@@ -33,7 +33,91 @@ func (b *TurnBootstrap) Run(ctx context.Context, input string, user Message, sna
 		b.engine.MaxTokens(),
 		b.turnDeps(),
 	)
-	runner.Run(ctx, TurnRequest{Messages: snapshot, System: systemPrompt}, events)
+	runner.Run(ctx, req, events)
+}
+
+func (b *TurnBootstrap) BuildTurnRequest(input string, snapshot []Message) TurnRequest {
+	return TurnRequest{Messages: snapshot, System: b.assembleSystemPrompt(input)}
+}
+
+func (b *TurnBootstrap) BuildDryRunRequest(input string, snapshot []Message) RequestDryRun {
+	eng := b.engine
+	assembleResult := prompt.AssembleResult{}
+	if eng.Assembler() != nil {
+		turnCtx := prompt.TurnContext{
+			IncludeTime:             prompt.ShouldInjectTime(input),
+			Now:                     time.Now(),
+			CurrentWorkingDirectory: eng.ProjectDir(),
+			Mode:                    "interactive",
+			ConversationTurnNumber:  eng.HistoryLen()/2 + 1,
+		}
+		assembleResult = eng.Assembler().Assemble(turnCtx)
+	}
+
+	systemPrompt := AssembleResultToSystemPrompt(assembleResult)
+	tools := toolDefinitions(eng.Registry())
+	return RequestDryRun{
+		Input:               input,
+		MaxTokens:           eng.MaxTokens(),
+		EstimatedInputTokens: EstimateRequestTokens(systemPrompt, snapshot, tools),
+		PromptLayers:        promptLayerDryRuns(assembleResult),
+		SystemBlocks:        systemBlockDryRuns(systemPrompt),
+		Messages:            messageDryRuns(snapshot),
+		Tools:               toolDryRuns(tools),
+	}
+}
+
+func toolDefinitions(reg *tool.Registry) []tool.Definition {
+	if reg == nil {
+		return nil
+	}
+	return reg.Definitions()
+}
+
+func promptLayerDryRuns(r prompt.AssembleResult) []PromptLayerDryRun {
+	out := make([]PromptLayerDryRun, 0, len(r.Segments))
+	for _, seg := range r.Segments {
+		out = append(out, PromptLayerDryRun{
+			Name:          seg.Layer.String(),
+			CacheControl:  seg.Layer.CacheControl(),
+			TokenEstimate: prompt.EstimateTokens(seg.Content),
+			Content:       seg.Content,
+		})
+	}
+	return out
+}
+
+func systemBlockDryRuns(system SystemPrompt) []SystemBlockDryRun {
+	out := make([]SystemBlockDryRun, 0, len(system.Blocks))
+	for i, block := range system.Blocks {
+		out = append(out, SystemBlockDryRun{
+			Index:         i,
+			CacheControl:  block.CacheControl,
+			TokenEstimate: prompt.EstimateTokens(block.Text),
+			Text:          block.Text,
+		})
+	}
+	return out
+}
+
+func messageDryRuns(messages []Message) []MessageDryRun {
+	out := make([]MessageDryRun, 0, len(messages))
+	for i, msg := range messages {
+		out = append(out, MessageDryRun{
+			Index:   i,
+			Role:    string(msg.Role),
+			Content: msg.TextContent(),
+		})
+	}
+	return out
+}
+
+func toolDryRuns(defs []tool.Definition) []ToolDryRun {
+	out := make([]ToolDryRun, 0, len(defs))
+	for _, def := range defs {
+		out = append(out, ToolDryRun{Name: def.Name, Description: def.Description})
+	}
+	return out
 }
 
 func (b *TurnBootstrap) assembleSystemPrompt(input string) SystemPrompt {

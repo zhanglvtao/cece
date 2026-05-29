@@ -174,3 +174,38 @@ func TestEngineDoAnswerQuestion(t *testing.T) {
 
 // Ensure chat types available
 var _ = errors.New
+
+func TestEngineDryRunDoesNotCallModelOrMutateHistory(t *testing.T) {
+	client := &fakeClient{}
+	registry := tool.NewRegistry(stubTool{})
+	assembler := prompt.NewContextAssembler("stable prompt", nil, nil)
+	eng := NewEngine(client, registry, false, 16384, assembler, "/tmp")
+	eng.AppendHistory(agent.Message{Role: agent.UserRole, Content: "old"})
+
+	eng.Do(protocol.DryRunRequestAction{Input: "preview this"})
+
+	if client.maxTokens != 0 {
+		t.Fatalf("model was called with maxTokens=%d", client.maxTokens)
+	}
+	if got := eng.HistoryLen(); got != 1 {
+		t.Fatalf("history len = %d, want 1", got)
+	}
+	select {
+	case ev := <-eng.Events():
+		dry, ok := ev.(protocol.RequestDryRunEvent)
+		if !ok {
+			t.Fatalf("event = %T, want RequestDryRunEvent", ev)
+		}
+		if dry.Input != "preview this" || dry.MaxTokens != 16384 {
+			t.Fatalf("dryrun = %#v", dry)
+		}
+		if len(dry.Messages) != 2 || dry.Messages[1].Content != "preview this" {
+			t.Fatalf("messages = %#v", dry.Messages)
+		}
+		if len(dry.Tools) != 1 || dry.Tools[0].Name != "Stub" {
+			t.Fatalf("tools = %#v", dry.Tools)
+		}
+	default:
+		t.Fatal("expected dryrun event")
+	}
+}
