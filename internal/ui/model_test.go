@@ -301,7 +301,7 @@ func TestViewportPreservesManualScrollDuringStreaming(t *testing.T) {
 
 func TestViewportScrollKeysMoveByLineAndPage(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
-	m.update(tea.WindowSizeMsg{Width: 60, Height: 10})
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 10})
 	for i := 0; i < 12; i++ {
 		m.applyEvent(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: strings.Repeat("old message\n", 3)}})
 	}
@@ -396,6 +396,23 @@ func TestSessionPickerDispatchesLoadSession(t *testing.T) {
 	action, ok := sender.actions[len(sender.actions)-1].(protocol.LoadSessionAction)
 	if !ok || action.SessionID != "b" {
 		t.Fatalf("last action = %#v, want LoadSessionAction(b)", sender.actions[len(sender.actions)-1])
+	}
+}
+
+func TestModelSyncsModeToStatusBar(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.SetDefaultMode("plan")
+	got := stripAnsi(m.statusBar.Render(120))
+	parts := strings.Split(got, " | ")
+	if parts[0] != "plan ✎" {
+		t.Fatalf("default mode statusbar column = %q, want %q", parts[0], "plan ✎")
+	}
+
+	m.applyEvent(protocol.ModeChangedEvent{Mode: protocol.PermissionModeAutoAccept, Message: "Auto-accept mode"})
+	got = stripAnsi(m.statusBar.Render(120))
+	parts = strings.Split(got, " | ")
+	if parts[0] != "auto-accept ✓" {
+		t.Fatalf("changed mode statusbar column = %q, want %q", parts[0], "auto-accept ✓")
 	}
 }
 

@@ -5,6 +5,46 @@ import (
 	"testing"
 )
 
+func TestStatusBarModeFirstColumn(t *testing.T) {
+	sb := NewStatusBar()
+	sb.UpdateMode("plan")
+	sb.UpdateModel("sonnet")
+
+	got := stripAnsi(sb.Render(120))
+	parts := strings.Split(got, " | ")
+	if len(parts) < 2 {
+		t.Fatalf("statusbar parts = %v, want at least mode and model", parts)
+	}
+	if parts[0] != "plan ✎" {
+		t.Fatalf("first column = %q, want %q", parts[0], "plan ✎")
+	}
+	if parts[1] != "sonnet" {
+		t.Fatalf("second column = %q, want model", parts[1])
+	}
+}
+
+func TestStatusBarModeSymbols(t *testing.T) {
+	tests := []struct {
+		mode string
+		want string
+	}{
+		{mode: "", want: "default ○"},
+		{mode: "default", want: "default ○"},
+		{mode: "auto-accept", want: "auto-accept ✓"},
+		{mode: "plan", want: "plan ✎"},
+		{mode: "unknown", want: "unknown ○"},
+	}
+	for _, tt := range tests {
+		sb := NewStatusBar()
+		sb.UpdateMode(tt.mode)
+		got := stripAnsi(sb.Render(120))
+		parts := strings.Split(got, " | ")
+		if parts[0] != tt.want {
+			t.Fatalf("mode %q rendered %q, want %q", tt.mode, parts[0], tt.want)
+		}
+	}
+}
+
 func TestStatusBarRender(t *testing.T) {
 	sb := NewStatusBar()
 	sb.UpdateModel("sonnet")

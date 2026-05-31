@@ -13,19 +13,20 @@ import (
 type StatusBar struct {
 	styles Styles
 	// data
-	modelName     string
-	status        string
-	busy          bool
-	spinnerActive bool // true when status ends with "ing" — spinner animation
-	statusFrame   int
-	apiCalls      int
-	toolCounts    map[string]int
-	inputTokens      int
-	outputTokens     int
-	contextUsed      int
-	contextWindow    int
-	scrollPct        int
-	cacheReadTokens  int
+	mode                string
+	modelName           string
+	status              string
+	busy                bool
+	spinnerActive       bool // true when status ends with "ing" — spinner animation
+	statusFrame         int
+	apiCalls            int
+	toolCounts          map[string]int
+	inputTokens         int
+	outputTokens        int
+	contextUsed         int
+	contextWindow       int
+	scrollPct           int
+	cacheReadTokens     int
 	cacheCreationTokens int
 }
 
@@ -38,6 +39,9 @@ func NewStatusBar() *StatusBar {
 		toolCounts: make(map[string]int),
 	}
 }
+
+// UpdateMode updates the permission mode label.
+func (sb *StatusBar) UpdateMode(mode string) { sb.mode = mode }
 
 // UpdateModel updates the model name.
 func (sb *StatusBar) UpdateModel(name string) { sb.modelName = name }
@@ -114,6 +118,9 @@ func (sb *StatusBar) Restore(apiCalls int, toolCounts map[string]int, cacheRead,
 func (sb *StatusBar) Render(width int) string {
 	var parts []string
 
+	// mode
+	parts = append(parts, sb.styles.Status.Model.Render(statusModeLabel(sb.mode)))
+
 	// model name
 	if sb.modelName != "" {
 		parts = append(parts, sb.styles.Status.Model.Render(sb.modelName))
@@ -167,6 +174,20 @@ func (sb *StatusBar) Render(width int) string {
 
 // Height always returns 1 (single line).
 func (sb *StatusBar) Height() int { return 1 }
+
+func statusModeLabel(mode string) string {
+	if mode == "" {
+		mode = "default"
+	}
+	symbol := "○"
+	switch mode {
+	case "auto-accept":
+		symbol = "✓"
+	case "plan":
+		symbol = "✎"
+	}
+	return fmt.Sprintf("%s %s", mode, symbol)
+}
 
 func formatTokenK(n int) string {
 	if n <= 0 {

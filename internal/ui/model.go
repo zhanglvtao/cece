@@ -99,6 +99,7 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 	}
 
 	sb := NewStatusBar()
+	sb.UpdateMode(string(protocol.PermissionModeDefault))
 	sb.UpdateModel(modelName)
 	sb.UpdateStatus("Ready", false)
 	sb.UpdateContext(0, cw)
@@ -129,6 +130,9 @@ func (m *Model) SetSessions(store session.Store) { m.sessions = store }
 func (m *Model) SetDefaultMode(mode string) {
 	if mode != "" {
 		m.mode = protocol.PermissionMode(mode)
+	}
+	if m.statusBar != nil {
+		m.statusBar.UpdateMode(string(m.mode))
 	}
 }
 
@@ -355,6 +359,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.tasks = e.Tasks
 	}
 	// Sync all status bar data from model state.
+	m.statusBar.UpdateMode(string(m.mode))
 	m.statusBar.UpdateStatus(m.status, m.busy)
 	m.statusBar.UpdateTokens(m.transcript.inputTokens, m.transcript.outputTokens)
 	m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
