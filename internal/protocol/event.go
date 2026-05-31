@@ -252,6 +252,15 @@ type CompactedEvent struct {
 
 func (CompactedEvent) isEvent() {}
 
+// TruncatedToolResultsEvent is emitted after tool_result contents are truncated.
+type TruncatedToolResultsEvent struct {
+	TruncatedCount int // number of tool_result blocks truncated
+	TokensBefore   int // estimated tokens before truncation
+	TokensAfter    int // estimated tokens after truncation
+}
+
+func (TruncatedToolResultsEvent) isEvent() {}
+
 // TurnCompleted is emitted when a full agent turn finishes (after all
 // tool executions and assistant responses). Replaces the old channel-close
 // signal so the UI only needs to consume from the single event bus.

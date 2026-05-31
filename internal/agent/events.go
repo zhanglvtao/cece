@@ -255,6 +255,15 @@ type Compacted struct {
 
 func (Compacted) isEvent() {}
 
+// TruncatedToolResults is emitted after tool_result contents are truncated.
+type TruncatedToolResults struct {
+	TruncatedCount int
+	TokensBefore   int
+	TokensAfter    int
+}
+
+func (TruncatedToolResults) isEvent() {}
+
 // TurnCompleted is emitted when a full agent turn finishes.
 type TurnCompleted struct{}
 

@@ -108,6 +108,12 @@ type CompactAction struct{}
 
 func (CompactAction) isAction() {}
 
+// TruncateToolResultsAction requests the runtime to truncate all tool_result
+// content in conversation history to "[truncated]". Zero API cost, irreversible.
+type TruncateToolResultsAction struct{}
+
+func (TruncateToolResultsAction) isAction() {}
+
 // RenameSessionAction requests renaming the current session.
 type RenameSessionAction struct {
 	SessionID string

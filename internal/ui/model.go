@@ -337,6 +337,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 			m.transcript.contextUsed = e.TokensAfter
 		}
 		m.statusBar.ResetToolCounts()
+	case protocol.TruncatedToolResultsEvent:
+		m.status = fmt.Sprintf("Truncated %d tool results, %dK→%dK tokens",
+			e.TruncatedCount,
+			(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
 	case protocol.MCPServersListedEvent:
 		m.openMCPPicker(e.Servers)
 		m.status = "MCP servers"
@@ -918,6 +922,12 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.CompactAction{})
 			m.status = "Compacting"
+		}
+		return nil
+	case "/truncate-tool-result":
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.TruncateToolResultsAction{})
+			m.status = "Truncating tool results"
 		}
 		return nil
 	case "/skills":

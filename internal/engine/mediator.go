@@ -64,6 +64,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		m.Engine.ClearHistory()
 	case protocol.CompactAction:
 		go m.Engine.CompactHistory(context.Background())
+	case protocol.TruncateToolResultsAction:
+		m.Engine.TruncateToolResults()
 
 	// B-class — mediator handles
 	case protocol.SwitchModelAction:

@@ -14,6 +14,7 @@ var builtinSlashCommands = []struct {
 	{"/resume", "Resume a session"},
 	{"/clear", "Clear conversation history"},
 	{"/compact", "Compress conversation history"},
+	{"/truncate-tool-result", "Truncate all tool results"},
 	{"/dryrun", "Preview full request"},
 	{"/skills", "List available skills"},
 	{"/mcp", "Manage MCP servers"},

@@ -147,6 +147,13 @@ func ToDTO(e Event) protocol.Event {
 			Summary:        v.Summary,
 		}
 
+	case TruncatedToolResults:
+		return protocol.TruncatedToolResultsEvent{
+			TruncatedCount: v.TruncatedCount,
+			TokensBefore:   v.TokensBefore,
+			TokensAfter:    v.TokensAfter,
+		}
+
 	case TurnCompleted:
 		return protocol.TurnCompleted{}
 
