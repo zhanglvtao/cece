@@ -205,6 +205,31 @@ func TestStripTag(t *testing.T) {
 	}
 }
 
+func TestCanCompactMessages(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "u1"},
+		{Role: AssistantRole, Content: "a1"},
+		{Role: UserRole, Content: "u2"},
+		{Role: AssistantRole, Content: "a2"},
+		{Role: UserRole, Content: "u3"},
+		{Role: AssistantRole, Content: "a3"},
+	}
+	if !CanCompactMessages(msgs, 2) {
+		t.Fatal("expected messages to be compactable")
+	}
+}
+
+func TestCanCompactMessagesTooFewTurns(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "u1"},
+		{Role: AssistantRole, Content: "a1"},
+		{Role: UserRole, Content: "u2"},
+	}
+	if CanCompactMessages(msgs, 2) {
+		t.Fatal("expected messages to be not compactable")
+	}
+}
+
 func TestMessagesAfterCompactBoundary(t *testing.T) {
 	msgs := []Message{
 		{Role: UserRole, Content: "u1"},

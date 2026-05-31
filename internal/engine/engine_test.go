@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"cece/internal/agent"
 	"cece/internal/prompt"
@@ -207,5 +209,94 @@ func TestEngineDryRunDoesNotCallModelOrMutateHistory(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected dryrun event")
+	}
+}
+
+// recordingClient records all Stream calls for verification.
+type recordingClient struct {
+	calls    int
+	messages [][]agent.Message
+}
+
+func (r *recordingClient) Stream(_ context.Context, messages []agent.Message, _ agent.SystemPrompt, _ []tool.Definition, _ int) (<-chan agent.ApiStreamEvent, error) {
+	r.calls++
+	cp := make([]agent.Message, len(messages))
+	copy(cp, messages)
+	r.messages = append(r.messages, cp)
+
+	text := "assistant response"
+	if r.calls == 1 && len(messages) > 2 {
+		text = "compact summary"
+	}
+	out := make(chan agent.ApiStreamEvent, 5)
+	out <- agent.ApiStreamEvent{EventType: "message_start", InputTokens: 10}
+	out <- agent.ApiStreamEvent{EventType: "content_block_start", Index: 0, Detail: "text"}
+	out <- agent.ApiStreamEvent{Delta: text, Detail: "text_delta"}
+	out <- agent.ApiStreamEvent{EventType: "message_delta", StopReason: "end_turn", OutputTokens: 5}
+	out <- agent.ApiStreamEvent{Done: true, EventType: "message_stop"}
+	close(out)
+	return out, nil
+}
+
+func waitForTurnCompleted(t *testing.T, eng *Engine) {
+	t.Helper()
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case ev := <-eng.Events():
+			if _, ok := ev.(protocol.TurnCompleted); ok {
+				return
+			}
+		case <-timeout:
+			t.Fatal("expected TurnCompleted event")
+		}
+	}
+}
+
+func TestEngineInputAutoCompactsBeforeUserMessage(t *testing.T) {
+	client := &recordingClient{}
+	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	// contextWindow=400, 83.5% threshold = 334 tokens
+	eng.SetModelInfo("test-model", 400)
+	long := strings.Repeat("old context ", 200)
+	for i := 0; i < 3; i++ {
+		eng.AppendHistory(agent.Message{Role: agent.UserRole, Content: long})
+		eng.AppendHistory(agent.Message{Role: agent.AssistantRole, Content: long})
+	}
+
+	if err := eng.Input(context.Background(), "new request"); err != nil {
+		t.Fatal(err)
+	}
+	waitForTurnCompleted(t, eng)
+
+	if client.calls != 2 {
+		t.Fatalf("client calls = %d, want 2", client.calls)
+	}
+	turnMessages := client.messages[1]
+	if len(turnMessages) < 2 {
+		t.Fatalf("turn messages = %#v", turnMessages)
+	}
+	if !turnMessages[0].CompactBoundary {
+		t.Fatalf("first turn message should be compact boundary: %#v", turnMessages[0])
+	}
+	if got := turnMessages[len(turnMessages)-1].Content; got != "new request" {
+		t.Fatalf("last turn message = %q, want current user input", got)
+	}
+}
+
+func TestEngineInputDoesNotAutoCompactBelowThreshold(t *testing.T) {
+	client := &recordingClient{}
+	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.SetModelInfo("test-model", 200000)
+	eng.AppendHistory(agent.Message{Role: agent.UserRole, Content: "old"})
+	eng.AppendHistory(agent.Message{Role: agent.AssistantRole, Content: "old"})
+
+	if err := eng.Input(context.Background(), "new request"); err != nil {
+		t.Fatal(err)
+	}
+	waitForTurnCompleted(t, eng)
+
+	if client.calls != 1 {
+		t.Fatalf("client calls = %d, want 1", client.calls)
 	}
 }

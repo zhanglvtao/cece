@@ -190,6 +190,13 @@ func splitMessagesForCompact(messages []Message, keepRecentTurns int) (summarize
 	return messages[:splitIdx], messages[splitIdx:]
 }
 
+// CanCompactMessages returns true if there are enough messages to summarize
+// (i.e. more user turns than keepRecentTurns).
+func CanCompactMessages(messages []Message, keepRecentTurns int) bool {
+	summarize, _ := splitMessagesForCompact(messages, keepRecentTurns)
+	return len(summarize) > 0
+}
+
 // buildCompactUserPrompt returns the user message prompt for summary generation.
 func buildCompactUserPrompt() string {
 	return `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.

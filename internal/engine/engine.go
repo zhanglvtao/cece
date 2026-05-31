@@ -17,6 +17,10 @@ import (
 
 const defaultKeepRecentTurns = 2
 
+// autoCompactThresholdPermille is the context window usage percentage (in ‰)
+// that triggers automatic compaction before a new turn. 835‰ = 83.5%.
+const autoCompactThresholdPermille = 835
+
 // Engine is the core agent engine. It manages conversation state, dispatches
 // user input to the agent loop, and emits protocol.Events on a channel.
 //
@@ -425,6 +429,20 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 	})
 }
 
+// TruncateToolResults truncates all tool_result content in conversation history
+// to "[truncated]". Zero API cost, irreversible.
+func (e *Engine) TruncateToolResults() {
+	e.mu.Lock()
+	truncatedCount, tokensBefore, tokensAfter := agent.TruncateToolResults(e.history)
+	e.mu.Unlock()
+
+	e.emitEvent(protocol.TruncatedToolResultsEvent{
+		TruncatedCount: truncatedCount,
+		TokensBefore:   tokensBefore,
+		TokensAfter:    tokensAfter,
+	})
+}
+
 func (e *Engine) isSessionCreated() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -502,6 +520,8 @@ func (e *Engine) Do(action protocol.Action) {
 		e.QueueInput(a.Text)
 	case protocol.ClearHistoryAction:
 		e.ClearHistory()
+	case protocol.TruncateToolResultsAction:
+		e.TruncateToolResults()
 	case protocol.SetPermissionModeAction:
 		e.setMode(a.Mode)
 	case protocol.SetExitTargetModeAction:
@@ -544,6 +564,36 @@ func (e *Engine) AnswerQuestion(answers []protocol.QuestionAnswer) {
 	e.Confirm()
 }
 
+func (e *Engine) maybeAutoCompactBeforeTurn(ctx context.Context, input string, user agent.Message) {
+	if !e.shouldAutoCompact(input, user) {
+		return
+	}
+	e.CompactHistory(ctx)
+}
+
+func (e *Engine) shouldAutoCompact(input string, user agent.Message) bool {
+	e.mu.Lock()
+	contextWindow := e.contextWindow
+	planState := e.planState
+	history := make([]agent.Message, len(e.history))
+	copy(history, e.history)
+	e.mu.Unlock()
+
+	if contextWindow <= 0 {
+		return false
+	}
+	compactable := agent.MessagesAfterCompactBoundary(history)
+	if !agent.CanCompactMessages(compactable, defaultKeepRecentTurns) {
+		return false
+	}
+
+	snapshot := buildTurnSnapshot(history, user, planState, false)
+	bootstrap := agent.NewTurnBootstrap(e, agent.NewSessionCoordinator(e.store), nil)
+	dry := bootstrap.BuildDryRunRequest(input, snapshot)
+	threshold := contextWindow * autoCompactThresholdPermille / 1000
+	return dry.EstimatedInputTokens >= threshold
+}
+
 func (e *Engine) Input(ctx context.Context, input string) error {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -555,6 +605,7 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	ctx, cancel := context.WithCancel(ctx)
 
 	user := agent.Message{Role: agent.UserRole, Content: input}
+	e.maybeAutoCompactBeforeTurn(ctx, input, user)
 	snapshot := e.beginInputTurn(user)
 
 	sessionCoordinator := agent.NewSessionCoordinator(e.store)
