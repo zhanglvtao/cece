@@ -34,7 +34,7 @@ type Engine struct {
 	confirmCh         chan struct{} // set per Input call, cleared on completion
 	yolo              bool          // auto-approve tool execution without UI confirmation
 	maxTokens         int           // configurable max output tokens
-	toolResultPolicy  agent.ToolResultPolicy
+
 	ContextWindowFor  func(model string) int // returns context window for a model ID
 	ModelClientFor   func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client
 	store             session.Store          // optional persistence backend
@@ -58,15 +58,14 @@ type Engine struct {
 
 func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, maxTokens int, assembler *prompt.ContextAssembler, projectDir string) *Engine {
 	return &Engine{
-		client:           client,
-		registry:         registry,
-		assembler:        assembler,
-		projectDir:       projectDir,
-		planState:        tool.NewPlanModeState(),
-		taskList:         tool.NewTaskList(),
-		yolo:             yolo,
-		maxTokens:        maxTokens,
-		toolResultPolicy: agent.ToolResultPolicy{InlineMaxLines: 200, HeadLines: 80, TailLines: 80},
+		client:     client,
+		registry:   registry,
+		assembler:  assembler,
+		projectDir: projectDir,
+		planState:  tool.NewPlanModeState(),
+		taskList:   tool.NewTaskList(),
+		yolo:       yolo,
+		maxTokens:  maxTokens,
 		inputQueue:       &userInputQueue{},
 		toolCounts:       make(map[string]int),
 		eventCh:          make(chan protocol.Event, 4096),
@@ -91,7 +90,7 @@ func (e *Engine) SetMCPTools(tools []tool.Tool) {
 }
 func (e *Engine) Yolo() bool                              { return e.yolo }
 func (e *Engine) MaxTokens() int                          { return e.maxTokens }
-func (e *Engine) ToolResultPolicy() agent.ToolResultPolicy { return e.toolResultPolicy }
+func (e *Engine) ToolResultPolicy() agent.ToolResultPolicy { return agent.ToolResultPolicy{} }
 func (e *Engine) SessionID() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -288,7 +287,6 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 	client := e.client
 	projectDir := e.projectDir
 	maxTokens := e.maxTokens
-	policy := e.toolResultPolicy
 	modelClientFor := e.ModelClientFor
 	e.mu.Unlock()
 
@@ -330,7 +328,6 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 		ProjectDir:        projectDir,
 		MaxTokens:         maxTokens,
 		MaxTurns:          cfg.MaxTurns,
-		ToolResultPolicy:  policy,
 	}
 
 	subAgent := agent.NewSubAgent(client, subRegistry, subAgentConfig)
@@ -475,10 +472,6 @@ func (e *Engine) Mode() protocol.PermissionMode {
 
 func (e *Engine) PlanMode() protocol.PermissionMode {
 	return e.Mode()
-}
-
-func (e *Engine) SetToolResultPolicy(policy agent.ToolResultPolicy) {
-	e.toolResultPolicy = agent.NormalizeToolResultPolicy(policy)
 }
 
 func (e *Engine) SetStore(store session.Store) {

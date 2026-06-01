@@ -11,27 +11,30 @@ import (
 	"cece/internal/tool"
 )
 
+// ToolResultPolicy is a legacy type kept for interface compatibility.
+// Tool results are no longer truncated — the LLM manages its own context.
 type ToolResultPolicy struct {
 	InlineMaxLines int
 	HeadLines      int
 	TailLines      int
 }
 
+// NormalizeToolResultPolicy is a legacy function kept for interface compatibility.
+func NormalizeToolResultPolicy(policy ToolResultPolicy) ToolResultPolicy { return policy }
+
 // ToolExecutor runs requested tools and converts their results back to model content blocks.
 type ToolExecutor struct {
 	registry       *tool.Registry
 	planState      *tool.PlanModeState
 	taskList       *tool.TaskList
-	resultPolicy   ToolResultPolicy
 	answerProvider func() []tool.QuestionAnswer
 }
 
-func NewToolExecutor(registry *tool.Registry, planState *tool.PlanModeState, taskList *tool.TaskList, policy ToolResultPolicy, answerProvider func() []tool.QuestionAnswer) *ToolExecutor {
+func NewToolExecutor(registry *tool.Registry, planState *tool.PlanModeState, taskList *tool.TaskList, _ ToolResultPolicy, answerProvider func() []tool.QuestionAnswer) *ToolExecutor {
 	return &ToolExecutor{
 		registry:       registry,
 		planState:      planState,
 		taskList:       taskList,
-		resultPolicy:   NormalizeToolResultPolicy(policy),
 		answerProvider: answerProvider,
 	}
 }
@@ -123,32 +126,19 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 	blocks := make([]ApiContentBlock, len(calls))
 	for i, call := range calls {
 		result := resultMap[i]
-		content, truncated, totalLines := truncateToolResult(result.Content, e.resultPolicy)
+		totalLines := countLines(result.Content)
 		blocks[i] = ApiContentBlock{
 			Type: ApiToolResultContentType,
 			ToolResult: &ApiToolResultBlock{
 				ToolUseID:  call.ID,
-				Content:    content,
+				Content:    result.Content,
 				IsError:    result.IsError,
-				Truncated:  truncated,
+				Truncated:  false,
 				TotalLines: totalLines,
 			},
 		}
 	}
 	return blocks
-}
-
-func NormalizeToolResultPolicy(policy ToolResultPolicy) ToolResultPolicy {
-	if policy.InlineMaxLines <= 0 {
-		policy.InlineMaxLines = 200
-	}
-	if policy.HeadLines <= 0 {
-		policy.HeadLines = 80
-	}
-	if policy.TailLines <= 0 {
-		policy.TailLines = 80
-	}
-	return policy
 }
 
 type chanEmitter struct {
@@ -160,24 +150,15 @@ func (e *chanEmitter) Emit(text string) {
 	e.ch <- ToolExecDelta{ID: e.id, Text: text}
 }
 
-func truncateToolResult(content string, policy ToolResultPolicy) (string, bool, int) {
-	if content == "" {
-		return "", false, 0
+func countLines(s string) int {
+	if s == "" {
+		return 0
 	}
-	lines := strings.Split(content, "\n")
-	totalLines := len(lines)
-	if totalLines <= policy.InlineMaxLines || policy.HeadLines+policy.TailLines >= totalLines {
-		return content, false, totalLines
+	n := strings.Count(s, "\n")
+	if !strings.HasSuffix(s, "\n") {
+		n++
 	}
-
-	head := lines[:policy.HeadLines]
-	tail := lines[totalLines-policy.TailLines:]
-	omitted := totalLines - policy.HeadLines - policy.TailLines
-	parts := make([]string, 0, len(head)+len(tail)+1)
-	parts = append(parts, head...)
-	parts = append(parts, fmt.Sprintf("... [%d lines omitted] ...", omitted))
-	parts = append(parts, tail...)
-	return strings.Join(parts, "\n"), true, totalLines
+	return n
 }
 
 func (e *ToolExecutor) permissionDeniedResult(name string, mode tool.PermissionMode, input json.RawMessage) (tool.Result, bool) {

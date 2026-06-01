@@ -11,12 +11,6 @@ import (
 
 const defaultModel = "claude-sonnet-4-6"
 const settingsRelPath = ".cece/settings.json"
-const (
-	defaultToolResultInlineMaxLines = 200
-	defaultToolResultHeadLines      = 80
-	defaultToolResultTailLines      = 80
-)
-
 // ProviderConfig describes a single API provider's credentials.
 type ProviderConfig struct {
 	Name       string        `json:"name"`
@@ -34,12 +28,6 @@ type StaticModel struct {
 	DisplayName      string `json:"displayName"`
 	MaxContextWindow int    `json:"maxContextWindow"`
 	ConfigName       string `json:"configName"` // codebase-api needs this field
-}
-
-type ToolResultConfig struct {
-	InlineMaxLines int
-	HeadLines      int
-	TailLines      int
 }
 
 // MCPType specifies the transport type for an MCP server connection.
@@ -78,7 +66,6 @@ type Config struct {
 	DefaultMode         string           // "default", "auto-accept", or "plan"
 	ModelContextMapping map[string]int   // model ID -> max context window
 	Providers           []ProviderConfig
-	ToolResult          ToolResultConfig
 	MCP                 MCPs
 	Lint                LintConfig
 }
@@ -99,18 +86,12 @@ type settingsFile struct {
 	Yolo struct {
 		Enabled bool `json:"enabled"`
 	} `json:"yolo"`
-	ToolResult struct {
-		InlineMaxLines int `json:"inline_max_lines"`
-		HeadLines      int `json:"head_lines"`
-		TailLines      int `json:"tail_lines"`
-	} `json:"tool_result"`
 	MCP MCPs `json:"mcp"`
 	Lint LintConfig `json:"lint"`
 }
 
 func Load(projectDir string) (Config, error) {
 	cfg := Config{
-		ToolResult: defaultToolResultConfig(),
 	}
 
 	sf := loadSettingsFiles(projectDir)
@@ -121,14 +102,8 @@ func Load(projectDir string) (Config, error) {
 	cfg.Providers = sf.Provider.Providers
 	cfg.Debug = sf.Debug.Enabled
 	cfg.Yolo = sf.Yolo.Enabled
-	cfg.ToolResult = ToolResultConfig{
-		InlineMaxLines: sf.ToolResult.InlineMaxLines,
-		HeadLines:      sf.ToolResult.HeadLines,
-		TailLines:      sf.ToolResult.TailLines,
-	}
 	cfg.MCP = sf.MCP
 	cfg.Lint = sf.Lint
-	cfg.ToolResult = normalizeToolResultConfig(cfg.ToolResult)
 
 	if v := os.Getenv("ZLAUDE_YOLO"); v == "1" || v == "true" {
 		cfg.Yolo = true
@@ -237,11 +212,6 @@ func mergeSettings(project, user settingsFile) settingsFile {
 		out.Yolo.Enabled = user.Yolo.Enabled
 	}
 
-	// ToolResult: per-field, project wins if non-zero
-	out.ToolResult.InlineMaxLines = nonZeroInt(project.ToolResult.InlineMaxLines, user.ToolResult.InlineMaxLines)
-	out.ToolResult.HeadLines = nonZeroInt(project.ToolResult.HeadLines, user.ToolResult.HeadLines)
-	out.ToolResult.TailLines = nonZeroInt(project.ToolResult.TailLines, user.ToolResult.TailLines)
-
 	// MCP: merge maps, project keys win
 	out.MCP = mergeMap(project.MCP, user.MCP)
 
@@ -272,27 +242,6 @@ func mergeMap[K comparable, V any](a, b map[K]V) map[K]V {
 	return out
 }
 
-func defaultToolResultConfig() ToolResultConfig {
-	return ToolResultConfig{
-		InlineMaxLines: defaultToolResultInlineMaxLines,
-		HeadLines:      defaultToolResultHeadLines,
-		TailLines:      defaultToolResultTailLines,
-	}
-}
-
-func normalizeToolResultConfig(cfg ToolResultConfig) ToolResultConfig {
-	defaults := defaultToolResultConfig()
-	if cfg.InlineMaxLines <= 0 {
-		cfg.InlineMaxLines = defaults.InlineMaxLines
-	}
-	if cfg.HeadLines <= 0 {
-		cfg.HeadLines = defaults.HeadLines
-	}
-	if cfg.TailLines <= 0 {
-		cfg.TailLines = defaults.TailLines
-	}
-	return cfg
-}
 
 const defaultContextWindow = 200000
 

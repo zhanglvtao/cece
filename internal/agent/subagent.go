@@ -19,8 +19,7 @@ type SubAgentConfig struct {
 	Tools             []string // empty = default tool set
 	ProjectDir        string
 	MaxTokens         int
-	MaxTurns          int // 0 = default (200)
-	ToolResultPolicy  ToolResultPolicy
+	MaxTurns          int // 0 = no limit, sub-agent stops naturally when done
 }
 
 // SubAgentResult holds the outcome of a sub-agent run.
@@ -54,7 +53,7 @@ func (sa *SubAgent) Run(ctx context.Context) SubAgentResult {
 	messages := []Message{{Role: UserRole, Content: sa.config.Prompt}}
 
 	streamer := NewModelStreamer(sa.client, sa.registry, func(int) {})
-	toolExecutor := NewToolExecutor(sa.registry, nil, nil, sa.config.ToolResultPolicy, nil)
+	toolExecutor := NewToolExecutor(sa.registry, nil, nil, ToolResultPolicy{}, nil)
 
 	maxTurns := sa.config.MaxTurns
 	if maxTurns <= 0 {

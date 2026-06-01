@@ -161,76 +161,7 @@ func TestLoadParsesStaticModels(t *testing.T) {
 	}
 }
 
-func TestLoadParsesToolResultConfig(t *testing.T) {
-	dir := t.TempDir()
-	settings := `{
-		"provider": {
-			"model": "test-model",
-			"providers": [
-				{ "name": "test", "apiKey": "sk-test", "baseURL": "https://test.example.com" }
-			]
-		},
-		"tool_result": {
-			"inline_max_lines": 300,
-			"head_lines": 100,
-			"tail_lines": 50
-		}
-	}`
-	path := filepath.Join(dir, ".cece", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(settings), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
-	cfg, err := Load(dir)
-	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
-	}
-	if cfg.ToolResult.InlineMaxLines != 300 {
-		t.Fatalf("ToolResult.InlineMaxLines = %d, want 300", cfg.ToolResult.InlineMaxLines)
-	}
-	if cfg.ToolResult.HeadLines != 100 {
-		t.Fatalf("ToolResult.HeadLines = %d, want 100", cfg.ToolResult.HeadLines)
-	}
-	if cfg.ToolResult.TailLines != 50 {
-		t.Fatalf("ToolResult.TailLines = %d, want 50", cfg.ToolResult.TailLines)
-	}
-}
-
-func TestLoadUsesDefaultToolResultConfig(t *testing.T) {
-	dir := t.TempDir()
-	settings := `{
-		"provider": {
-			"model": "test-model",
-			"providers": [
-				{ "name": "test", "apiKey": "sk-test", "baseURL": "https://test.example.com" }
-			]
-		}
-	}`
-	path := filepath.Join(dir, ".cece", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(settings), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load(dir)
-	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
-	}
-	if cfg.ToolResult.InlineMaxLines != 200 {
-		t.Fatalf("ToolResult.InlineMaxLines = %d, want 200", cfg.ToolResult.InlineMaxLines)
-	}
-	if cfg.ToolResult.HeadLines != 80 {
-		t.Fatalf("ToolResult.HeadLines = %d, want 80", cfg.ToolResult.HeadLines)
-	}
-	if cfg.ToolResult.TailLines != 80 {
-		t.Fatalf("ToolResult.TailLines = %d, want 80", cfg.ToolResult.TailLines)
-	}
-}
 
 func TestLoadFallsBackToGlobalSettings(t *testing.T) {
 	homeDir := t.TempDir()

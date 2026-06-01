@@ -328,11 +328,6 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 	eng.SetModelInfo(cfg.Model, contextWindow)
 	registry.Register(tool.NewCompact(eng.CompactHandler()))
 	registry.Register(tool.NewAgent(eng.AgentHandler()))
-	eng.SetToolResultPolicy(agent.ToolResultPolicy{
-		InlineMaxLines: cfg.ToolResult.InlineMaxLines,
-		HeadLines:      cfg.ToolResult.HeadLines,
-		TailLines:      cfg.ToolResult.TailLines,
-	})
 	eng.ContextWindowFor = cfg.ContextWindowFor
 	eng.ModelClientFor = func(model string) agent.ModelClient {
 		// Find provider for this model and create a client.
