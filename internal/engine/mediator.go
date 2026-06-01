@@ -78,6 +78,10 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		go m.cycleMode()
 	case protocol.SetPermissionModeAction:
 		m.setMode(a.Mode)
+	case protocol.SetExitTargetModeAction:
+		if ps := m.Engine.PlanModeState(); ps != nil {
+			ps.SetExitTargetMode(tool.PermissionMode(a.Mode))
+		}
 	case protocol.RenameSessionAction:
 		go m.renameSession(a.SessionID, a.Title)
 	case protocol.ListMCPAction:
