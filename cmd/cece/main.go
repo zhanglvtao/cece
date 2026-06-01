@@ -334,6 +334,21 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		TailLines:      cfg.ToolResult.TailLines,
 	})
 	eng.ContextWindowFor = cfg.ContextWindowFor
+	eng.ModelClientFor = func(model string) agent.ModelClient {
+		// Find provider for this model and create a client.
+		for _, p := range cfg.Providers {
+			for _, m := range p.Models {
+				if m.ID == model || m.ConfigName == model {
+					return createClient(p, model, m.ConfigName)
+				}
+			}
+		}
+		// Fallback: try first provider with the model name.
+		if len(cfg.Providers) > 0 {
+			return createClient(cfg.Providers[0], model, "")
+		}
+		return nil
+	}
 
 	store := session.NewFileStore(projectDir)
 	eng.SetStore(store)

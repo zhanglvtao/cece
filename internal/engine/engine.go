@@ -42,6 +42,7 @@ type Engine struct {
 	maxTokens         int           // configurable max output tokens
 	toolResultPolicy  agent.ToolResultPolicy
 	ContextWindowFor  func(model string) int // returns context window for a model ID
+	ModelClientFor   func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client
 	store             session.Store          // optional persistence backend
 	sessionID         string                 // current session ID, empty = not yet created
 	sessionCreated    bool                   // true after first Input creates a session
@@ -294,7 +295,15 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 	projectDir := e.projectDir
 	maxTokens := e.maxTokens
 	policy := e.toolResultPolicy
+	modelClientFor := e.ModelClientFor
 	e.mu.Unlock()
+
+	// If a different model is requested, route to the corresponding client.
+	if cfg.Model != "" && modelClientFor != nil {
+		if subClient := modelClientFor(cfg.Model); subClient != nil {
+			client = subClient
+		}
+	}
 
 	// Build a restricted tool registry for the sub-agent.
 	subRegistry := tool.NewRegistry()
