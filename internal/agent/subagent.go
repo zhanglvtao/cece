@@ -8,8 +8,6 @@ import (
 	"cece/internal/tool"
 )
 
-const defaultSubAgentMaxTurns = 200
-
 // SubAgentConfig configures a sub-agent run.
 type SubAgentConfig struct {
 	Prompt            string
@@ -56,13 +54,10 @@ func (sa *SubAgent) Run(ctx context.Context) SubAgentResult {
 	toolExecutor := NewToolExecutor(sa.registry, nil, nil, ToolResultPolicy{}, nil)
 
 	maxTurns := sa.config.MaxTurns
-	if maxTurns <= 0 {
-		maxTurns = defaultSubAgentMaxTurns
-	}
 
 	var totalInput, totalOutput, turns int
 
-	for turns < maxTurns {
+	for maxTurns <= 0 || turns < maxTurns {
 		select {
 		case <-ctx.Done():
 			return SubAgentResult{

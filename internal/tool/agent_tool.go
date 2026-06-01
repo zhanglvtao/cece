@@ -84,7 +84,7 @@ func (agentTool) Info() Definition {
 				},
 				"max_turns": map[string]any{
 					"type":        "integer",
-					"description": "Maximum number of agentic iterations (model calls with tool use). Default: 200. The sub-agent stops after this many rounds even if it hasn't finished.",
+					"description": "Maximum number of agentic iterations. The sub-agent stops naturally when finished. Only set this to limit resource usage. Default: no limit.",
 				},
 			},
 		},
