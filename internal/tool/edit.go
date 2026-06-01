@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"cece/internal/lint"
 )
 
 type editParams struct {
@@ -68,7 +70,7 @@ func (editTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 		if emitter != nil {
 			emitter.Emit(fmt.Sprintf("Creating %s...", p.Path))
 		}
-		return editCreate(p.Path, p.NewString)
+		return editCreate(ctx, p.Path, p.NewString)
 	}
 
 	// Read existing file
@@ -93,7 +95,7 @@ func (editTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 		if err := os.WriteFile(p.Path, []byte(newContent), 0o644); err != nil {
 			return Result{Content: fmt.Sprintf("write: %v", err), IsError: true}
 		}
-		return Result{Content: diff}
+		return lintAppend(ctx, p.Path, Result{Content: diff})
 	}
 
 	// Single replacement: must be unique
@@ -111,7 +113,7 @@ func (editTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 	if err := os.WriteFile(p.Path, []byte(newContent), 0o644); err != nil {
 		return Result{Content: fmt.Sprintf("write: %v", err), IsError: true}
 	}
-	return Result{Content: diff}
+	return lintAppend(ctx, p.Path, Result{Content: diff})
 }
 
 // ── Fuzzy matching cascade ──────────────────────────────────────────────────
@@ -425,9 +427,22 @@ func addLineNumbers(s string) string {
 	return b.String() + trailing
 }
 
+// ── Lint append helper ────────────────────────────────────────────────────────
+
+// lintAppend runs the lint command for the file if a Runner is available.
+// Only appends output when lint finds issues; returns r unchanged on success.
+func lintAppend(ctx context.Context, filePath string, r Result) Result {
+	if runner := lint.FromContext(ctx); runner != nil {
+		if out := runner.Run(ctx, filePath); out != "" {
+			r.Content += "\n" + out
+		}
+	}
+	return r
+}
+
 // ── Create file ─────────────────────────────────────────────────────────────
 
-func editCreate(path, content string) Result {
+func editCreate(ctx context.Context, path, content string) Result {
 	// Check if file already exists
 	if _, err := os.Stat(path); err == nil {
 		return Result{Content: "file already exists — use old_string to edit it", IsError: true}
@@ -443,5 +458,5 @@ func editCreate(path, content string) Result {
 	}
 
 	diff := UnifiedDiff(path, path, "", content)
-	return Result{Content: diff}
+	return lintAppend(ctx, path, Result{Content: diff})
 }

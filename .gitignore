@@ -8,3 +8,7 @@ cece-bin
 cece-test
 *.test
 *.exe
+cece-darwin-*
+cece-linux-*
+*.tar.gz
+checksums.txt

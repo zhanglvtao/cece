@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"cece/internal/lint"
 )
 
 // Registry manages registered tools.
 type Registry struct {
-	tools map[string]Tool
+	tools  map[string]Tool
+	linter *lint.Runner
 }
 
 // NewRegistry creates a Registry with the given tools.
@@ -30,6 +33,11 @@ func (r *Registry) Get(name string) (Tool, bool) {
 // Register adds a tool to the registry at runtime.
 func (r *Registry) Register(t Tool) {
 	r.tools[t.Info().Name] = t
+}
+
+// SetLinter sets the lint runner for write-effect tools.
+func (r *Registry) SetLinter(l *lint.Runner) {
+	r.linter = l
 }
 
 // SetMCPTools replaces all MCP tools in the registry.
@@ -64,6 +72,10 @@ func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessa
 	}
 	if verr := validateInput(t.Info(), input); verr != nil {
 		return *verr
+	}
+	// Inject lint runner into context so write-effect tools can run lint.
+	if r.linter != nil {
+		ctx = lint.ContextWithRunner(ctx, r.linter)
 	}
 	return t.Run(ctx, input, emitter)
 }

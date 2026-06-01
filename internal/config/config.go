@@ -65,6 +65,11 @@ type MCPConfig struct {
 
 type MCPs map[string]MCPConfig
 
+// LintConfig maps file extensions (without dot, e.g. "go", "ts") to shell
+// command templates. The placeholder {file} is replaced with the absolute
+// path of the file being written.
+type LintConfig map[string]string
+
 type Config struct {
 	Model               string
 	Debug               bool
@@ -75,6 +80,7 @@ type Config struct {
 	Providers           []ProviderConfig
 	ToolResult          ToolResultConfig
 	MCP                 MCPs
+	Lint                LintConfig
 }
 
 type settingsFile struct {
@@ -99,6 +105,7 @@ type settingsFile struct {
 		TailLines      int `json:"tail_lines"`
 	} `json:"tool_result"`
 	MCP MCPs `json:"mcp"`
+	Lint LintConfig `json:"lint"`
 }
 
 func Load(projectDir string) (Config, error) {
@@ -120,6 +127,7 @@ func Load(projectDir string) (Config, error) {
 		TailLines:      sf.ToolResult.TailLines,
 	}
 	cfg.MCP = sf.MCP
+	cfg.Lint = sf.Lint
 	cfg.ToolResult = normalizeToolResultConfig(cfg.ToolResult)
 
 	if v := os.Getenv("ZLAUDE_YOLO"); v == "1" || v == "true" {
@@ -236,6 +244,9 @@ func mergeSettings(project, user settingsFile) settingsFile {
 
 	// MCP: merge maps, project keys win
 	out.MCP = mergeMap(project.MCP, user.MCP)
+
+	// Lint: merge maps, project keys win
+	out.Lint = mergeMap(project.Lint, user.Lint)
 
 	return out
 }

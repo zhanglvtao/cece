@@ -57,26 +57,34 @@ func TestStatusBarRender(t *testing.T) {
 	sb.UpdateContext(30000, 200000)
 
 	got := sb.Render(120)
-	if strings.Contains(got, "Ready") {
-		t.Fatalf("status should not appear in bottom metrics bar: %q", got)
+	lines := strings.Split(got, "\n")
+
+	// Line 1: no tool info
+	if strings.Contains(lines[0], "api:") {
+		t.Fatalf("line 1 should not contain tool info: %q", lines[0])
 	}
-	if !strings.Contains(got, "sonnet") {
-		t.Fatalf("missing model: %q", got)
+	if !strings.Contains(lines[0], "sonnet") {
+		t.Fatalf("missing model in line 1: %q", lines[0])
 	}
-	if !strings.Contains(got, "calls:1") {
-		t.Fatalf("missing calls: %q", got)
+	if !strings.Contains(lines[0], "in/out/cache:5K") {
+		t.Fatalf("missing tokens in line 1: %q", lines[0])
 	}
-	if !strings.Contains(got, "Grep:2") {
-		t.Fatalf("missing Grep:2: %q", got)
+	if !strings.Contains(lines[0], "ctx:") {
+		t.Fatalf("missing context in line 1: %q", lines[0])
 	}
-	if !strings.Contains(got, "Read:1") {
-		t.Fatalf("missing Read:1: %q", got)
+
+	// Line 2: compact tool info
+	if len(lines) < 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
 	}
-	if !strings.Contains(got, "in/out/cache:5K") {
-		t.Fatalf("missing tokens: %q", got)
+	if !strings.Contains(lines[1], "api:1") {
+		t.Fatalf("missing api:1 in line 2: %q", lines[1])
 	}
-	if !strings.Contains(got, "ctx:") {
-		t.Fatalf("missing context: %q", got)
+	if !strings.Contains(lines[1], "Grep×2") {
+		t.Fatalf("missing Grep×2 in line 2: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "Read×1") {
+		t.Fatalf("missing Read×1 in line 2: %q", lines[1])
 	}
 }
 

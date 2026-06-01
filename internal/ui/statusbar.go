@@ -114,16 +114,18 @@ func (sb *StatusBar) Restore(apiCalls int, toolCounts map[string]int, cacheRead,
 	sb.cacheCreationTokens = cacheCreation
 }
 
-// Render returns the status bar as a single line with ANSI-colored elements.
+// Render returns the status bar as one or two lines with ANSI-colored elements.
+// Line 1: mode | model | ctx | tokens | scroll
+// Line 2: api calls + tool counts (compact, only when tool info exists)
 func (sb *StatusBar) Render(width int) string {
-	var parts []string
+	var line1 []string
 
 	// mode
-	parts = append(parts, sb.styles.Status.Model.Render(statusModeLabel(sb.mode)))
+	line1 = append(line1, sb.styles.Status.Model.Render(statusModeLabel(sb.mode)))
 
 	// model name
 	if sb.modelName != "" {
-		parts = append(parts, sb.styles.Status.Model.Render(sb.modelName))
+		line1 = append(line1, sb.styles.Status.Model.Render(sb.modelName))
 	}
 
 	// context
@@ -133,7 +135,7 @@ func (sb *StatusBar) Render(width int) string {
 			remaining = 0
 		}
 		pct := remaining * 100 / sb.contextWindow
-		parts = append(parts, sb.styles.Status.Context.Render(fmt.Sprintf("ctx:%s/%s %d%%", formatTokenK(remaining), formatTokenK(sb.contextWindow), pct)))
+		line1 = append(line1, sb.styles.Status.Context.Render(fmt.Sprintf("ctx:%s/%s %d%%", formatTokenK(remaining), formatTokenK(sb.contextWindow), pct)))
 	}
 
 	// tokens + cache
@@ -142,12 +144,21 @@ func (sb *StatusBar) Render(width int) string {
 		hitRate := sb.cacheReadTokens * 100 / sb.inputTokens
 		tokenPart += fmt.Sprintf(" %d%%", hitRate)
 	}
-	parts = append(parts, sb.styles.Status.Tokens.Render(tokenPart))
+	line1 = append(line1, sb.styles.Status.Tokens.Render(tokenPart))
 
-	// api calls
-	parts = append(parts, sb.styles.Status.Calls.Render(fmt.Sprintf("calls:%d", sb.apiCalls)))
+	// scroll
+	if sb.scrollPct > 0 {
+		line1 = append(line1, sb.styles.Status.Scroll.Render(fmt.Sprintf("scroll:%d%%", sb.scrollPct)))
+	}
 
-	// tool counts (sorted by name)
+	sep := sb.styles.Status.Separator.Render(" | ")
+	l1 := strings.Join(line1, sep)
+
+	// --- Line 2 (compact tool info) ---
+	var line2Parts []string
+	if sb.apiCalls > 0 {
+		line2Parts = append(line2Parts, sb.styles.Status.Calls.Render(fmt.Sprintf("api:%d", sb.apiCalls)))
+	}
 	if len(sb.toolCounts) > 0 {
 		names := make([]string, 0, len(sb.toolCounts))
 		for n := range sb.toolCounts {
@@ -155,25 +166,34 @@ func (sb *StatusBar) Render(width int) string {
 		}
 		sort.Strings(names)
 		for _, n := range names {
-			parts = append(parts, sb.styles.Status.Tool.Render(fmt.Sprintf("%s:%d", n, sb.toolCounts[n])))
+			line2Parts = append(line2Parts, sb.styles.Status.Tool.Render(fmt.Sprintf("%s×%d", n, sb.toolCounts[n])))
 		}
 	}
 
-	// scroll
-	if sb.scrollPct > 0 {
-		parts = append(parts, sb.styles.Status.Scroll.Render(fmt.Sprintf("scroll:%d%%", sb.scrollPct)))
+	var lines []string
+	if width > 0 {
+		l1 = ansi.Truncate(l1, width, "")
+	}
+	lines = append(lines, l1)
+
+	if len(line2Parts) > 0 {
+		l2 := strings.Join(line2Parts, " ")
+		if width > 0 {
+			l2 = ansi.Truncate(l2, width, "")
+		}
+		lines = append(lines, l2)
 	}
 
-	sep := sb.styles.Status.Separator.Render(" | ")
-	line := strings.Join(parts, sep)
-	if width > 0 {
-		line = ansi.Truncate(line, width, "")
-	}
-	return line
+	return strings.Join(lines, "\n")
 }
 
-// Height always returns 1 (single line).
-func (sb *StatusBar) Height() int { return 1 }
+// Height returns the number of lines the status bar occupies (1 or 2).
+func (sb *StatusBar) Height() int {
+	if sb.apiCalls > 0 || len(sb.toolCounts) > 0 {
+		return 2
+	}
+	return 1
+}
 
 func statusModeLabel(mode string) string {
 	if mode == "" {

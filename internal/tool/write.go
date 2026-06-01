@@ -63,5 +63,5 @@ func (writeTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter
 		return Result{Content: fmt.Sprintf("write: %v", err), IsError: true}
 	}
 
-	return Result{Content: fmt.Sprintf("wrote %d bytes to %s", len(p.Content), p.Path)}
+	return lintAppend(ctx, p.Path, Result{Content: fmt.Sprintf("wrote %d bytes to %s", len(p.Content), p.Path)})
 }
