@@ -1,9 +1,5 @@
 package prompt
 
-import (
-	"strings"
-)
-
 // tokenBudget holds per-layer token limits derived from the model's context window.
 type tokenBudget struct {
 	total   int // total system prompt token budget
@@ -81,37 +77,5 @@ func enforceBudget(segments []PromptSegment, maxContextTokens int) []PromptSegme
 		return result
 	}
 
-	// Truncation: Session — strip tool descriptions if present
-	for i, seg := range result {
-		if seg.Layer == ContextSession && preciseTotal > budget.total {
-			truncated := stripToolDescriptions(seg.Content)
-			newCost := preciseEstimate(truncated)
-			if newCost < preciseCosts[i] {
-				saved := preciseCosts[i] - newCost
-				result[i] = PromptSegment{Content: truncated, Layer: ContextSession}
-				preciseTotal -= saved
-			}
-		}
-	}
-
 	return result
-}
-
-// stripToolDescriptions removes the <available_tools>...</available_tools> section.
-func stripToolDescriptions(content string) string {
-	start := strings.Index(content, "<available_tools>")
-	end := strings.Index(content, "</available_tools>")
-	if start == -1 || end == -1 {
-		return content
-	}
-	// Remove the section plus surrounding whitespace
-	before := strings.TrimRight(content[:start], "\n")
-	after := strings.TrimLeft(content[end+len("</available_tools>"):], "\n")
-	if before == "" {
-		return after
-	}
-	if after == "" {
-		return before
-	}
-	return before + "\n\n" + after
 }

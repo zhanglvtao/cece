@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"cece/internal/tool"
 )
 
 func TestFormatSessionContextBasicFields(t *testing.T) {
@@ -62,33 +60,11 @@ func TestFormatSessionContextIncludesProjectInstructions(t *testing.T) {
 	}
 }
 
-func TestFormatSessionContextIncludesToolDescriptions(t *testing.T) {
-	ctx := SessionContext{
-		ToolDescriptions: "bash: execute shell commands",
-	}
-
-	got := FormatSessionContext(ctx)
-	if !strings.Contains(got, "<available_tools>") {
-		t.Fatalf("FormatSessionContext() missing available_tools tag: %q", got)
-	}
-	if !strings.Contains(got, "bash: execute shell commands") {
-		t.Fatalf("FormatSessionContext() missing tool descriptions content: %q", got)
-	}
-}
-
 func TestFormatProjectInstructions(t *testing.T) {
 	got := FormatProjectInstructions("use go fmt")
 	want := "<project_instructions>\nuse go fmt\n</project_instructions>"
 	if got != want {
 		t.Fatalf("FormatProjectInstructions() = %q, want %q", got, want)
-	}
-}
-
-func TestFormatToolDescriptionsTextToXml(t *testing.T) {
-	got := FormatToolDescriptionsTextToXml("bash: run commands")
-	want := "<available_tools>\nbash: run commands\n</available_tools>"
-	if got != want {
-		t.Fatalf("FormatToolDescriptionsTextToXml() = %q, want %q", got, want)
 	}
 }
 
@@ -167,29 +143,6 @@ func TestShouldInjectTimeForExplicitTimeRequests(t *testing.T) {
 		if !ShouldInjectTime(input) {
 			t.Fatalf("ShouldInjectTime(%q) = false, want true", input)
 		}
-	}
-}
-
-func TestFormatToolDescriptionsTextFromDefs(t *testing.T) {
-	defs := []tool.Definition{
-		{Name: "Bash", Description: "execute shell commands", InputSchema: map[string]any{"type": "object"}},
-		{Name: "Read", Description: "read a file", InputSchema: map[string]any{"type": "object"}},
-	}
-
-	got := FormatToolDescriptionsText(defs)
-
-	if !strings.Contains(got, "Bash") || !strings.Contains(got, "execute shell commands") {
-		t.Fatalf("FormatToolDescriptionsText() missing Bash entry: %q", got)
-	}
-	if !strings.Contains(got, "Read") || !strings.Contains(got, "read a file") {
-		t.Fatalf("FormatToolDescriptionsText() missing Read entry: %q", got)
-	}
-}
-
-func TestFormatToolDescriptionsTextEmptyDefs(t *testing.T) {
-	got := FormatToolDescriptionsText(nil)
-	if got != "" {
-		t.Fatalf("FormatToolDescriptionsText(nil) = %q, want empty", got)
 	}
 }
 

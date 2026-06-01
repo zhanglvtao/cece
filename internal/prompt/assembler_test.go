@@ -40,7 +40,6 @@ func stubSessionContext() SessionContext {
 		OSVersion:          "25.0.0",
 		SessionStartBranch: "main",
 		CLAUDEmd:           "use go fmt",
-		ToolDescriptions:   "Bash: run commands",
 	}
 }
 

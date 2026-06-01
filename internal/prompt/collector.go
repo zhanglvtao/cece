@@ -60,11 +60,6 @@ func (d *DefaultSessionCollector) Collect(ctx context.Context) (SessionContext, 
 	}
 	sc.CLAUDEmd = claudemd
 
-	if d.toolProvider != nil {
-		defs := d.toolProvider.Definitions()
-		sc.ToolDescriptions = FormatToolDescriptionsText(defs)
-	}
-
 	if d.skillProvider != nil {
 		sc.SkillListing = d.skillProvider.Listing()
 	}

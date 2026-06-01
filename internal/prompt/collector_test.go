@@ -40,12 +40,6 @@ func TestDefaultSessionCollectorCollectsEnvInfo(t *testing.T) {
 	if sc.OSName == "" {
 		t.Fatal("OSName should not be empty")
 	}
-	if sc.ToolDescriptions == "" {
-		t.Fatal("ToolDescriptions should not be empty when tools are provided")
-	}
-	if !contains(sc.ToolDescriptions, "Bash") {
-		t.Fatalf("ToolDescriptions missing Bash: %q", sc.ToolDescriptions)
-	}
 }
 
 func TestDefaultSessionCollectorLoadsCLAUDEmd(t *testing.T) {

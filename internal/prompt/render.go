@@ -3,8 +3,6 @@ package prompt
 import (
 	"fmt"
 	"strings"
-
-	"cece/internal/tool"
 )
 
 func FormatSessionContext(ctx SessionContext) string {
@@ -39,11 +37,6 @@ func FormatSessionContext(ctx SessionContext) string {
 		parts = append(parts, FormatProjectInstructions(ctx.CLAUDEmd))
 	}
 
-	// Tool descriptions section
-	if ctx.ToolDescriptions != "" {
-		parts = append(parts, FormatToolDescriptionsTextToXml(ctx.ToolDescriptions))
-	}
-
 	// Skill listing section
 	if ctx.SkillListing != "" {
 		parts = append(parts, ctx.SkillListing)
@@ -56,23 +49,6 @@ func FormatProjectInstructions(content string) string {
 	return "<project_instructions>\n" + content + "\n</project_instructions>"
 }
 
-// FormatToolDescriptionsTextToXml wraps pre-rendered tool description text in a tag.
-func FormatToolDescriptionsTextToXml(descriptions string) string {
-	return "<available_tools>\n" + descriptions + "\n</available_tools>"
-}
-
-// FormatToolDescriptionsText generates a human-readable summary from tool definitions.
-// Each tool is rendered as "Name: Description" on its own line.
-func FormatToolDescriptionsText(defs []tool.Definition) string {
-	if len(defs) == 0 {
-		return ""
-	}
-	var lines []string
-	for _, d := range defs {
-		lines = append(lines, fmt.Sprintf("%s: %s", d.Name, d.Description))
-	}
-	return strings.Join(lines, "\n")
-}
 
 func FormatTurnContext(ctx TurnContext) string {
 	var lines []string
