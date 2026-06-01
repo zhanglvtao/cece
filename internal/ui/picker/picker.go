@@ -23,15 +23,17 @@ const (
 
 // Picker is a minimal, scrollable list picker.
 // In compact mode (SetCompact), it renders only item lines without title or help.
+// Render functions may return multi-line strings (separated by \n); the picker
+// will count and scroll by visual lines rather than items.
 type Picker struct {
 	title     string
 	items     []any
-	render    func(any, bool) string // (item, selected) -> one-line text
+	render    func(any, bool) string // (item, selected) -> text (may contain \n)
 	filterFn  func(any, string) bool // optional filter predicate
 	onSelect  func(any) tea.Cmd      // enter callback
 	helpText  string
 	selectedI int
-	offset    int
+	offset    int   // scroll offset in visual lines
 	filter    string
 	maxHeight int
 	compact   bool // no title/help when true
@@ -78,9 +80,7 @@ func (p *Picker) SetItems(items []any) {
 }
 
 // Active returns true if the picker has items to show.
-func (p *Picker) Active() bool {
-	return len(p.visibleItems()) > 0
-}
+func (p *Picker) Active() bool { return len(p.visibleItems()) > 0 }
 
 // Close resets the picker state (filter, selection, offset).
 func (p *Picker) Close() {
@@ -111,26 +111,65 @@ func (p *Picker) fixedLines() int {
 	return 2 // title + help
 }
 
-// visibleCount is the number of item lines that fit in the viewport.
-func (p *Picker) visibleCount() int {
+// countLines counts the visual lines in a rendered string (split by \n).
+func countLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
+}
+
+// itemLines returns the number of visual lines for the item at index i.
+func (p *Picker) itemLines(items []any, i int) int {
+	return countLines(p.render(items[i], i == p.selectedI))
+}
+
+// totalItemLines returns the total visual lines for all visible items.
+func (p *Picker) totalItemLines(items []any) int {
+	total := 0
+	for i := range items {
+		total += p.itemLines(items, i)
+	}
+	return total
+}
+
+// visibleLineCount is the number of visual lines that fit in the viewport.
+func (p *Picker) visibleLineCount() int {
 	return max(p.maxHeight-p.fixedLines(), 1)
 }
 
-// ensureVisible adjusts offset so selectedI is within the viewport.
-func (p *Picker) ensureVisible(total int) {
-	if total == 0 {
+// ensureVisible adjusts offset so the selected item is within the viewport.
+// It works in visual-line space: offset and viewport are counted in lines.
+func (p *Picker) ensureVisible(items []any) {
+	if len(items) == 0 {
 		return
 	}
-	vc := p.visibleCount()
-	if p.selectedI < p.offset {
-		p.offset = p.selectedI
+
+	vc := p.visibleLineCount()
+
+	// Compute the start line of each item.
+	itemStart := make([]int, len(items)+1)
+	for i := range items {
+		itemStart[i+1] = itemStart[i] + p.itemLines(items, i)
 	}
-	if p.selectedI >= p.offset+vc {
-		p.offset = p.selectedI - vc + 1
+	totalLines := itemStart[len(items)]
+
+	// The selected item starts at itemStart[selectedI].
+	selStart := itemStart[p.selectedI]
+	selLines := p.itemLines(items, p.selectedI)
+
+	// If the selected item is above the viewport, scroll up.
+	if selStart < p.offset {
+		p.offset = selStart
 	}
-	// clamp offset
-	if p.offset > total-vc && total > vc {
-		p.offset = total - vc
+	// If the selected item extends below the viewport, scroll down.
+	if selStart+selLines > p.offset+vc {
+		p.offset = selStart + selLines - vc
+	}
+	// Clamp offset.
+	maxOffset := max(0, totalLines-vc)
+	if p.offset > maxOffset {
+		p.offset = maxOffset
 	}
 	if p.offset < 0 {
 		p.offset = 0
@@ -154,12 +193,25 @@ func (p *Picker) View() string {
 		b.WriteByte('\n')
 	}
 
-	// Item lines (virtual scroll window)
-	p.ensureVisible(len(items))
-	vc := p.visibleCount()
-	end := min(p.offset+vc, len(items))
-	for i := p.offset; i < end; i++ {
-		b.WriteString(p.render(items[i], i == p.selectedI))
+	// Collect all rendered item lines, then slice by offset.
+	p.ensureVisible(items)
+	vc := p.visibleLineCount()
+
+	// Render all items into a flat list of lines.
+	var allLines []string
+	for i := range items {
+		rendered := p.render(items[i], i == p.selectedI)
+		for j, line := range strings.Split(rendered, "\n") {
+			_ = j
+			allLines = append(allLines, line)
+		}
+	}
+
+	// Slice the visible window.
+	start := p.offset
+	end := min(start+vc, len(allLines))
+	for i := start; i < end; i++ {
+		b.WriteString(allLines[i])
 		if i < end-1 || !p.compact {
 			b.WriteByte('\n')
 		}
@@ -173,13 +225,14 @@ func (p *Picker) View() string {
 	return b.String()
 }
 
-// Height returns the rendered height in lines (0 if no visible items).
+// Height returns the rendered height in visual lines (0 if no visible items).
 func (p *Picker) Height() int {
 	items := p.visibleItems()
 	if len(items) == 0 {
 		return 0
 	}
-	return min(len(items)+p.fixedLines(), p.maxHeight)
+	totalLines := p.totalItemLines(items)
+	return min(totalLines+p.fixedLines(), p.maxHeight)
 }
 
 // Up moves selection up.

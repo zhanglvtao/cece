@@ -6,6 +6,7 @@ import (
 )
 
 const maxTitleLength = 80
+const maxPreviewLength = 60
 
 // GenerateTitle produces a session title from the first user message.
 // Truncates to maxTitleLength chars at word boundary.
@@ -70,6 +71,14 @@ func normalizeMessage(msg string) string {
 	}
 
 	return strings.TrimSpace(s)
+}
+
+// truncatePreview truncates a message for use as a session preview.
+func truncatePreview(msg string) string {
+	s := strings.TrimSpace(msg)
+	// Collapse newlines for single-line preview
+	s = strings.Join(strings.Fields(s), " ")
+	return truncateAtWord(s, maxPreviewLength)
 }
 
 func truncateAtWord(s string, limit int) string {

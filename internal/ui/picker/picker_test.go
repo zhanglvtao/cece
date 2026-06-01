@@ -82,6 +82,44 @@ func TestFilter(t *testing.T) {
 	}
 }
 
+func TestMultiLineItems(t *testing.T) {
+	// Items that render as 2 lines each should be counted and scrolled correctly.
+	items := []any{"a", "b", "c", "d", "e"}
+	p := New("Test", items, 8, func(item any, selected bool) string {
+		s := item.(string)
+		cursor := "  "
+		if selected {
+			cursor = "> "
+		}
+		return cursor + s + "\n  preview of " + s
+	})
+
+	// Each item is 2 lines. maxHeight=8, fixed=2, so 6 visible lines = 3 items.
+	view := p.View()
+	lines := strings.Split(view, "\n")
+
+	// Should show title + 3 items (6 lines) + help = 8 lines
+	if p.Height() != 8 {
+		t.Fatalf("Height() = %d, want 8; view:\n%s", p.Height(), view)
+	}
+	// Title line + 6 item lines + help line = 8 lines total
+	if len(lines) != 8 {
+		t.Fatalf("got %d lines, want 8; view:\n%s", len(lines), view)
+	}
+	if !strings.Contains(view, "> a") {
+		t.Fatalf("first item should be selected:\n%s", view)
+	}
+
+	// Move down 3 times to item "d". It should scroll.
+	for i := 0; i < 3; i++ {
+		p.Down()
+	}
+	view = p.View()
+	if !strings.Contains(view, "> d") {
+		t.Fatalf("after 3 downs, item 'd' should be selected:\n%s", view)
+	}
+}
+
 func TestCSIFilter(t *testing.T) {
 	// CSI residue patterns like [27;5;106~ should be filtered from text input
 	cases := []struct {

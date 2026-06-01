@@ -38,6 +38,8 @@ type Styles struct {
 		Help    lipgloss.Style
 		Filter  lipgloss.Style
 		Command lipgloss.Style
+		Info    lipgloss.Style // secondary info: model, time
+		Preview lipgloss.Style // preview text below title
 	}
 	Headline lipgloss.Style
 	Queued   lipgloss.Style
@@ -107,6 +109,8 @@ func DefaultStyles() Styles {
 	s.Picker.Help = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Picker.Filter = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Picker.Command = lipgloss.NewStyle().Foreground(theme.Primary)
+	s.Picker.Info = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	s.Picker.Preview = lipgloss.NewStyle().Foreground(theme.FgMuted)
 
 	s.Headline = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Queued = lipgloss.NewStyle().Foreground(theme.FgMuted)

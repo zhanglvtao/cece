@@ -9,6 +9,7 @@ import (
 	"cece/internal/protocol"
 	"cece/internal/session"
 	"cece/internal/ui/picker"
+	"cece/internal/ui/theme"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -487,10 +488,12 @@ func (m *Model) openSessionsDialog() {
 	}
 	p := picker.New("Resume session", items, modalMaxHeight, func(item any, selected bool) string {
 		s := item.(session.Session)
+
 		title := s.Title
 		if title == "" {
 			title = s.ID
 		}
+
 		model := s.ConfigName
 		if model != "" {
 			model += "/"
@@ -499,8 +502,59 @@ func (m *Model) openSessionsDialog() {
 		if s.Model == "" {
 			model = ""
 		}
-		timeStr := s.UpdatedAt.Format("2006-01-02 15:04")
-		return styledPickerItem(m.styles.Picker.Cursor, title+"  "+model+"  "+timeStr, selected)
+
+		timeStr := s.UpdatedAt.Format("01-02 15:04")
+
+		msgStr := ""
+		if s.MessageCount > 0 {
+			msgStr = fmt.Sprintf("%d msg", s.MessageCount)
+		}
+
+		// Build line 1 with aligned columns
+		const modelColW = 18
+		const timeColW = 12
+		const msgColW = 7
+		rightWidth := modelColW + timeColW + msgColW + 6
+		titleBudget := max(10, m.width-rightWidth-2)
+
+		if lipgloss.Width(title) > titleBudget {
+			title = ansi.Truncate(title, titleBudget, "…")
+		}
+		titlePad := titleBudget - lipgloss.Width(title)
+
+		titleStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.Fg)
+		titleDimStyle := lipgloss.NewStyle().Foreground(theme.FgSubtle)
+		infoStyle := m.styles.Picker.Info
+		msgStyle := lipgloss.NewStyle().Foreground(theme.Green)
+
+		var b strings.Builder
+		if selected {
+			b.WriteString(titleStyle.Render(title))
+		} else {
+			b.WriteString(titleDimStyle.Render(title))
+		}
+		b.WriteString(strings.Repeat(" ", titlePad))
+
+		if model != "" {
+			b.WriteString("  " + infoStyle.Render(padRight(model, modelColW)))
+		} else {
+			b.WriteString("  " + strings.Repeat(" ", modelColW))
+		}
+		b.WriteString("  " + infoStyle.Render(padRight(timeStr, timeColW)))
+		if msgStr != "" {
+			b.WriteString("  " + msgStyle.Render(padLeft(msgStr, msgColW)))
+		}
+
+		cursorStyle := m.styles.Picker.Cursor
+		line1 := cursorStyle.Render("> ") + b.String()
+		if !selected {
+			line1 = "  " + b.String()
+		}
+
+		if s.Preview != "" {
+			return line1 + "\n" + m.styles.Picker.Preview.Render("  "+s.Preview)
+		}
+		return line1
 	})
 	p.SetHelpText("[up/down] move  [enter] load  [esc] close")
 	p.SetOnSelect(func(item any) tea.Cmd {
@@ -640,4 +694,22 @@ func (m *Model) handleRenameSessionKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// padRight pads s with spaces on the right to reach target visual width.
+func padRight(s string, width int) string {
+	gap := width - lipgloss.Width(s)
+	if gap <= 0 {
+		return s
+	}
+	return s + strings.Repeat(" ", gap)
+}
+
+// padLeft pads s with spaces on the left to reach target visual width.
+func padLeft(s string, width int) string {
+	gap := width - lipgloss.Width(s)
+	if gap <= 0 {
+		return s
+	}
+	return strings.Repeat(" ", gap) + s
 }

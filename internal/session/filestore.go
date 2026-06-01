@@ -64,6 +64,7 @@ func (s *FileStore) Create(_ context.Context, title string) (*Session, error) {
 }
 
 // AppendMessage appends a JSON-encoded message to the session's JSONL.
+// It also updates the session's MessageCount and Preview (last user message) in meta.
 func (s *FileStore) AppendMessage(_ context.Context, sessionID string, msg json.RawMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -78,11 +79,28 @@ func (s *FileStore) AppendMessage(_ context.Context, sessionID string, msg json.
 		return fmt.Errorf("write message: %w", err)
 	}
 	if err := f.Sync(); err != nil {
-		return fmt.Errorf("sync: %w", err)
+		return fmt.Errorf("sync jsonl: %w", err)
 	}
 
-	// Best-effort update timestamp
-	s.touchMeta(sessionID)
+	// Update MessageCount and Preview in meta.
+	sess, err := s.readMeta(sessionID)
+	if err != nil {
+		return nil // best-effort
+	}
+	sess.MessageCount++
+	sess.UpdatedAt = time.Now()
+
+	// Extract preview from user messages.
+	var partial struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(msg, &partial) == nil && partial.Role == "user" && partial.Content != "" {
+		sess.Preview = truncatePreview(partial.Content)
+	}
+
+	// Best-effort write back.
+	_ = s.writeMeta(sess)
 
 	return nil
 }
