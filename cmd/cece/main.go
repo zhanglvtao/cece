@@ -88,9 +88,36 @@ func main() {
 			os.Exit(runEngineStdio(projectDir, os.Args[2:]))
 		case "hub":
 			os.Exit(runHub(projectDir, os.Args[2:]))
+		case "help", "--help", "-h":
+			printHelp()
+			os.Exit(0)
 		}
 	}
 	os.Exit(runTUI(projectDir))
+}
+
+func printHelp() {
+	fmt.Print(`cece — AI coding agent
+
+Usage:
+  cece              Start interactive TUI
+  cece hub <cmd>    Hub daemon commands
+  cece engine       Run engine process (internal)
+
+Commands:
+  help              Show this help
+
+Hub commands:
+  cece hub start              Start hub daemon
+  cece hub stop               Stop hub daemon
+  cece hub status             Show hub status
+  cece hub tui [session-id]   Open TUI connected to hub-managed engine
+  cece hub session list       List all sessions
+  cece hub session run <prompt>   Create session and send prompt
+  cece hub session input <id> <text>  Send input to session
+  cece hub session cancel <id>   Cancel running session
+  cece hub session delete <id>   Delete session
+`)
 }
 
 func runTUI(projectDir string) int {
@@ -452,10 +479,36 @@ func runHub(projectDir string, args []string) int {
 			return 1
 		}
 		return runHubSession(args[1], args[2:])
+	case "help", "--help", "-h":
+		printHubHelp()
+		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown hub command: %s\n", args[0])
 		return 1
 	}
+}
+
+func printHubHelp() {
+	fmt.Print(`cece hub — session daemon
+
+Usage:
+  cece hub <command> [args]
+
+Commands:
+  start                Start hub daemon (blocks)
+  stop                 Stop running hub daemon
+  status               Show hub status
+  tui [session-id]     Open TUI connected to hub-managed engine
+                         No session-id: create new session
+                         With session-id: attach to existing session
+
+Session commands:
+  cece hub session list                    List all sessions
+  cece hub session run <prompt>            Create session and send prompt
+  cece hub session input <id> <text>       Send input to a session
+  cece hub session cancel <id>             Cancel running session
+  cece hub session delete <id>             Delete a session
+`)
 }
 
 func runHubStart(projectDir string) int {
