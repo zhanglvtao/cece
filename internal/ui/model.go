@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rivo/uniseg"
+
 	"cece/internal/protocol"
 	"cece/internal/session"
 	"cece/internal/skill"
@@ -440,7 +442,7 @@ func (m *Model) View() tea.View {
 		// Modal layout: "Question X/Y\n{question}\n{options}\n{help}"
 		modalLines := strings.Count(modal, "\n") + 1
 		cur.Y = m.viewport.Height() + modalLines - 2 // -1 for 0-index, -1 for help line
-		cur.X = 6 + len(m.modal.textInput)            // "> [ ] " prefix (6 chars) + typed text length
+		cur.X = 6 + uniseg.StringWidth(m.modal.textInput) // "> [ ] " prefix (6 chars) + typed text display width
 		view.Cursor = cur
 	} else if cur := m.input.Cursor(); cur != nil {
 		rowsAboveInput := m.viewport.Height() // no header

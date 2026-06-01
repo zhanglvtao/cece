@@ -201,9 +201,9 @@ func (m *Model) questionView() string {
 			// "Type something else..." — inline text input
 			if m.modal.textMode {
 				cursor = ">"
-				displayLabel := m.modal.textInput
-				if displayLabel == "" {
-					displayLabel = "Type something else..."
+				displayLabel := m.modal.textInput + "▌"
+				if m.modal.textInput == "" {
+					displayLabel = "▌"
 				}
 				fmt.Fprintf(&b, "%s %s %s\n", cursor, mark, displayLabel)
 			} else {
@@ -266,6 +266,16 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	optionCount := len(q.Options) + 1
+	cursor := m.modal.cursors[m.modal.qIndex]
+	// If cursor is on "Type something else..." and user types a printable
+	// character, enter text mode immediately and append the character.
+	if cursor == len(q.Options) {
+		if text := msg.Key().Text; text != "" && !csiResidueRe.MatchString(text) {
+			m.modal.textMode = true
+			m.modal.textInput = text
+			return nil
+		}
+	}
 	switch msg.String() {
 	case "up", "k":
 		if m.modal.cursors[m.modal.qIndex] > 0 {
@@ -288,12 +298,10 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.restoreQuestionText()
 		}
 	case "space":
-		cursor := m.modal.cursors[m.modal.qIndex]
 		if cursor < len(q.Options) {
 			m.toggleQuestionSelection(m.modal.qIndex, cursor)
 		}
 	case "enter":
-		cursor := m.modal.cursors[m.modal.qIndex]
 		if cursor == len(q.Options) {
 			m.modal.textMode = true
 			return nil
