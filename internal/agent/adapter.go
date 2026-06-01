@@ -31,9 +31,8 @@ func ToDTO(e Event) protocol.Event {
 		return protocol.RequestDryRunEvent{
 			Input:                v.Input,
 			MaxTokens:            v.MaxTokens,
-			EstimatedInputTokens:  v.EstimatedInputTokens,
+			EstimatedInputTokens: v.EstimatedInputTokens,
 			PromptLayers:         promptLayerDryRunsToDTO(v.PromptLayers),
-			SystemBlocks:         systemBlockDryRunsToDTO(v.SystemBlocks),
 			Messages:             messageDryRunsToDTO(v.Messages),
 			Tools:                toolDryRunsToDTO(v.Tools),
 		}
@@ -291,14 +290,6 @@ func promptLayerDryRunsToDTO(in []PromptLayerDryRun) []protocol.PromptLayerDryRu
 	out := make([]protocol.PromptLayerDryRun, len(in))
 	for i, v := range in {
 		out[i] = protocol.PromptLayerDryRun(v)
-	}
-	return out
-}
-
-func systemBlockDryRunsToDTO(in []SystemBlockDryRun) []protocol.SystemBlockDryRun {
-	out := make([]protocol.SystemBlockDryRun, len(in))
-	for i, v := range in {
-		out[i] = protocol.SystemBlockDryRun(v)
 	}
 	return out
 }

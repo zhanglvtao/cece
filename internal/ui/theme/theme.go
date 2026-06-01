@@ -18,16 +18,16 @@ const (
 	Green   = ansi.Green  // success / selected
 	Red     = ansi.Red    // errors / destructive
 
-	// Markdown rendering colors — VIM-inspired palette.
-	// Classic dark-terminal colors with warm tones and high readability.
-	MdHeading  = "#ffff60" // Bright yellow — headings
-	MdLink     = "#569cd6" // Steel blue — link URLs
-	MdCode     = "#4ec9b0" // Teal — inline code
-	MdCodeBg   = "#1e1e1e" // Near-black — code block background
-	MdMuted    = "#6a9955" // Olive green — dimmed elements
-	MdKeyword  = "#c586c0" // Lavender — syntax keywords
-	MdString   = "#ce9178" // Orange-brown — string literals
-	MdNumber   = "#b5cea8" // Light green — number literals
-	MdDeleted  = "#f44747" // Red — deleted text
-	MdInserted = "#4ec9b0" // Teal — inserted text
+	// Markdown rendering colors — Modern Dark palette.
+	// High-luminance accent colors on dark background for maximum readability.
+	MdHeading  = "#7dcfff" // Bright cyan — headings (bold)
+	MdLink     = "#82aaff" // Soft blue — link URLs
+	MdCode     = "#c3e88d" // Light green — inline code
+	MdCodeBg   = "#1a1b26" // Deep navy — code block background
+	MdMuted    = "#565f89" // Muted blue-gray — dimmed elements
+	MdKeyword  = "#bb9af7" // Lavender — syntax keywords
+	MdString   = "#e0af68" // Gold — string literals
+	MdNumber   = "#7aa2f7" // Blue — number literals
+	MdDeleted  = "#f7768e" // Coral red — deleted text
+	MdInserted = "#9ece6a" // Yellow-green — inserted text
 )

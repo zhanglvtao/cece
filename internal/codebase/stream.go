@@ -212,24 +212,29 @@ func emitOutput(ev *OutputEvent, out chan<- agent.ApiStreamEvent, state *streamS
 		}
 
 		// First appearance: tool_use start (has id + name)
-		if tc.ID != "" && tc.FunctionCall != nil && tc.FunctionCall.Name != "" {
-			// Close any previously opened tool calls with smaller indices
-			for idx := range state.activeToolIndices {
-				if idx < tc.Index {
-					out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
-					delete(state.activeToolIndices, idx)
+		if tc.ID != "" {
+			// Skip tool calls with empty name or missing function info.
+			if tc.FunctionCall == nil || tc.FunctionCall.Name == "" {
+				logger.Debug("codebase skipping tool call with empty name", "index", tc.Index, "id", tc.ID)
+			} else {
+				// Close any previously opened tool calls with smaller indices
+				for idx := range state.activeToolIndices {
+					if idx < tc.Index {
+						out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+						delete(state.activeToolIndices, idx)
+					}
 				}
-			}
-			state.activeToolIndices[tc.Index] = true
-			out <- agent.ApiStreamEvent{
-				EventType:    "content_block_start",
-				ToolCallID:   tc.ID,
-				ToolCallName: tc.FunctionCall.Name,
-				Index:        tc.Index,
+				state.activeToolIndices[tc.Index] = true
+				out <- agent.ApiStreamEvent{
+					EventType:    "content_block_start",
+					ToolCallID:   tc.ID,
+					ToolCallName: tc.FunctionCall.Name,
+					Index:        tc.Index,
+				}
 			}
 		}
 
-		// Subsequent: input_json_delta
+		// Subsequent: input_json_delta (always process if arguments present)
 		if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
 			out <- agent.ApiStreamEvent{
 				EventType:     "content_block_delta",

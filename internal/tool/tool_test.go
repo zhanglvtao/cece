@@ -960,8 +960,23 @@ func TestValidateInputAllPresent(t *testing.T) {
 func TestValidateInputAcceptsEmptyStringForPresentRequiredField(t *testing.T) {
 	var b bashTool
 	result := validateInput(b.Info(), json.RawMessage(`{"command":""}`))
+	// Single required field that is empty-string is treated as missing — this
+	// catches codebase/aiden model artifacts where the model fails to fill in
+	// the parameter value.
+	if result == nil {
+		t.Fatalf("expected error when sole required field is empty, got nil")
+	}
+	if !result.IsError {
+		t.Fatalf("expected IsError=true, got false")
+	}
+}
+
+func TestValidateInputAllowsEmptyStringWhenOtherRequiredFieldPresent(t *testing.T) {
+	// Edit tool: new_string="" is valid (delete semantics) when old_string and path are set.
+	var e editTool
+	result := validateInput(e.Info(), json.RawMessage(`{"path":"/tmp/x","old_string":"foo","new_string":""}`))
 	if result != nil {
-		t.Fatalf("expected nil when required field is present but empty, got: %v", result)
+		t.Fatalf("expected nil when other required fields have content, got: %v", result)
 	}
 }
 

@@ -4,12 +4,56 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"charm.land/lipgloss/v2"
+	"cece/internal/ui/theme"
 )
 
 const (
 	toolPreviewBytes    = 2000
 	toolPreviewMaxLines = 3
+	diffPreviewMaxLines = 20
 )
+
+var (
+	diffStyleDel   = lipgloss.NewStyle().Foreground(theme.Red)
+	diffStyleAdd   = lipgloss.NewStyle().Foreground(theme.Green)
+	diffStyleHunk  = lipgloss.NewStyle().Foreground(theme.Primary)
+	diffStyleHeader = lipgloss.NewStyle().Foreground(theme.FgMuted)
+)
+
+// renderDiffText applies ANSI colors to unified diff output:
+// red for deletions, green for insertions, cyan for hunk headers.
+func renderDiffText(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ "):
+			lines[i] = diffStyleHeader.Render(line)
+		case strings.HasPrefix(line, "-"):
+			lines[i] = diffStyleDel.Render(line)
+		case strings.HasPrefix(line, "+"):
+			lines[i] = diffStyleAdd.Render(line)
+		case strings.HasPrefix(line, "@@"):
+			lines[i] = diffStyleHunk.Render(line)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// isDiffTool returns true for tools whose output is unified diff format.
+func isDiffTool(name string) bool {
+	return name == "Edit" || name == "Write"
+}
+
+// diffAwareMaxLines returns diffPreviewMaxLines if the content looks like
+// unified diff output, otherwise toolPreviewMaxLines.
+func diffAwareMaxLines(content string) int {
+	if strings.Contains(content, "--- a/") || strings.Contains(content, "+++ b/") {
+		return diffPreviewMaxLines
+	}
+	return toolPreviewMaxLines
+}
 
 func formatJSONPreview(raw json.RawMessage) string {
 	if len(raw) == 0 {

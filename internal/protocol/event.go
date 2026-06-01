@@ -43,13 +43,6 @@ type PromptLayerDryRun struct {
 	Content       string
 }
 
-type SystemBlockDryRun struct {
-	Index         int
-	CacheControl  map[string]string
-	TokenEstimate int
-	Text          string
-}
-
 type MessageDryRun struct {
 	Index   int
 	Role    string
@@ -59,6 +52,7 @@ type MessageDryRun struct {
 type ToolDryRun struct {
 	Name        string
 	Description string
+	InputSchema map[string]any
 }
 
 // RequestDryRunEvent contains the full request preview built without a model call.
@@ -67,7 +61,6 @@ type RequestDryRunEvent struct {
 	MaxTokens            int
 	EstimatedInputTokens  int
 	PromptLayers         []PromptLayerDryRun
-	SystemBlocks         []SystemBlockDryRun
 	Messages             []MessageDryRun
 	Tools                []ToolDryRun
 }

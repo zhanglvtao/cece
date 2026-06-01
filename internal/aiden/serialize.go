@@ -136,13 +136,21 @@ func serializeResponsesMessage(m agent.Message) []ResponsesInputItem {
 
 	if m.Role == agent.AssistantRole {
 		var items []ResponsesInputItem
-		if text := assistantText(m); text != "" {
+		text := assistantText(m)
+		if text != "" {
 			items = append(items, ResponsesInputItem{
 				Type: "message",
 				Role: "assistant",
 				Content: []AidenContentPart{
 					{Type: "output_text", Text: text},
 				},
+			})
+		} else if len(m.ContentBlocks) > 0 {
+			// Ensure at least one message item exists for tool-only responses.
+			items = append(items, ResponsesInputItem{
+				Type:    "message",
+				Role:    "assistant",
+				Content: []AidenContentPart{{Type: "output_text", Text: " "}},
 			})
 		}
 		for _, cb := range m.ContentBlocks {
@@ -192,6 +200,11 @@ func serializeMessage(m agent.Message) AidenMsg {
 			}
 		}
 		msg.Content = assistantText(m)
+		// Aiden API requires the content field to be present even for
+		// tool-only assistant messages. Use a space as minimal valid content.
+		if msg.Content == "" && len(msg.ToolCalls) > 0 {
+			msg.Content = " "
+		}
 		return msg
 	}
 

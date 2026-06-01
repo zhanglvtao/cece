@@ -399,16 +399,6 @@ func formatDryRun(e protocol.RequestDryRunEvent) string {
 		b.WriteString(indent(strings.TrimRight(layer.Content, "\n"), "  "))
 		b.WriteString("\n")
 	}
-	b.WriteString("\n[system blocks]\n")
-	for _, block := range e.SystemBlocks {
-		cache := "none"
-		if len(block.CacheControl) > 0 {
-			cache = block.CacheControl["type"]
-		}
-		b.WriteString(fmt.Sprintf("- #%d tokens=%d cache=%s\n", block.Index, block.TokenEstimate, cache))
-		b.WriteString(indent(strings.TrimRight(block.Text, "\n"), "  "))
-		b.WriteString("\n")
-	}
 	b.WriteString("\n[messages]\n")
 	for _, msg := range e.Messages {
 		b.WriteString(fmt.Sprintf("- #%d %s\n", msg.Index, msg.Role))
@@ -421,8 +411,54 @@ func formatDryRun(e protocol.RequestDryRunEvent) string {
 	} else {
 		for _, tool := range e.Tools {
 			b.WriteString(fmt.Sprintf("- %s: %s\n", tool.Name, tool.Description))
+			if props, ok := tool.InputSchema["properties"].(map[string]any); ok && len(props) > 0 {
+				required := requiredFields(tool.InputSchema)
+				for name, def := range props {
+					prop, _ := def.(map[string]any)
+					typ, _ := prop["type"].(string)
+					desc, _ := prop["description"].(string)
+					req := ""
+					if containsString(required, name) {
+						req = " [required]"
+					}
+					if desc != "" {
+						b.WriteString(fmt.Sprintf("    %s (%s): %s%s\n", name, typ, desc, req))
+					} else {
+						b.WriteString(fmt.Sprintf("    %s (%s)%s\n", name, typ, req))
+					}
+				}
+			}
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func requiredFields(schema map[string]any) []string {
+	raw, ok := schema["required"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []any:
+		var fields []string
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				fields = append(fields, s)
+			}
+		}
+		return fields
+	}
+	return nil
+}
+
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 

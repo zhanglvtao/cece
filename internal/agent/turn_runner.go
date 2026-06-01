@@ -4,11 +4,16 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"cece/internal/prompt"
+	"cece/internal/tool"
 )
 
-type TurnRequest struct {
-	Messages []Message
-	System   SystemPrompt
+type TurnPlan struct {
+	Messages       []Message
+	System         SystemPrompt          // 给 API 的 system blocks
+	AssembleResult prompt.AssembleResult // 原始组装结果，供 dryrun 使用
+	Tools          []tool.Definition     // 工具定义（含 InputSchema）
 }
 
 // TurnDeps contains the Runtime-owned operations a turn needs while keeping
@@ -45,9 +50,9 @@ func NewTurnRunner(streamer *ModelStreamer, interactionGate *InteractionGate, to
 	}
 }
 
-func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Event) {
+func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event) {
 	// Agent loop: keep calling the model until it stops requesting tools.
-	messages := req.Messages
+	messages := plan.Messages
 	turnStart := time.Now()
 	reason := "user"
 	var toolResultNames []string
@@ -56,7 +61,7 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 
 		resp, err := r.streamer.Stream(ctx, ModelStreamRequest{
 			Messages:    messages,
-			System:      req.System,
+			System:      plan.System,
 			Reason:      reason,
 			MaxTokens:   r.maxTokens,
 			ToolResults: toolResultNames,
@@ -77,7 +82,7 @@ func (r *TurnRunner) Run(ctx context.Context, req TurnRequest, events chan<- Eve
 			r.deps.IncrementAPICalls()
 			resp, err = r.streamer.Stream(ctx, ModelStreamRequest{
 				Messages:    messages,
-				System:      req.System,
+				System:      plan.System,
 				Reason:      reason,
 				MaxTokens:   escalatedMaxTokens,
 				ToolResults: toolResultNames,

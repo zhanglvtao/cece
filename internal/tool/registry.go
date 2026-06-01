@@ -70,6 +70,13 @@ func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessa
 
 // validateInput checks that all required fields in the tool's InputSchema
 // are present in the input JSON. Returns nil on success.
+//
+// It distinguishes three cases:
+//   - Key truly absent (e.g. {"path":"/tmp/x"} missing "content"): always error
+//   - All required keys present but every value is empty-string (e.g. {"pattern":""}):
+//     error -- catches codebase/aiden model artifacts where the model fails to fill params
+//   - Some required fields empty but others have content (e.g. Edit new_string="" with
+//     old_string="foo"): allowed -- intentional empty values like delete semantics
 func validateInput(def Definition, input json.RawMessage) *Result {
 	required := getRequiredFields(def.InputSchema)
 	if len(required) == 0 {
@@ -84,12 +91,32 @@ func validateInput(def Definition, input json.RawMessage) *Result {
 
 	props, _ := def.InputSchema["properties"].(map[string]any)
 
-	var missing []string
+	var missing []string   // truly absent keys
+	var emptyFields []string // keys present but empty-string
+	var hasNonEmpty bool     // any required field has real content
+
 	for _, field := range required {
-		_, exists := params[field]
+		val, exists := params[field]
 		if !exists {
 			missing = append(missing, field)
+			continue
 		}
+		if s, ok := val.(string); ok && strings.TrimSpace(s) == "" {
+			emptyFields = append(emptyFields, field)
+		} else {
+			hasNonEmpty = true
+		}
+	}
+
+	// Truly missing keys always produce an error.
+	if len(missing) > 0 {
+		// fall through to error path below
+	} else if len(emptyFields) > 0 && !hasNonEmpty {
+		// All required fields are present but every one is empty-string;
+		// catches codebase model artifacts like {"pattern":""}.
+		missing = emptyFields
+	} else {
+		return nil
 	}
 
 	if len(missing) == 0 {

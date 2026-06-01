@@ -745,7 +745,8 @@ func (e *Engine) shouldAutoCompact(input string, user agent.Message) bool {
 
 	snapshot := buildTurnSnapshot(history, user, planState, false)
 	bootstrap := agent.NewTurnBootstrap(e, agent.NewSessionCoordinator(e.store), nil)
-	dry := bootstrap.BuildDryRunRequest(input, snapshot)
+	plan := bootstrap.BuildTurnPlan(input, snapshot)
+	dry := bootstrap.BuildDryRunRequest(input, plan)
 	threshold := contextWindow * autoCompactThresholdPermille / 1000
 	return dry.EstimatedInputTokens >= threshold
 }
@@ -827,7 +828,8 @@ func (e *Engine) DryRunRequest(input string) {
 	user := agent.Message{Role: agent.UserRole, Content: input}
 	snapshot := e.previewInputTurn(user)
 	bootstrap := agent.NewTurnBootstrap(e, agent.NewSessionCoordinator(e.store), nil)
-	e.emitEvent(agent.ToDTO(bootstrap.BuildDryRunRequest(input, snapshot)))
+	plan := bootstrap.BuildTurnPlan(input, snapshot)
+	e.emitEvent(agent.ToDTO(bootstrap.BuildDryRunRequest(input, plan)))
 }
 
 func (e *Engine) beginInputTurn(user agent.Message) []agent.Message {

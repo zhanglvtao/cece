@@ -69,7 +69,8 @@ func TestBuildDryRunRequestIncludesLayersMessagesAndTools(t *testing.T) {
 		history:   []Message{{Role: UserRole, Content: "old"}},
 	}
 	bootstrap := NewTurnBootstrap(eng, nil, nil)
-	dry := bootstrap.BuildDryRunRequest("hello", []Message{{Role: UserRole, Content: "hello"}})
+	plan := bootstrap.BuildTurnPlan("hello", []Message{{Role: UserRole, Content: "hello"}})
+	dry := bootstrap.BuildDryRunRequest("hello", plan)
 
 	if dry.Input != "hello" || dry.MaxTokens != 1234 {
 		t.Fatalf("dryrun meta = %#v", dry)

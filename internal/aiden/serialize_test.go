@@ -258,8 +258,8 @@ func TestSerializeAssistantThinkingAndToolUseKeepsEmptyContent(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
-	if result[0].Content != "" {
-		t.Fatalf("expected assistant content empty, got %q", result[0].Content)
+	if result[0].Content != " " {
+		t.Fatalf("expected assistant content ' ' (space placeholder), got %q", result[0].Content)
 	}
 	if len(result[0].ToolCalls) != 1 {
 		t.Fatalf("expected 1 tool call, got %d", len(result[0].ToolCalls))
@@ -287,8 +287,8 @@ func TestSerializeAssistantToolOnlyKeepsEmptyContent(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
-	if result[0].Content != "" {
-		t.Fatalf("expected assistant content empty, got %q", result[0].Content)
+	if result[0].Content != " " {
+		t.Fatalf("expected assistant content ' ' (space placeholder), got %q", result[0].Content)
 	}
 	if len(result[0].ToolCalls) != 1 {
 		t.Fatalf("expected 1 tool call, got %d", len(result[0].ToolCalls))
