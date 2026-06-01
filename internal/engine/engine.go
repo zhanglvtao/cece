@@ -297,29 +297,37 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 		}
 	}
 
-	// Build a restricted tool registry for the sub-agent.
+	// Build tool registry for the sub-agent.
+	// Default: all tools except Agent (prevent nesting).
+	// If LLM specifies tools, use that list (still excluding Agent).
 	subRegistry := tool.NewRegistry()
-	allowed := cfg.Tools
-	if len(allowed) == 0 {
-		allowed = agent.SubAgentToolNames()
-	}
-	excluded := agent.SubAgentExcludedToolNames()
-	excludedSet := make(map[string]struct{}, len(excluded))
-	for _, n := range excluded {
-		excludedSet[n] = struct{}{}
-	}
-	for _, name := range allowed {
-		if _, skip := excludedSet[name]; skip {
-			continue
+	agentExcluded := map[string]struct{}{"Agent": {}}
+
+	if len(cfg.Tools) > 0 {
+		// LLM-specified tool list
+		for _, name := range cfg.Tools {
+			if _, skip := agentExcluded[name]; skip {
+				continue
+			}
+			t, ok := e.registry.Get(name)
+			if !ok {
+				continue
+			}
+			subRegistry.Register(t)
 		}
-		t, ok := e.registry.Get(name)
-		if !ok {
-			continue
+	} else {
+		// Default: all parent tools except Agent
+		for _, def := range e.registry.Definitions() {
+			if _, skip := agentExcluded[def.Name]; skip {
+				continue
+			}
+			t, ok := e.registry.Get(def.Name)
+			if !ok {
+				continue
+			}
+			subRegistry.Register(t)
 		}
-		subRegistry.Register(t)
 	}
-	// Also add MCP tools that are in the allowed list
-	// (MCP tools are already in the main registry)
 
 	subAgentConfig := agent.SubAgentConfig{
 		Prompt:            cfg.Prompt,

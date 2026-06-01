@@ -76,7 +76,7 @@ func (agentTool) Info() Definition {
 				"tools": map[string]any{
 					"type":        "array",
 					"items":       map[string]any{"type": "string"},
-					"description": "Override the tool list for this sub-agent. By default, uses the type's tool set. The Agent tool itself is always excluded to prevent nesting.",
+					"description": "Override the tool list for this sub-agent. By default, all parent tools are available except Agent (prevents nesting). Available tools: Bash, Read, Write, Edit, Grep, Glob, WebFetch, Compact, Skill, Todo, EnterPlanMode, ExitPlanMode, AskUserQuestion.",
 				},
 				"system_prompt": map[string]any{
 					"type":        "string",

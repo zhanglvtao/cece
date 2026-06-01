@@ -133,33 +133,6 @@ func (sa *SubAgent) Run(ctx context.Context) SubAgentResult {
 	}
 }
 
-// SubAgentToolNames returns the default tool names available to sub-agents.
-// This excludes tools that should not be available in sub-agents.
-func SubAgentToolNames() []string {
-	return []string{
-		"Bash",
-		"Read",
-		"Write",
-		"Edit",
-		"Grep",
-		"Glob",
-		"WebFetch",
-	}
-}
-
-// SubAgentExcludedToolNames returns tool names that must NOT be available to sub-agents.
-func SubAgentExcludedToolNames() []string {
-	return []string{
-		"Agent",
-		"Todo",
-		"EnterPlanMode",
-		"ExitPlanMode",
-		"AskUserQuestion",
-		"Skill",
-		"Compact",
-	}
-}
-
 // buildSubAgentSystemPrompt builds the default system prompt for a sub-agent.
 func buildSubAgentSystemPrompt(config SubAgentConfig) SystemPrompt {
 	base := fmt.Sprintf(`You are an autonomous sub-agent for Cece. Your job is to complete the task described below thoroughly and report back with a concise summary.
