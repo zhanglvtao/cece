@@ -30,13 +30,20 @@ func NewInteractionGate(registry *tool.Registry, planState *tool.PlanModeState, 
 
 func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBlock, events chan<- Event) error {
 	if g.yolo || g.isAutoAccept() || shouldAutoApproveToolCalls(calls) {
-		// Auto-approve: yolo mode or single EnterPlanMode.
+		// Auto-approve: yolo mode, auto-accept mode, or single EnterPlanMode.
 		return nil
 	}
-	if g.isWriteEffectFree(calls) {
-		// Auto-approve in Default mode: read/exec/mode tools (no write).
+
+	// In default mode: all tools auto-approve unless LLM explicitly marks
+	// require_confirmation=true in the tool input.
+	if g.isDefaultMode() {
+		if hasExplicitConfirmation(calls) {
+			events <- ToolCallsReady{Calls: calls}
+			return g.wait(ctx)
+		}
 		return nil
 	}
+
 	if g.isPlansDirOnlyWrites(calls) {
 		// Auto-approve in Plan mode: all writes target the plans directory.
 		return nil
@@ -104,32 +111,33 @@ func hasAskUserQuestion(calls []ApiToolUseBlock) bool {
 	return false
 }
 
+// isDefaultMode returns true when the current permission mode is default.
+func (g *InteractionGate) isDefaultMode() bool {
+	if g.planState == nil {
+		return true
+	}
+	return g.planState.Mode() == tool.PermissionModeDefault
+}
+
+// hasExplicitConfirmation checks if any tool call has require_confirmation=true in its input.
+func hasExplicitConfirmation(calls []ApiToolUseBlock) bool {
+	for _, c := range calls {
+		var params struct {
+			RequireConfirmation bool `json:"require_confirmation"`
+		}
+		if json.Unmarshal(c.Input, &params) == nil && params.RequireConfirmation {
+			return true
+		}
+	}
+	return false
+}
+
 // isAutoAccept returns true when the current permission mode is auto-accept.
 func (g *InteractionGate) isAutoAccept() bool {
 	if g.planState == nil {
 		return false
 	}
 	return g.planState.Mode() == tool.PermissionModeAutoAccept
-}
-
-// isWriteEffectFree returns true when no tool call in the batch has a write effect.
-// Write-effect tools (Edit, Write) still require UI confirmation (or are denied in Plan mode).
-// EnterPlanMode / ExitPlanMode are special-case mode tools that have their own approval flow;
-// they return false so the caller routes through plan-approval or confirmation dialogs.
-func (g *InteractionGate) isWriteEffectFree(calls []ApiToolUseBlock) bool {
-	for _, c := range calls {
-		t, ok := g.registry.Get(c.Name)
-		if !ok {
-			return false
-		}
-		if tool.EffectOf(t) == tool.EffectWrite {
-			return false
-		}
-		if tool.EffectOf(t) == tool.EffectMode {
-			return false
-		}
-	}
-	return true
 }
 
 // isPlanMode returns true when the current permission mode is plan.
