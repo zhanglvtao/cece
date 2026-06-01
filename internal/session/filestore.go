@@ -23,6 +23,9 @@ type FileStore struct {
 }
 
 // NewFileStore creates a FileStore rooted at {projectDir}/.cece/sessions/.
+// Dir returns the directory where session files are stored.
+func (s *FileStore) Dir() string { return s.dir }
+
 func NewFileStore(projectDir string) *FileStore {
 	dir := filepath.Join(projectDir, ".cece", "sessions")
 	return &FileStore{dir: dir}

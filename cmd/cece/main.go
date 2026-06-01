@@ -16,8 +16,10 @@ import (
 	"cece/internal/claude"
 	"cece/internal/codebase"
 	"cece/internal/config"
+	"cece/internal/daemon"
 	"cece/internal/engine"
 	"cece/internal/ipc"
+	"cece/internal/lint"
 	"cece/internal/logger"
 	"cece/internal/mcp"
 	"cece/internal/prompt"
@@ -80,8 +82,13 @@ func createClient(pc config.ProviderConfig, model string, configName string) age
 
 func main() {
 	projectDir, _ := os.Getwd()
-	if len(os.Args) > 1 && os.Args[1] == "engine" {
-		os.Exit(runEngineStdio(projectDir, os.Args[2:]))
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "engine":
+			os.Exit(runEngineStdio(projectDir, os.Args[2:]))
+		case "hub":
+			os.Exit(runHub(projectDir, os.Args[2:]))
+		}
 	}
 	os.Exit(runTUI(projectDir))
 }
@@ -115,7 +122,9 @@ func runTUI(projectDir string) int {
 }
 
 func runEngineStdio(defaultProjectDir string, args []string) int {
-	projectDir := defaultProjectDir
+	var projectDir string
+	var socketPath string
+	var sessionID string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--project-dir":
@@ -124,6 +133,16 @@ func runEngineStdio(defaultProjectDir string, args []string) int {
 				i++
 			}
 		case "--stdio":
+		case "--socket":
+			if i+1 < len(args) {
+				socketPath = args[i+1]
+				i++
+			}
+		case "--session-id":
+			if i+1 < len(args) {
+				sessionID = args[i+1]
+				i++
+			}
 		}
 	}
 
@@ -134,7 +153,23 @@ func runEngineStdio(defaultProjectDir string, args []string) int {
 	}
 	defer bundle.cleanup()
 
-	if err := ipc.Serve(context.Background(), bundle.mediator, os.Stdin, os.Stdout); err != nil {
+	// If a session-id is provided, load it immediately so the engine
+	// starts with the correct history instead of a blank state.
+	if sessionID != "" {
+		bundle.mediator.Do(protocol.LoadSessionAction{SessionID: sessionID})
+	}
+
+	ctx := context.Background()
+
+	if socketPath != "" {
+		if err := ipc.ServeSocket(ctx, bundle.mediator, socketPath); err != nil {
+			logger.Error("engine socket exited", "error", err)
+			return 1
+		}
+		return 0
+	}
+
+	if err := ipc.Serve(ctx, bundle.mediator, os.Stdin, os.Stdout); err != nil {
 		logger.Error("engine stdio exited", "error", err)
 		return 1
 	}
@@ -194,6 +229,10 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		tool.NewSkillTool(skillStore),
 		tool.NewTask(taskList),
 	)
+
+	if len(cfg.Lint) > 0 {
+		registry.SetLinter(lint.NewRunner(cfg.Lint, projectDir))
+	}
 
 	ctx := context.Background()
 
@@ -386,4 +425,191 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		defaultMode:   cfg.DefaultMode,
 		cleanup:       cleanup,
 	}, nil
+}
+
+// ── Hub subcommand ──────────────────────────────────────────────────────────
+
+func runHub(projectDir string, args []string) int {
+	if len(args) == 0 {
+		args = []string{"start"}
+	}
+	switch args[0] {
+	case "start":
+		return runHubStart(projectDir)
+	case "stop":
+		return runHubStop()
+	case "status":
+		return runHubStatus()
+	case "tui":
+		sessionID := ""
+		if len(args) > 1 {
+			sessionID = args[1]
+		}
+		return runHubTUI(projectDir, sessionID)
+	case "session":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: cece hub session <list|run|input|cancel|delete>")
+			return 1
+		}
+		return runHubSession(args[1], args[2:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown hub command: %s\n", args[0])
+		return 1
+	}
+}
+
+func runHubStart(projectDir string) int {
+	meta, err := loadMetadata(projectDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 1
+	}
+	_ = meta
+
+	hub, err := daemon.NewHub(projectDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hub init failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(os.Stderr, "cece hub started on %s\n", hub.SocketPath())
+
+	if err := hub.Run(); err != nil {
+		logger.Error("hub exited", "error", err)
+		return 1
+	}
+	return 0
+}
+
+func runHubStop() int {
+	client := daemon.NewHubClient()
+	if err := client.Shutdown(); err != nil {
+		fmt.Fprintf(os.Stderr, "hub stop failed: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(os.Stderr, "hub stopped")
+	return 0
+}
+
+func runHubStatus() int {
+	client := daemon.NewHubClient()
+	status, err := client.Status()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hub not running: %v\n", err)
+		return 1
+	}
+	fmt.Printf("running: %v\nproject: %s\nsocket: %s\nactive: %d\nsessions: %d\n",
+		status.Running, status.ProjectDir, status.SocketPath, status.ActiveCount, status.SessionCount)
+	return 0
+}
+
+func runHubTUI(projectDir, sessionID string) int {
+	meta, err := loadMetadata(projectDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 1
+	}
+	defer logger.Sync()
+
+	client := daemon.NewHubClient()
+
+	if sessionID == "" {
+		sess, err := client.CreateSession()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "hub create session failed: %v\n", err)
+			return 1
+		}
+		sessionID = sess.ID
+	}
+
+	remoteClient, err := daemon.DialEngineSocket(context.Background(), projectDir, sessionID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "connect to engine failed: %v\n", err)
+		return 1
+	}
+	defer remoteClient.Close()
+
+	model := ui.NewModel(remoteClient, meta.model, projectDir, meta.contextWindow)
+	model.SetDefaultMode(meta.defaultMode)
+	model.SetSessions(session.NewFileStore(projectDir))
+	model.SetSkillStore(skill.NewStore(skill.DiscoverAll(projectDir)))
+
+	program := tea.NewProgram(&model)
+	if _, err := program.Run(); err != nil {
+		logger.Error("program exited", "error", err)
+		return 1
+	}
+	return 0
+}
+
+func runHubSession(subCmd string, args []string) int {
+	client := daemon.NewHubClient()
+
+	switch subCmd {
+	case "list", "ls":
+		sessions, err := client.ListSessions()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		for _, s := range sessions {
+			fmt.Printf("%s  %-10s  %-8s  %s\n", s.ID[:8], s.Status, s.Source, s.Title)
+		}
+		return 0
+
+	case "run":
+		if len(args) == 0 {
+			fmt.Fprintln(os.Stderr, "usage: cece hub session run <prompt>")
+			return 1
+		}
+		sess, err := client.CreateSession()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "create session failed: %v\n", err)
+			return 1
+		}
+		if err := client.SendInput(sess.ID, args[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "send input failed: %v\n", err)
+			return 1
+		}
+		fmt.Printf("session %s created and running\n", sess.ID[:8])
+		return 0
+
+	case "input":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: cece hub session input <id> <text>")
+			return 1
+		}
+		if err := client.SendInput(args[0], args[1]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
+
+	case "cancel":
+		if len(args) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cece hub session cancel <id>")
+			return 1
+		}
+		if err := client.CancelSession(args[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
+
+	case "delete", "rm":
+		if len(args) < 1 {
+			fmt.Fprintln(os.Stderr, "usage: cece hub session delete <id>")
+			return 1
+		}
+		if err := client.DeleteSession(args[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Printf("session %s deleted\n", args[0][:8])
+		return 0
+
+	default:
+		fmt.Fprintf(os.Stderr, "unknown session command: %s\n", subCmd)
+		return 1
+	}
 }
