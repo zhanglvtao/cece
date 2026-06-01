@@ -40,7 +40,7 @@ func (compactTool) Effect() Effect { return EffectMode }
 func (compactTool) Info() Definition {
 	return Definition{
 		Name:        CompactToolName,
-		Description: "Compress conversation context when it grows too large. Use this tool proactively when you notice the conversation is getting long, you've shifted to a new topic, or older context is no longer needed. Choose the strategy that fits: 'summary' for LLM-generated summaries (costs API tokens), 'trim_tool_results' to remove tool output content (free), or 'prune' to delete old messages entirely (free, most aggressive).",
+		Description: "Compress conversation context. Use this tool proactively — you are responsible for managing your own context window. Compact when: the conversation is getting long, you've shifted to a new topic, older context is no longer needed, or you feel your attention is being diluted. Choose the strategy that fits: 'summary' for LLM-generated summaries (costs API tokens), 'trim_tool_results' to remove tool output content (free), or 'prune' to delete old messages entirely (free, most aggressive).",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"strategy"},
