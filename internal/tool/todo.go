@@ -7,28 +7,28 @@ import (
 	"sync"
 )
 
-const TaskToolName = "Task"
+const TodoToolName = "Todo"
 
-// TaskStatus represents the status of a task item.
-type TaskStatus string
+// TodoStatus represents the status of a todo item.
+type TodoStatus string
 
 const (
-	TaskPending    TaskStatus = "pending"
-	TaskInProgress TaskStatus = "in_progress"
-	TaskCompleted  TaskStatus = "completed"
+	TodoPending    TodoStatus = "pending"
+	TodoInProgress TodoStatus = "in_progress"
+	TodoCompleted  TodoStatus = "completed"
 )
 
-// TaskItem represents a single task in the task list.
-type TaskItem struct {
+// TodoItem represents a single item in the todo list.
+type TodoItem struct {
 	Content    string     `json:"content"`
 	ActiveForm string     `json:"activeForm"`
-	Status     TaskStatus `json:"status"`
+	Status     TodoStatus `json:"status"`
 }
 
-// TaskList holds the current set of tasks with version tracking for change detection.
+// TaskList holds the current set of todo items with version tracking for change detection.
 type TaskList struct {
 	mu      sync.Mutex
-	items   []TaskItem
+	items   []TodoItem
 	version int
 }
 
@@ -37,8 +37,8 @@ func NewTaskList() *TaskList {
 	return &TaskList{}
 }
 
-// Replace replaces the task list with new items and increments the version.
-func (t *TaskList) Replace(items []TaskItem) (int, int) {
+// Replace replaces the todo list with new items and increments the version.
+func (t *TaskList) Replace(items []TodoItem) (int, int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	oldVersion := t.version
@@ -47,11 +47,11 @@ func (t *TaskList) Replace(items []TaskItem) (int, int) {
 	return oldVersion, t.version
 }
 
-// Snapshot returns a copy of the current task items.
-func (t *TaskList) Snapshot() []TaskItem {
+// Snapshot returns a copy of the current todo items.
+func (t *TaskList) Snapshot() []TodoItem {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	out := make([]TaskItem, len(t.items))
+	out := make([]TodoItem, len(t.items))
 	copy(out, t.items)
 	return out
 }
@@ -63,22 +63,22 @@ func (t *TaskList) Version() int {
 	return t.version
 }
 
-// ── Task Tool ──────────────────────────────────────────────────────────────
+// ── Todo Tool ──────────────────────────────────────────────────────────────
 
-type taskTool struct {
+type todoTool struct {
 	taskList *TaskList
 }
 
-// NewTask creates a Task tool backed by the given TaskList.
-func NewTask(taskList *TaskList) Tool {
-	return taskTool{taskList: taskList}
+// NewTodo creates a Todo tool backed by the given TaskList.
+func NewTodo(taskList *TaskList) Tool {
+	return todoTool{taskList: taskList}
 }
 
-func (taskTool) Effect() Effect { return EffectMode }
+func (todoTool) Effect() Effect { return EffectMode }
 
-func (taskTool) Info() Definition {
+func (todoTool) Info() Definition {
 	return Definition{
-		Name:        TaskToolName,
+		Name:        TodoToolName,
 		Description: "Update the task list for the current session. Use this tool proactively to track progress on complex multi-step tasks (3+ steps). Each task has content (imperative form, e.g. 'Fix auth bug') and activeForm (present continuous, e.g. 'Fixing auth bug'). Only one task should be in_progress at a time. Mark tasks completed immediately after finishing. Do NOT use this for simple single-step tasks.",
 		InputSchema: map[string]any{
 			"type":     "object",
@@ -112,13 +112,13 @@ func (taskTool) Info() Definition {
 	}
 }
 
-func (t taskTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
+func (t todoTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
 	if t.taskList == nil {
 		return Result{Content: "task list is not configured", IsError: true}
 	}
 
 	var parsed struct {
-		Todos []TaskItem `json:"todos"`
+		Todos []TodoItem `json:"todos"`
 	}
 	if err := json.Unmarshal(input, &parsed); err != nil {
 		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}
@@ -127,7 +127,7 @@ func (t taskTool) Run(ctx context.Context, input json.RawMessage, emitter Emitte
 	// Validate statuses
 	for i, item := range parsed.Todos {
 		switch item.Status {
-		case TaskPending, TaskInProgress, TaskCompleted:
+		case TodoPending, TodoInProgress, TodoCompleted:
 		default:
 			return Result{Content: fmt.Sprintf("invalid status %q at index %d, must be pending/in_progress/completed", item.Status, i), IsError: true}
 		}
@@ -136,7 +136,7 @@ func (t taskTool) Run(ctx context.Context, input json.RawMessage, emitter Emitte
 	// If all completed, clear the list (auto-dismiss)
 	allDone := len(parsed.Todos) > 0
 	for _, item := range parsed.Todos {
-		if item.Status != TaskCompleted {
+		if item.Status != TodoCompleted {
 			allDone = false
 			break
 		}
@@ -155,11 +155,11 @@ func (t taskTool) Run(ctx context.Context, input json.RawMessage, emitter Emitte
 	var pending, inProgress, completed int
 	for _, item := range parsed.Todos {
 		switch item.Status {
-		case TaskPending:
+		case TodoPending:
 			pending++
-		case TaskInProgress:
+		case TodoInProgress:
 			inProgress++
-		case TaskCompleted:
+		case TodoCompleted:
 			completed++
 		}
 	}

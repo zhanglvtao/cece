@@ -254,7 +254,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		tool.NewExitPlanMode(planState),
 		tool.NewAskUserQuestion(),
 		tool.NewSkillTool(skillStore),
-		tool.NewTask(taskList),
+		tool.NewTodo(taskList),
 	)
 
 	if len(cfg.Lint) > 0 {
@@ -327,6 +327,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 	eng.SetTaskList(taskList)
 	eng.SetModelInfo(cfg.Model, contextWindow)
 	registry.Register(tool.NewCompact(eng.CompactHandler()))
+	registry.Register(tool.NewAgent(eng.AgentHandler()))
 	eng.SetToolResultPolicy(agent.ToolResultPolicy{
 		InlineMaxLines: cfg.ToolResult.InlineMaxLines,
 		HeadLines:      cfg.ToolResult.HeadLines,

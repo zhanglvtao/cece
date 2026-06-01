@@ -166,7 +166,20 @@ func ToDTO(e Event) protocol.Event {
 		return protocol.TurnCompleted{}
 
 	case TaskUpdated:
-		return protocol.TaskUpdatedEvent{Tasks: taskItemsToDTO(v.Tasks)}
+		return protocol.TodoUpdatedEvent{Tasks: taskItemsToDTO(v.Tasks)}
+
+	case SubAgentStarted:
+		return protocol.SubAgentStartedEvent{ID: v.ID, Description: v.Description}
+
+	case SubAgentCompleted:
+		return protocol.SubAgentCompletedEvent{
+			ID: v.ID, Description: v.Description,
+			InputTokens: v.InputTokens, OutputTokens: v.OutputTokens,
+			TurnsUsed: v.TurnsUsed, HitMaxTurns: v.HitMaxTurns,
+		}
+
+	case SubAgentFailed:
+		return protocol.SubAgentFailedEvent{ID: v.ID, Description: v.Description, Error: v.Error}
 
 	case ModeChangedDuringExec:
 		return protocol.ModeChangedEvent{Mode: protocol.PermissionMode(v.Mode), Message: v.Message}
@@ -337,13 +350,13 @@ func parseAskUserQuestions(input json.RawMessage) ([]tool.Question, error) {
 	return wrapper.Questions, nil
 }
 
-func taskItemsToDTO(items []tool.TaskItem) []protocol.TaskItem {
+func taskItemsToDTO(items []tool.TodoItem) []protocol.TodoItem {
 	if len(items) == 0 {
 		return nil
 	}
-	out := make([]protocol.TaskItem, len(items))
+	out := make([]protocol.TodoItem, len(items))
 	for i, item := range items {
-		out[i] = protocol.TaskItem{
+		out[i] = protocol.TodoItem{
 			Content:    item.Content,
 			ActiveForm: item.ActiveForm,
 			Status:     string(item.Status),

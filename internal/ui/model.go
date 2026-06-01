@@ -62,7 +62,7 @@ type Model struct {
 	height              int
 
 	streamHeadline      string // latest assistant text for inline indicator
-	tasks               []protocol.TaskItem
+	tasks               []protocol.TodoItem
 
 	styles      Styles
 	transcript  transcript
@@ -367,8 +367,19 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.RequestDryRunEvent:
 		m.status = "Dry run ready"
 		m.transcript.contextUsed = e.EstimatedInputTokens
-	case protocol.TaskUpdatedEvent:
+	case protocol.TodoUpdatedEvent:
 		m.tasks = e.Tasks
+	case protocol.SubAgentStartedEvent:
+		m.status = fmt.Sprintf("● %s", e.Description)
+	case protocol.SubAgentCompletedEvent:
+		if e.HitMaxTurns {
+			m.status = fmt.Sprintf("● %s done (hit max turns)", e.Description)
+		} else {
+			m.status = fmt.Sprintf("● %s done (%dK in / %dK out)", e.Description,
+				(e.InputTokens+999)/1000, (e.OutputTokens+999)/1000)
+		}
+	case protocol.SubAgentFailedEvent:
+		m.status = fmt.Sprintf("● %s failed: %s", e.Description, e.Error)
 	}
 	// Sync all status bar data from model state.
 	m.statusBar.UpdateMode(string(m.mode))

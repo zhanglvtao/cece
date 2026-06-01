@@ -281,6 +281,106 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	return tokensBefore, tokensAfter
 }
 
+// AgentHandler returns a tool.AgentHandler backed by this engine.
+func (e *Engine) AgentHandler() *tool.AgentHandler {
+	return &tool.AgentHandler{
+		RunSubAgent: e.runSubAgent,
+	}
+}
+
+func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, emitter tool.Emitter) (tool.AgentSubAgentResult, error) {
+	e.mu.Lock()
+	client := e.client
+	projectDir := e.projectDir
+	maxTokens := e.maxTokens
+	policy := e.toolResultPolicy
+	e.mu.Unlock()
+
+	// Build a restricted tool registry for the sub-agent.
+	subRegistry := tool.NewRegistry()
+	allowed := cfg.Tools
+	if len(allowed) == 0 {
+		allowed = agent.SubAgentToolNames()
+	}
+	excluded := agent.SubAgentExcludedToolNames()
+	excludedSet := make(map[string]struct{}, len(excluded))
+	for _, n := range excluded {
+		excludedSet[n] = struct{}{}
+	}
+	for _, name := range allowed {
+		if _, skip := excludedSet[name]; skip {
+			continue
+		}
+		t, ok := e.registry.Get(name)
+		if !ok {
+			continue
+		}
+		subRegistry.Register(t)
+	}
+	// Also add MCP tools that are in the allowed list
+	// (MCP tools are already in the main registry)
+
+	subAgentConfig := agent.SubAgentConfig{
+		Prompt:            cfg.Prompt,
+		Description:       cfg.Description,
+		SystemPromptExtra: cfg.SystemPromptExtra,
+		ProjectDir:        projectDir,
+		MaxTokens:         maxTokens,
+		MaxTurns:          cfg.MaxTurns,
+		ToolResultPolicy:  policy,
+	}
+
+	subAgent := agent.NewSubAgent(client, subRegistry, subAgentConfig)
+
+	// Emit start event
+	agentID := fmt.Sprintf("agent-%d", e.apiCalls)
+	e.emitEvent(protocol.SubAgentStartedEvent{
+		ID:          agentID,
+		Description: cfg.Description,
+	})
+
+	result := subAgent.Run(ctx)
+
+	// Emit completion/failure event
+	if result.HitMaxTurns || (result.Content != "" && len(result.Content) > 0 && result.Content[0] == '<') {
+		// Check if it looks like an error
+		if result.Content != "" && len(result.Content) > 0 {
+			e.emitEvent(protocol.SubAgentCompletedEvent{
+				ID:           agentID,
+				Description:  cfg.Description,
+				InputTokens:  result.InputTokens,
+				OutputTokens: result.OutputTokens,
+				TurnsUsed:    result.TurnsUsed,
+				HitMaxTurns:  result.HitMaxTurns,
+			})
+		}
+	} else {
+		e.emitEvent(protocol.SubAgentCompletedEvent{
+			ID:           agentID,
+			Description:  cfg.Description,
+			InputTokens:  result.InputTokens,
+			OutputTokens: result.OutputTokens,
+			TurnsUsed:    result.TurnsUsed,
+			HitMaxTurns:  result.HitMaxTurns,
+		})
+	}
+
+	// Accumulate tokens to parent session
+	e.mu.Lock()
+	e.totalInputTokens += result.InputTokens
+	e.totalOutputTokens += result.OutputTokens
+	e.apiCalls += result.TurnsUsed + 1
+	e.mu.Unlock()
+
+	return tool.AgentSubAgentResult{
+		Content:      result.Content,
+		InputTokens:  result.InputTokens,
+		OutputTokens: result.OutputTokens,
+		TurnsUsed:    result.TurnsUsed,
+		HitMaxTurns:  result.HitMaxTurns,
+	}, nil
+}
+
 func (e *Engine) SetLastInputTokens(tokens int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

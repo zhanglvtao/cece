@@ -91,7 +91,10 @@ var eventKinds = map[string]func() protocol.Event{
 	"session_loaded":            func() protocol.Event { return &protocol.SessionLoadedEvent{} },
 	"mcp_servers_listed":        func() protocol.Event { return &protocol.MCPServersListedEvent{} },
 	"mcp_server_status_changed": func() protocol.Event { return &protocol.MCPServerStatusChangedEvent{} },
-	"task_updated":              func() protocol.Event { return &protocol.TaskUpdatedEvent{} },
+	"task_updated":              func() protocol.Event { return &protocol.TodoUpdatedEvent{} },
+	"subagent_started":         func() protocol.Event { return &protocol.SubAgentStartedEvent{} },
+	"subagent_completed":       func() protocol.Event { return &protocol.SubAgentCompletedEvent{} },
+	"subagent_failed":          func() protocol.Event { return &protocol.SubAgentFailedEvent{} },
 	"tools_listed":              func() protocol.Event { return &protocol.ToolsListedEvent{} },
 }
 
@@ -314,7 +317,13 @@ func derefEvent(ev protocol.Event) protocol.Event {
 		return *v
 	case *protocol.MCPServerStatusChangedEvent:
 		return *v
-	case *protocol.TaskUpdatedEvent:
+	case *protocol.TodoUpdatedEvent:
+		return *v
+	case *protocol.SubAgentStartedEvent:
+		return *v
+	case *protocol.SubAgentCompletedEvent:
+		return *v
+	case *protocol.SubAgentFailedEvent:
 		return *v
 	case *protocol.ToolsListedEvent:
 		return *v

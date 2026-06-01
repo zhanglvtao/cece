@@ -348,12 +348,41 @@ type MCPServerStatusChangedEvent struct {
 
 func (MCPServerStatusChangedEvent) isEvent() {}
 
-// TaskUpdatedEvent is emitted when the task list changes.
-type TaskUpdatedEvent struct {
-	Tasks []TaskItem
+// TodoUpdatedEvent is emitted when the task list changes.
+type TodoUpdatedEvent struct {
+	Tasks []TodoItem
 }
 
-func (TaskUpdatedEvent) isEvent() {}
+func (TodoUpdatedEvent) isEvent() {}
+
+// SubAgentStartedEvent is emitted when a sub-agent begins executing.
+type SubAgentStartedEvent struct {
+	ID          string
+	Description string
+}
+
+func (SubAgentStartedEvent) isEvent() {}
+
+// SubAgentCompletedEvent is emitted when a sub-agent finishes successfully.
+type SubAgentCompletedEvent struct {
+	ID           string
+	Description  string
+	InputTokens  int
+	OutputTokens int
+	TurnsUsed    int
+	HitMaxTurns  bool
+}
+
+func (SubAgentCompletedEvent) isEvent() {}
+
+// SubAgentFailedEvent is emitted when a sub-agent fails.
+type SubAgentFailedEvent struct {
+	ID          string
+	Description string
+	Error       string
+}
+
+func (SubAgentFailedEvent) isEvent() {}
 
 // ToolsListedEvent is the response to ListToolsAction.
 type ToolsListedEvent struct {

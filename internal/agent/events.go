@@ -275,10 +275,39 @@ func (TurnCompleted) isEvent() {}
 
 // TaskUpdated is emitted when the task list changes.
 type TaskUpdated struct {
-	Tasks []tool.TaskItem
+	Tasks []tool.TodoItem
 }
 
 func (TaskUpdated) isEvent() {}
+
+// SubAgentStarted is emitted when a sub-agent begins executing.
+type SubAgentStarted struct {
+	ID          string
+	Description string
+}
+
+func (SubAgentStarted) isEvent() {}
+
+// SubAgentCompleted is emitted when a sub-agent finishes successfully.
+type SubAgentCompleted struct {
+	ID           string
+	Description  string
+	InputTokens  int
+	OutputTokens int
+	TurnsUsed    int
+	HitMaxTurns  bool
+}
+
+func (SubAgentCompleted) isEvent() {}
+
+// SubAgentFailed is emitted when a sub-agent fails.
+type SubAgentFailed struct {
+	ID          string
+	Description string
+	Error       string
+}
+
+func (SubAgentFailed) isEvent() {}
 
 // ModeChangedDuringExec is emitted when permission mode changes during tool execution
 // (e.g. ExitPlanMode). The UI should update its mode display.
