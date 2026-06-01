@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cece Settings",
+  "description": "Cece configuration file. Place at ~/.cece/settings.json (global) or .cece/settings.json (project-level). Project settings override user settings.",
+
+  "provider": {
+    "model": "claude-sonnet-4-6",
+    "maxTokens": 16384,
+    "modelContextMapping": {
+      "claude-sonnet-4-6": 200000,
+      "claude-opus-4": 200000
+    },
+    "providers": [
+      {
+        "name": "anthropic",
+        "protocol": "anthropic",
+        "apiKey": "sk-ant-YOUR-API-KEY-HERE",
+        "baseURL": "https://api.anthropic.com",
+        "authMode": "apikey"
+      }
+    ]
+  },
+
+  "defaultMode": {
+    "mode": "default"
+  },
+
+  "debug": {
+    "enabled": false
+  },
+
+  "yolo": {
+    "enabled": false
+  },
+
+  "tool_result": {
+    "inline_max_lines": 200,
+    "head_lines": 80,
+    "tail_lines": 80
+  },
+
+  "mcp": {}
+}

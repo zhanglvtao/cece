@@ -47,93 +47,52 @@ Cece looks for settings in two locations (project-level overrides user-level):
 | `.cece/settings.json` | Project-level (checked into repo or per-project) |
 | `~/.cece/settings.json` | User-level (global default) |
 
-### Minimal Config
+### Quick Start
 
-Create `~/.cece/settings.json`:
-
-```json
-{
-  "provider": {
-    "model": "claude-sonnet-4-6",
-    "providers": [
-      {
-        "name": "anthropic",
-        "apiKey": "sk-ant-xxxxx",
-        "baseURL": "https://api.anthropic.com"
-      }
-    ]
-  }
-}
+```bash
+mkdir -p ~/.cece
+cp docs/settings.example.json ~/.cece/settings.json
+# Edit apiKey in ~/.cece/settings.json
 ```
 
-### Full Config Template
+### Config Template
 
-```json
-{
-  "provider": {
-    "model": "claude-sonnet-4-6",
-    "maxTokens": 16384,
-    "modelContextMapping": {
-      "claude-sonnet-4-6": 200000,
-      "claude-opus-4": 200000
-    },
-    "providers": [
-      {
-        "name": "anthropic",
-        "protocol": "anthropic",
-        "apiKey": "sk-ant-xxxxx",
-        "baseURL": "https://api.anthropic.com",
-        "authMode": "apikey",
-        "models": []
-      },
-      {
-        "name": "my-proxy",
-        "protocol": "anthropic",
-        "apiKey": "",
-        "baseURL": "https://my-proxy.example.com",
-        "authHelper": "aws ssm get-parameter --name /api/key --query Parameter.Value --output text"
-      },
-      {
-        "name": "codebase",
-        "protocol": "codebase",
-        "apiKey": "",
-        "baseURL": "https://codebase.example.com",
-        "models": [
-          {
-            "id": "my-model",
-            "displayName": "My Model",
-            "maxContextWindow": 128000,
-            "configName": "default"
-          }
-        ]
-      }
-    ]
-  },
-  "defaultMode": {
-    "mode": "default"
-  },
-  "debug": {
-    "enabled": false
-  },
-  "yolo": {
-    "enabled": false
-  },
-  "tool_result": {
-    "inline_max_lines": 200,
-    "head_lines": 80,
-    "tail_lines": 80
-  },
-  "mcp": {
-    "my-server": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "env": {},
-      "timeout": 15
-    }
-  }
-}
-```
+A ready-to-use template with all fields and comments: [`docs/settings.example.json`](docs/settings.example.json)
+
+### Field Reference
+
+**provider** section:
+
+| Field | Default | Description |
+|---|---|---|
+| `model` | `claude-sonnet-4-6` | Default model ID |
+| `maxTokens` | `16384` | Max output tokens per request |
+| `modelContextMapping` | — | Override context window per model (e.g. `{"claude-sonnet-4-6": 200000}`) |
+| `providers[]` | required | List of API providers |
+
+**provider.providers[]** fields:
+
+| Field | Default | Description |
+|---|---|---|
+| `name` | required | Provider identifier |
+| `protocol` | `anthropic` | `anthropic`, `codebase`, or `aiden` |
+| `apiKey` | — | Static API key |
+| `baseURL` | — | API endpoint URL |
+| `authMode` | `apikey` | `apikey` or `bearer` |
+| `authHelper` | — | Shell command to fetch dynamic token |
+| `models[]` | — | Static model list (for providers without /v1/models) |
+
+**Other sections:**
+
+| Field | Default | Description |
+|---|---|---|
+| `defaultMode.mode` | `default` | `default`, `auto-accept`, or `plan` |
+| `debug.enabled` | `false` | Enable debug logging to `.cece/cece.log` |
+| `yolo.enabled` | `false` | Auto-accept all tool calls |
+| `tool_result.inline_max_lines` | `200` | Max lines for inline tool output |
+| `tool_result.head_lines` | `80` | Head lines when truncated |
+| `tool_result.tail_lines` | `80` | Tail lines when truncated |
+| `mcp` | `{}` | MCP server connections (see [MCP](#mcp-model-context-protocol)) |
 
 ### Environment Variables
 

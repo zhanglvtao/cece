@@ -54,26 +54,10 @@ if [ -f ~/.cece/settings.json ]; then
     info "User config found: ~/.cece/settings.json"
 else
     warn "No config found at ~/.cece/settings.json"
-    warn "Create one with your API key before first use. Example:"
-    cat <<'EOF'
-
-  mkdir -p ~/.cece
-  cat > ~/.cece/settings.json << 'JSON'
-  {
-    "provider": {
-      "model": "claude-sonnet-4-6",
-      "providers": [
-        {
-          "name": "anthropic",
-          "apiKey": "sk-ant-...",
-          "baseURL": "https://api.anthropic.com"
-        }
-      ]
-    }
-  }
-  JSON
-
-EOF
+    warn "Create one with your API key before first use:"
+    warn "  mkdir -p ~/.cece"
+    warn "  cp docs/settings.example.json ~/.cece/settings.json"
+    warn "  # Then edit apiKey in ~/.cece/settings.json"
 fi
 
 info "Done. Run 'cece' to start."
