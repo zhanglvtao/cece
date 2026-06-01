@@ -11,21 +11,40 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"cece/internal/aiden"
 	"cece/internal/agent"
+	"cece/internal/aiden"
 	"cece/internal/claude"
 	"cece/internal/codebase"
 	"cece/internal/config"
 	"cece/internal/engine"
+	"cece/internal/ipc"
 	"cece/internal/logger"
 	"cece/internal/mcp"
 	"cece/internal/prompt"
 	"cece/internal/protocol"
+	"cece/internal/remote"
 	"cece/internal/session"
 	"cece/internal/skill"
 	"cece/internal/tool"
 	"cece/internal/ui"
 )
+
+type runtimeBundle struct {
+	mediator      *engine.EngineMediator
+	store         session.Store
+	skillStore    *skill.Store
+	model         string
+	contextWindow int
+	defaultMode   string
+	cleanup       func()
+}
+
+type runtimeMetadata struct {
+	model         string
+	contextWindow int
+	defaultMode   string
+	debug         bool
+}
 
 func createClient(pc config.ProviderConfig, model string, configName string) agent.ModelClient {
 	if configName == "" {
@@ -61,27 +80,103 @@ func createClient(pc config.ProviderConfig, model string, configName string) age
 
 func main() {
 	projectDir, _ := os.Getwd()
+	if len(os.Args) > 1 && os.Args[1] == "engine" {
+		os.Exit(runEngineStdio(projectDir, os.Args[2:]))
+	}
+	os.Exit(runTUI(projectDir))
+}
 
+func runTUI(projectDir string) int {
+	meta, err := loadMetadata(projectDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 1
+	}
+	defer logger.Sync()
+
+	client, err := remote.New(context.Background(), remote.Options{ProjectDir: projectDir})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "engine start failed: %v\n", err)
+		return 1
+	}
+	defer client.Close()
+
+	model := ui.NewModel(client, meta.model, projectDir, meta.contextWindow)
+	model.SetDefaultMode(meta.defaultMode)
+	model.SetSessions(session.NewFileStore(projectDir))
+	model.SetSkillStore(skill.NewStore(skill.DiscoverAll(projectDir)))
+
+	program := tea.NewProgram(&model)
+	if _, err := program.Run(); err != nil {
+		logger.Error("program exited", "error", err)
+		return 1
+	}
+	return 0
+}
+
+func runEngineStdio(defaultProjectDir string, args []string) int {
+	projectDir := defaultProjectDir
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--project-dir":
+			if i+1 < len(args) {
+				projectDir = args[i+1]
+				i++
+			}
+		case "--stdio":
+		}
+	}
+
+	bundle, err := buildRuntime(projectDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "engine init failed: %v\n", err)
+		return 1
+	}
+	defer bundle.cleanup()
+
+	if err := ipc.Serve(context.Background(), bundle.mediator, os.Stdin, os.Stdout); err != nil {
+		logger.Error("engine stdio exited", "error", err)
+		return 1
+	}
+	return 0
+}
+
+func loadMetadata(projectDir string) (runtimeMetadata, error) {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "config load failed: %v\n", err)
-		os.Exit(1)
+		return runtimeMetadata{}, fmt.Errorf("config load failed: %w", err)
+	}
+	logPath := filepath.Join(projectDir, ".cece", "cece.log")
+	if err := logger.Init(logPath, cfg.Debug); err != nil {
+		return runtimeMetadata{}, fmt.Errorf("logger init failed: %w", err)
+	}
+	logger.Info("cece tui starting", "model", cfg.Model)
+	return runtimeMetadata{
+		model:         cfg.Model,
+		contextWindow: cfg.ContextWindowFor(cfg.Model),
+		defaultMode:   cfg.DefaultMode,
+		debug:         cfg.Debug,
+	}, nil
+}
+
+func buildRuntime(projectDir string) (runtimeBundle, error) {
+	cfg, err := config.Load(projectDir)
+	if err != nil {
+		return runtimeBundle{}, fmt.Errorf("config load failed: %w", err)
 	}
 
 	logPath := filepath.Join(projectDir, ".cece", "cece.log")
 	if err := logger.Init(logPath, cfg.Debug); err != nil {
-		fmt.Fprintf(os.Stderr, "logger init failed: %v\n", err)
-		os.Exit(1)
+		return runtimeBundle{}, fmt.Errorf("logger init failed: %w", err)
 	}
-	defer logger.Sync()
+	cleanup := func() { logger.Sync() }
 
 	defaultProvider := cfg.Providers[0]
-	logger.Info("cece starting", "model", cfg.Model, "provider", defaultProvider.Name, "maxTokens", cfg.MaxTokens)
+	logger.Info("cece engine starting", "model", cfg.Model, "provider", defaultProvider.Name, "maxTokens", cfg.MaxTokens)
 
 	client := createClient(defaultProvider, cfg.Model, "")
 	planState := tool.NewPlanModeState()
 	planState.SetProjectDir(projectDir)
-	// Initialize skill system
 	skillStore := skill.NewStore(skill.DiscoverAll(projectDir))
 	taskList := tool.NewTaskList()
 
@@ -100,18 +195,19 @@ func main() {
 		tool.NewTask(taskList),
 	)
 
-	// Initialize session context and query model info for token budget
 	ctx := context.Background()
 
-	// Initialize MCP connections and register their tools
 	mcpMgr := mcp.NewManager()
+	cleanup = func() {
+		mcpMgr.Close()
+		logger.Sync()
+	}
 	if len(cfg.MCP) > 0 {
 		mcpMgr.Initialize(ctx, cfg.MCP)
 		for _, t := range mcpMgr.Tools() {
 			registry.Register(t)
 		}
 	}
-	defer mcpMgr.Close()
 
 	stablePrompt := prompt.FormatStableSystemPrompt(projectDir)
 	collector := prompt.NewDefaultSessionCollector(projectDir, registry)
@@ -122,7 +218,6 @@ func main() {
 		logger.Warn("initial session refresh failed", "error", err)
 	}
 
-	// Context window: GetModelInfo -> ListModels lookup -> config mapping -> 200K default
 	var contextWindow int
 	if lister, ok := client.(interface {
 		GetModelInfo(context.Context) (agent.ModelInfo, error)
@@ -173,11 +268,9 @@ func main() {
 	})
 	eng.ContextWindowFor = cfg.ContextWindowFor
 
-	// Session persistence
 	store := session.NewFileStore(projectDir)
 	eng.SetStore(store)
 
-	// Inject client factory for cross-protocol model switching
 	createClientFn := func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient {
 		pc := config.ProviderConfig{
 			Protocol:   protocol,
@@ -189,7 +282,6 @@ func main() {
 		return createClient(pc, model, configName)
 	}
 
-	// Inject provider resolver so session resume can rebuild clients with real credentials
 	providerResolver := func(configName string) (apiKey, baseURL, authMode, authHelper, protocol string) {
 		for _, p := range cfg.Providers {
 			if configName != "" {
@@ -203,7 +295,6 @@ func main() {
 				return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
 			}
 		}
-		// Fallback: return first provider if no match
 		if len(cfg.Providers) > 0 {
 			p := cfg.Providers[0]
 			return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
@@ -211,12 +302,10 @@ func main() {
 		return "", "", "", "", ""
 	}
 
-	// Apply default mode from config
 	if cfg.DefaultMode != "" {
 		eng.Do(protocol.SetPermissionModeAction{Mode: protocol.PermissionMode(cfg.DefaultMode)})
 	}
 
-	// Inject multi-provider model listing
 	listAllModelsFn := func(ctx context.Context) ([]protocol.ModelInfo, error) {
 		var allModels []protocol.ModelInfo
 		var mu sync.Mutex
@@ -226,7 +315,6 @@ func main() {
 			go func(pc config.ProviderConfig) {
 				defer wg.Done()
 
-				// Try API-based listing first
 				var models []agent.ModelInfo
 				tmpClient := createClient(pc, "", "")
 				if lister, ok := tmpClient.(interface {
@@ -244,7 +332,6 @@ func main() {
 					}
 				}
 
-				// Fallback to static model list from config
 				if len(models) == 0 && len(pc.Models) > 0 {
 					models = make([]agent.ModelInfo, len(pc.Models))
 					for i, sm := range pc.Models {
@@ -261,7 +348,6 @@ func main() {
 					return
 				}
 
-				// Convert internal models to dto
 				dtoModels := make([]protocol.ModelInfo, len(models))
 				for i, m := range models {
 					dtoModels[i] = protocol.ModelInfo{
@@ -291,14 +377,13 @@ func main() {
 	}
 
 	mediator := engine.NewEngineMediator(eng, store, providerResolver, createClientFn, listAllModelsFn, mcpMgr)
-	model := ui.NewModel(mediator, cfg.Model, projectDir, contextWindow)
-	model.SetDefaultMode(cfg.DefaultMode)
-	model.SetSessions(store)
-	model.SetSkillStore(skillStore)
-
-	program := tea.NewProgram(&model)
-	if _, err := program.Run(); err != nil {
-		logger.Error("program exited", "error", err)
-		os.Exit(1)
-	}
+	return runtimeBundle{
+		mediator:      mediator,
+		store:         store,
+		skillStore:    skillStore,
+		model:         cfg.Model,
+		contextWindow: contextWindow,
+		defaultMode:   cfg.DefaultMode,
+		cleanup:       cleanup,
+	}, nil
 }
