@@ -45,13 +45,13 @@ func NewFileWalker(projectDir string) *FileWalker {
 	}
 }
 
-// LoadProject starts an async walk of the project directory.
-func (w *FileWalker) LoadProject() tea.Cmd {
-	return w.Load(w.projectDir, "project")
-}
-
 // Load starts an async walk of an arbitrary directory.
+// It invalidates any previous cache for the root before scanning.
 func (w *FileWalker) Load(absRoot, key string) tea.Cmd {
+	w.mu.Lock()
+	w.loaded[absRoot] = false
+	w.mu.Unlock()
+
 	return func() tea.Msg {
 		files := walkDir(absRoot)
 		w.mu.Lock()

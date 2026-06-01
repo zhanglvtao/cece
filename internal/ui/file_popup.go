@@ -2,6 +2,8 @@ package ui
 
 import (
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"cece/internal/ui/picker"
 	tea "charm.land/bubbletea/v2"
@@ -33,14 +35,11 @@ func NewFilePopup(projectDir string) *FilePopup {
 	}
 }
 
-// Open shows the popup. Returns a tea.Cmd to trigger async file loading if needed.
+// Open shows the popup. Always triggers a fresh file walk so new files are visible.
 func (p *FilePopup) Open(spec atSpec) tea.Cmd {
 	p.open = true
 	p.spec = spec
-	var cmd tea.Cmd
-	if !p.walker.Loaded(spec.AbsRoot) {
-		cmd = p.walker.Load(spec.AbsRoot, spec.AbsRoot)
-	}
+	cmd := p.walker.Load(spec.AbsRoot, spec.AbsRoot)
 	p.buildPicker()
 	p.picker.SetFilter(spec.FileName)
 	return cmd
@@ -93,12 +92,7 @@ func (p *FilePopup) UpdateFilter(spec atSpec) tea.Cmd {
 	// If root changed, need to load new directory
 	if spec.AbsRoot != p.spec.AbsRoot {
 		p.spec = spec
-		if !p.walker.Loaded(spec.AbsRoot) {
-			return p.walker.Load(spec.AbsRoot, spec.AbsRoot)
-		}
-		p.buildPicker()
-		p.picker.SetFilter(spec.FileName)
-		return nil
+		return p.walker.Load(spec.AbsRoot, spec.AbsRoot)
 	}
 	p.spec = spec
 	p.rebuildEntries()
@@ -138,7 +132,8 @@ func (p *FilePopup) buildPicker() {
 	p.picker = pk
 }
 
-// rebuildEntries rebuilds the entry list from the walker cache.
+// rebuildEntries rebuilds the entry list from the walker cache,
+// sorted by relevance: non-hidden first, shallow depth first, better match first.
 func (p *FilePopup) rebuildEntries() {
 	files := p.walker.Files(p.spec.AbsRoot)
 	entries := make([]fileEntry, 0, len(files))
@@ -151,7 +146,71 @@ func (p *FilePopup) rebuildEntries() {
 		}
 		entries = append(entries, fileEntry{path: f, FullPath: fullPath})
 	}
+
+	query := p.spec.FileName
+	sort.SliceStable(entries, func(i, j int) bool {
+		return fileLess(entries[i], entries[j], query)
+	})
+
 	p.entries = entries
+}
+
+// fileLess defines the sort order for file entries.
+// Priority: prefix match > contains match > no match,
+//           non-hidden > hidden, shallow > deep.
+func fileLess(a, b fileEntry, query string) bool {
+	sa := fileScore(a, query)
+	sb := fileScore(b, query)
+
+	// Match rank: prefix(2) > contains(1) > none(0)
+	if sa.matchRank != sb.matchRank {
+		return sa.matchRank > sb.matchRank
+	}
+	// Non-hidden before hidden
+	if sa.hidden != sb.hidden {
+		return !sa.hidden
+	}
+	// Shallow before deep
+	if sa.depth != sb.depth {
+		return sa.depth < sb.depth
+	}
+	// Alphabetical as tiebreaker
+	return a.path < b.path
+}
+
+type fileScoreInfo struct {
+	depth     int
+	hidden    bool
+	matchRank int // 2=prefix, 1=contains, 0=none
+}
+
+func fileScore(e fileEntry, query string) fileScoreInfo {
+	base := filepath.Base(e.path)
+	depth := strings.Count(e.path, "/")
+	hidden := isHiddenPath(e.path)
+
+	rank := 0
+	if query != "" {
+		lower := strings.ToLower(base)
+		q := strings.ToLower(query)
+		if strings.HasPrefix(lower, q) {
+			rank = 2
+		} else if strings.Contains(lower, q) {
+			rank = 1
+		}
+	}
+
+	return fileScoreInfo{depth: depth, hidden: hidden, matchRank: rank}
+}
+
+// isHiddenPath checks if any path segment starts with "." (hidden directory/file).
+func isHiddenPath(path string) bool {
+	for _, part := range strings.Split(path, "/") {
+		if len(part) > 1 && part[0] == '.' {
+			return true
+		}
+	}
+	return false
 }
 
 // fileMatches checks if a fileEntry matches the fileName filter.
@@ -159,7 +218,6 @@ func fileMatches(e fileEntry, fileNameQuery string) bool {
 	if fileNameQuery == "" {
 		return true
 	}
-	// Match against the filename (last segment) using case-insensitive substring
 	base := filepath.Base(e.path)
 	return containsFold(base, fileNameQuery)
 }
