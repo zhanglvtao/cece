@@ -341,6 +341,12 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.status = fmt.Sprintf("Truncated %d tool results, %dK→%dK tokens",
 			e.TruncatedCount,
 			(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
+	case protocol.PrunedEvent:
+		m.status = fmt.Sprintf("Pruned %d turns, %dK→%dK tokens",
+			e.PrunedTurns,
+			(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
+		m.statusBar.ResetToolCounts()
+
 	case protocol.MCPServersListedEvent:
 		m.openMCPPicker(e.Servers)
 		m.status = "MCP servers"

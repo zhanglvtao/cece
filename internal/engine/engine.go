@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -123,6 +124,161 @@ func (e *Engine) HistorySnapshot() []agent.Message {
 	out := make([]agent.Message, len(e.history))
 	copy(out, e.history)
 	return out
+}
+
+// ReplaceHistory replaces the entire conversation history with the given messages.
+func (e *Engine) ReplaceHistory(messages []agent.Message) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.history = messages
+}
+
+// CompactHandler returns a tool.CompactHandler backed by this engine.
+func (e *Engine) CompactHandler() *tool.CompactHandler {
+	return &tool.CompactHandler{
+		Summary:         e.compactSummary,
+		TrimToolResults: e.compactTrimToolResults,
+		Prune:           e.compactPrune,
+	}
+}
+
+func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int, int, error) {
+	e.mu.Lock()
+	snapshot := make([]agent.Message, len(e.history))
+	copy(snapshot, e.history)
+	client := e.client
+	e.mu.Unlock()
+
+	e.emitEvent(protocol.CompactingEvent{})
+
+	boundaries := agent.TurnBoundaries(snapshot)
+	totalTurns := len(boundaries)
+
+	if totalTurns == 0 {
+		return "", 0, 0, fmt.Errorf("no turns to summarize")
+	}
+
+	// Resolve keepTurn
+	if keepTurn < 0 {
+		keepTurn = totalTurns - 2
+		if keepTurn < 1 {
+			keepTurn = 1
+		}
+	}
+	if keepTurn >= totalTurns {
+		return "", 0, 0, fmt.Errorf("turn %d is beyond the last turn (%d)", keepTurn, totalTurns-1)
+	}
+
+	splitIdx := boundaries[keepTurn]
+	summarize := snapshot[:splitIdx]
+	keep := snapshot[keepTurn:]
+
+	if len(summarize) == 0 {
+		return "", 0, 0, fmt.Errorf("no messages to summarize before turn %d", keepTurn)
+	}
+
+	compactor := agent.NewCompactor(client, 0)
+	summary, err := compactor.GenerateSummary(ctx, summarize)
+	if err != nil {
+		return "", 0, 0, err
+	}
+
+	tokensBefore := agent.EstimateMessagesTokens(snapshot)
+
+	boundary := agent.Message{
+		Role: agent.UserRole,
+		Content: fmt.Sprintf(
+			"This session is being continued from a previous conversation. The summary below covers turns 0–%d.\n\n%s\n\nTurns %d onward are preserved verbatim.",
+			keepTurn-1, summary, keepTurn,
+		),
+		CompactBoundary: true,
+	}
+
+	newHistory := append([]agent.Message{boundary}, keep...)
+	tokensAfter := agent.EstimateMessagesTokens(newHistory)
+
+	e.mu.Lock()
+	e.history = newHistory
+	sessionID := e.sessionID
+	e.mu.Unlock()
+
+	if sessionID != "" {
+		e.PersistMessage(context.Background(), boundary)
+	}
+
+	e.emitEvent(protocol.CompactedEvent{
+		TokensBefore:   tokensBefore,
+		TokensAfter:    tokensAfter,
+		MessagesBefore: len(snapshot),
+		MessagesAfter:  len(newHistory),
+		Summary:        summary,
+	})
+
+	return summary, tokensBefore, tokensAfter, nil
+}
+
+func (e *Engine) compactTrimToolResults(fromTurn, toTurn int) (int, int, int) {
+	e.mu.Lock()
+	history := e.history // mutate in place
+	e.mu.Unlock()
+
+	boundaries := agent.TurnBoundaries(history)
+	totalTurns := len(boundaries)
+
+	if toTurn > totalTurns {
+		toTurn = totalTurns
+	}
+	if fromTurn >= toTurn {
+		return 0, 0, 0
+	}
+
+	truncatedCount, tokensBefore, tokensAfter := agent.TrimToolResultsInRange(history, fromTurn, toTurn)
+
+	e.mu.Lock()
+	e.history = history
+	e.mu.Unlock()
+
+	e.emitEvent(protocol.TruncatedToolResultsEvent{
+		TruncatedCount: truncatedCount,
+		TokensBefore:   tokensBefore,
+		TokensAfter:    tokensAfter,
+	})
+
+	return truncatedCount, tokensBefore, tokensAfter
+}
+
+func (e *Engine) compactPrune(turn int) (int, int) {
+	e.mu.Lock()
+	snapshot := make([]agent.Message, len(e.history))
+	copy(snapshot, e.history)
+	e.mu.Unlock()
+
+	newHistory, tokensBefore, tokensAfter := agent.PruneBeforeTurn(snapshot, turn)
+
+	e.mu.Lock()
+	e.history = newHistory
+	sessionID := e.sessionID
+	e.mu.Unlock()
+
+	// Persist the boundary message
+	for _, m := range newHistory {
+		if m.CompactBoundary {
+			if sessionID != "" {
+				e.PersistMessage(context.Background(), m)
+			}
+			break
+		}
+	}
+
+	e.emitEvent(protocol.PrunedEvent{
+		TokensBefore:   tokensBefore,
+		TokensAfter:    tokensAfter,
+		MessagesBefore: len(snapshot),
+		MessagesAfter:  len(newHistory),
+		PrunedTurns:    turn,
+	})
+
+	return tokensBefore, tokensAfter
 }
 
 func (e *Engine) SetLastInputTokens(tokens int) {

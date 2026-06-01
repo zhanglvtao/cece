@@ -4,7 +4,7 @@ package agent
 // Returns count of truncated blocks, estimated tokens before and after.
 // Mutates messages in place — irreversible.
 func TruncateToolResults(messages []Message) (truncatedCount, tokensBefore, tokensAfter int) {
-	tokensBefore = estimateMessagesTokens(messages)
+	tokensBefore = EstimateMessagesTokens(messages)
 	for i := range messages {
 		for j := range messages[i].ContentBlocks {
 			cb := &messages[i].ContentBlocks[j]
@@ -18,6 +18,6 @@ func TruncateToolResults(messages []Message) (truncatedCount, tokensBefore, toke
 			}
 		}
 	}
-	tokensAfter = estimateMessagesTokens(messages)
+	tokensAfter = EstimateMessagesTokens(messages)
 	return
 }

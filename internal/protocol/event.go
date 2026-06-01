@@ -261,6 +261,17 @@ type TruncatedToolResultsEvent struct {
 
 func (TruncatedToolResultsEvent) isEvent() {}
 
+// PrunedEvent is emitted when messages before a turn are pruned entirely.
+type PrunedEvent struct {
+	TokensBefore   int
+	TokensAfter    int
+	MessagesBefore int
+	MessagesAfter  int
+	PrunedTurns    int
+}
+
+func (PrunedEvent) isEvent() {}
+
 // TurnCompleted is emitted when a full agent turn finishes (after all
 // tool executions and assistant responses). Replaces the old channel-close
 // signal so the UI only needs to consume from the single event bus.

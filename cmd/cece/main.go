@@ -165,6 +165,7 @@ func main() {
 	eng.SetPlanModeState(planState)
 	eng.SetTaskList(taskList)
 	eng.SetModelInfo(cfg.Model, contextWindow)
+	registry.Register(tool.NewCompact(eng.CompactHandler()))
 	eng.SetToolResultPolicy(agent.ToolResultPolicy{
 		InlineMaxLines: cfg.ToolResult.InlineMaxLines,
 		HeadLines:      cfg.ToolResult.HeadLines,

@@ -154,6 +154,15 @@ func ToDTO(e Event) protocol.Event {
 			TokensAfter:    v.TokensAfter,
 		}
 
+	case Pruned:
+		return protocol.PrunedEvent{
+			TokensBefore:   v.TokensBefore,
+			TokensAfter:    v.TokensAfter,
+			MessagesBefore: v.MessagesBefore,
+			MessagesAfter:  v.MessagesAfter,
+			PrunedTurns:    v.PrunedTurns,
+		}
+
 	case TurnCompleted:
 		return protocol.TurnCompleted{}
 

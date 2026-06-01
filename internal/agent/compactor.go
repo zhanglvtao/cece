@@ -53,9 +53,9 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message) (CompactRes
 		return CompactResult{SummarizeCount: 0, KeepCount: len(messages)}, nil
 	}
 
-	tokensBefore := estimateMessagesTokens(messages)
+	tokensBefore := EstimateMessagesTokens(messages)
 
-	summary, err := c.generateSummary(ctx, summarize)
+	summary, err := c.GenerateSummary(ctx, summarize)
 	if err != nil {
 		return CompactResult{}, fmt.Errorf("generate compact summary: %w", err)
 	}
@@ -71,7 +71,7 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message) (CompactRes
 	}
 
 	// Estimate tokens after: boundary + keep messages
-	tokensAfter := estimateMessagesTokens(append([]Message{boundary}, keep...))
+	tokensAfter := EstimateMessagesTokens(append([]Message{boundary}, keep...))
 
 	return CompactResult{
 		Boundary:       boundary,
@@ -82,11 +82,11 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message) (CompactRes
 	}, nil
 }
 
-// generateSummary calls the model to produce a conversation summary.
+// GenerateSummary calls the model to produce a conversation summary.
 // Sends all messages with complete tool_result content — no truncation.
 // The compact prompt is appended as a final user message (like claude-code),
 // and the system prompt is a short role instruction.
-func (c *Compactor) generateSummary(ctx context.Context, messages []Message) (string, error) {
+func (c *Compactor) GenerateSummary(ctx context.Context, messages []Message) (string, error) {
 	systemPrompt := SystemPrompt{
 		Blocks: []SystemBlock{
 			{Text: "You are a helpful AI assistant tasked with summarizing conversations."},
@@ -235,8 +235,8 @@ Your summary should include the following sections:
 Please provide your summary based on the conversation so far, following this structure and ensuring precision and thoroughness in your response.`
 }
 
-// estimateMessagesTokens estimates total tokens for a slice of messages.
-func estimateMessagesTokens(messages []Message) int {
+// EstimateMessagesTokens estimates total tokens for a slice of messages.
+func EstimateMessagesTokens(messages []Message) int {
 	total := 0
 	for _, m := range messages {
 		if m.Content != "" {

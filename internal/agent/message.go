@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"cece/internal/prompt"
@@ -231,6 +232,88 @@ func EnsureToolResultCoverage(messages []Message) []Message {
 		Role:          UserRole,
 		ContentBlocks: synthetic,
 	})
+}
+
+// TurnBoundaries returns the start index of each turn in messages.
+// A turn starts at each user-role message. Returns slice of indices.
+// Turn N spans messages[boundaries[N]:boundaries[N+1]] (or to len for the last turn).
+func TurnBoundaries(messages []Message) []int {
+	var boundaries []int
+	for i, m := range messages {
+		if m.Role == UserRole {
+			boundaries = append(boundaries, i)
+		}
+	}
+	return boundaries
+}
+
+// TrimToolResultsInRange trims tool_result content in messages belonging to
+// turns [fromTurn, toTurn). Returns (trimmedCount, tokensBefore, tokensAfter).
+// Mutates messages in place.
+func TrimToolResultsInRange(messages []Message, fromTurn, toTurn int) (truncatedCount, tokensBefore, tokensAfter int) {
+	boundaries := TurnBoundaries(messages)
+	tokensBefore = EstimateMessagesTokens(messages)
+
+	// Determine message index range for the specified turns
+	msgStart := 0
+	if fromTurn > 0 && fromTurn <= len(boundaries) {
+		msgStart = boundaries[fromTurn-1]
+	}
+	// Note: fromTurn=0 means from the beginning, so msgStart=0
+
+	msgEnd := len(messages)
+	if toTurn <= len(boundaries) {
+		msgEnd = boundaries[toTurn-1]
+	}
+
+	for i := msgStart; i < msgEnd && i < len(messages); i++ {
+		for j := range messages[i].ContentBlocks {
+			cb := &messages[i].ContentBlocks[j]
+			if cb.Type == ApiToolResultContentType && cb.ToolResult != nil {
+				if cb.ToolResult.Content != "[trimmed]" {
+					cb.ToolResult.Content = "[trimmed]"
+					cb.ToolResult.Truncated = true
+					cb.ToolResult.TotalLines = 0
+					truncatedCount++
+				}
+			}
+		}
+	}
+
+	tokensAfter = EstimateMessagesTokens(messages)
+	return
+}
+
+// PruneBeforeTurn deletes all messages before the given turn.
+// Returns the pruned message list (starting from the turn's boundary)
+// plus a CompactBoundary message summarizing what was removed.
+func PruneBeforeTurn(messages []Message, turn int) ([]Message, int, int) {
+	boundaries := TurnBoundaries(messages)
+	tokensBefore := EstimateMessagesTokens(messages)
+
+	if turn <= 0 || turn > len(boundaries) {
+		return messages, tokensBefore, tokensBefore
+	}
+
+	startIdx := boundaries[turn-1]
+	pruned := messages[startIdx:]
+
+	// Count how many turns were pruned
+	prunedMsgCount := startIdx
+	prunedTurnCount := turn
+
+	boundary := Message{
+		Role: UserRole,
+		Content: fmt.Sprintf(
+			"Context pruned: %d messages across %d turns before this point have been removed to free context. Continue the conversation based on what remains.",
+			prunedMsgCount, prunedTurnCount,
+		),
+		CompactBoundary: true,
+	}
+
+	result := append([]Message{boundary}, pruned...)
+	tokensAfter := EstimateMessagesTokens(result)
+	return result, tokensBefore, tokensAfter
 }
 
 func projectMessageForRequest(message Message) Message {
