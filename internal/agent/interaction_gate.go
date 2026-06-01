@@ -83,7 +83,7 @@ func shouldAutoApproveToolCalls(calls []ApiToolUseBlock) bool {
 		return false
 	}
 	name := calls[0].Name
-	return name == tool.EnterPlanModeToolName || name == tool.TaskToolName
+	return name == tool.EnterPlanModeToolName || name == tool.TodoToolName
 }
 
 func hasExitPlanMode(calls []ApiToolUseBlock) bool {

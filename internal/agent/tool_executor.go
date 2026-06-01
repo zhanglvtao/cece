@@ -95,7 +95,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 	if e.taskList != nil {
 		hasTaskCall := false
 		for _, call := range calls {
-			if call.Name == tool.TaskToolName {
+			if call.Name == tool.TodoToolName {
 				hasTaskCall = true
 				break
 			}

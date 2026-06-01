@@ -63,6 +63,7 @@ type Model struct {
 
 	streamHeadline      string // latest assistant text for inline indicator
 	tasks               []protocol.TodoItem
+	runningAgents       []runningAgent
 
 	styles      Styles
 	transcript  transcript
@@ -1069,4 +1070,28 @@ func gitBranch(dir string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// ── Running Agent tracking ──────────────────────────────────────────────────
+
+type runningAgent struct {
+	ID          string
+	Description string
+}
+
+func (m *Model) agentBarView() string {
+	if len(m.runningAgents) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, a := range m.runningAgents {
+		icon := "●" // solid circle, blinks via statusFrame handled in taskbar
+		if m.statusFrame%2 == 0 {
+			icon = "◌" // hollow circle for blink effect
+		}
+		line := m.styles.Agent.Running.Render(fmt.Sprintf("%s %s", icon, a.Description))
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

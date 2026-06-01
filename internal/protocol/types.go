@@ -91,8 +91,8 @@ type ToolResultBlock struct {
 	TotalLines int    `json:"total_lines,omitempty"`
 }
 
-// TaskItem represents a single task for UI display.
-type TaskItem struct {
+// TodoItem represents a single task for UI display.
+type TodoItem struct {
 	Content    string `json:"content"`
 	ActiveForm string `json:"activeForm"`
 	Status     string `json:"status"`

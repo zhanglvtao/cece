@@ -88,10 +88,14 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			// agent loop survives instead of crashing with RunFailed.
 			if isRecoverableProviderError(chunk.Err) {
 				logger.Warn("provider param error — recovering as text response", "error", chunk.Err.Error())
+				text := fmt.Sprintf("[Provider Error] %s\nThe previous tool call had parameter issues that the provider rejected. You may retry.", chunk.Err.Error())
+				if isContextTooLongError(chunk.Err.Error()) {
+					text = fmt.Sprintf("[Context Window Exceeded] %s\nYour conversation has grown beyond the model's context window. Call the Compact tool immediately to compress history before continuing. This is your responsibility — the system will not auto-compact.", chunk.Err.Error())
+				}
 				ch <- RunFailed{Err: chunk.Err}
 				return modelResponse{
 					stopReason:  "end_turn",
-					textContent: fmt.Sprintf("[Provider Error] %s\nThe previous tool call had parameter issues that the provider rejected. You may retry.", chunk.Err.Error()),
+					textContent: text,
 				}, nil
 			}
 			return modelResponse{}, chunk.Err
@@ -258,11 +262,17 @@ func truncate(s string, n int) string {
 // Covers:
 //   - codebase: trae_permanent_error, code=4001, ErrParamInvalid
 //   - aiden:    InvalidParameter, required field, 400 Bad Request
+//   - context:  prompt_too_long, input_too_long, context_length_exceeded
 func isRecoverableProviderError(err error) bool {
 	if err == nil {
 		return false
 	}
 	msg := err.Error()
+
+	// Context window exceeded — tell the model to compact
+	if isContextTooLongError(msg) {
+		return true
+	}
 
 	// Codebase API parameter errors
 	if strings.Contains(msg, "codebase api error") &&
@@ -282,4 +292,17 @@ func isRecoverableProviderError(err error) bool {
 	}
 
 	return false
+}
+
+// isContextTooLongError checks whether the error indicates the input exceeded
+// the model's context window. Different providers use different error messages.
+func isContextTooLongError(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "prompt_too_long") ||
+		strings.Contains(lower, "input_too_long") ||
+		strings.Contains(lower, "context_length_exceeded") ||
+		strings.Contains(lower, "token_limit_exceeded") ||
+		strings.Contains(lower, "max context") ||
+		strings.Contains(lower, "too many tokens") ||
+		strings.Contains(lower, "request too large")
 }

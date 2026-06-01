@@ -86,9 +86,13 @@ func (sa *SubAgent) Run(ctx context.Context) SubAgentResult {
 			// If it's a recoverable provider error, surface as text and let the model self-correct
 			if isRecoverableProviderError(err) {
 				slog.Warn("sub-agent recoverable error, surfacing to model", "error", err)
+				errText := fmt.Sprintf("[provider error: %v]", err)
+				if isContextTooLongError(err.Error()) {
+					errText = fmt.Sprintf("[Context Window Exceeded] %v — the parent agent should compact before retrying.", err)
+				}
 				messages = append(messages,
 					Message{Role: AssistantRole, Content: ""},
-					Message{Role: UserRole, Content: fmt.Sprintf("[provider error: %v]", err)},
+					Message{Role: UserRole, Content: errText},
 				)
 				turns++
 				continue

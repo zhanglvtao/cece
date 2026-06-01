@@ -55,7 +55,7 @@ func TestEventRoundTrip(t *testing.T) {
 		protocol.SessionLoadedEvent{SessionID: "s1", Model: "m", ContextWindow: 100},
 		protocol.MCPServersListedEvent{Servers: []protocol.MCPServerInfo{{Name: "fs", Type: "stdio"}}},
 		protocol.MCPServerStatusChangedEvent{Name: "fs", Connected: true},
-		protocol.TaskUpdatedEvent{Tasks: []protocol.TaskItem{{Content: "a", ActiveForm: "doing a", Status: "pending"}}},
+		protocol.TodoUpdatedEvent{Tasks: []protocol.TodoItem{{Content: "a", ActiveForm: "doing a", Status: "pending"}}},
 		protocol.ToolsListedEvent{Tools: []protocol.ToolInfo{{Name: "Read", Source: "builtin"}}},
 	}
 	for _, in := range events {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -253,50 +252,4 @@ func waitForTurnCompleted(t *testing.T, eng *Engine) {
 	}
 }
 
-func TestEngineInputAutoCompactsBeforeUserMessage(t *testing.T) {
-	client := &recordingClient{}
-	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
-	// contextWindow=400, 83.5% threshold = 334 tokens
-	eng.SetModelInfo("test-model", 400)
-	long := strings.Repeat("old context ", 200)
-	for i := 0; i < 3; i++ {
-		eng.AppendHistory(agent.Message{Role: agent.UserRole, Content: long})
-		eng.AppendHistory(agent.Message{Role: agent.AssistantRole, Content: long})
-	}
 
-	if err := eng.Input(context.Background(), "new request"); err != nil {
-		t.Fatal(err)
-	}
-	waitForTurnCompleted(t, eng)
-
-	if client.calls != 2 {
-		t.Fatalf("client calls = %d, want 2", client.calls)
-	}
-	turnMessages := client.messages[1]
-	if len(turnMessages) < 2 {
-		t.Fatalf("turn messages = %#v", turnMessages)
-	}
-	if !turnMessages[0].CompactBoundary {
-		t.Fatalf("first turn message should be compact boundary: %#v", turnMessages[0])
-	}
-	if got := turnMessages[len(turnMessages)-1].Content; got != "new request" {
-		t.Fatalf("last turn message = %q, want current user input", got)
-	}
-}
-
-func TestEngineInputDoesNotAutoCompactBelowThreshold(t *testing.T) {
-	client := &recordingClient{}
-	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
-	eng.SetModelInfo("test-model", 200000)
-	eng.AppendHistory(agent.Message{Role: agent.UserRole, Content: "old"})
-	eng.AppendHistory(agent.Message{Role: agent.AssistantRole, Content: "old"})
-
-	if err := eng.Input(context.Background(), "new request"); err != nil {
-		t.Fatal(err)
-	}
-	waitForTurnCompleted(t, eng)
-
-	if client.calls != 1 {
-		t.Fatalf("client calls = %d, want 1", client.calls)
-	}
-}

@@ -31,7 +31,7 @@ func (m *Model) taskBarView() string {
 	return renderTaskBar(m.tasks, m.width, m.statusFrame, m.styles)
 }
 
-func renderTaskBar(tasks []protocol.TaskItem, width int, frame int, styles Styles) string {
+func renderTaskBar(tasks []protocol.TodoItem, width int, frame int, styles Styles) string {
 	var b strings.Builder
 	show := tasks
 	overflow := 0
