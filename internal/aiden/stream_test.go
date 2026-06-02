@@ -121,6 +121,36 @@ func TestDecodeFinishReasonStop(t *testing.T) {
 	t.Fatal("expected message_delta event")
 }
 
+func TestDecodeFinishReasonStopEOFWithoutDoneSynthesizesDone(t *testing.T) {
+	body := sseBody(
+		`data: {"id":"1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}`,
+		``,
+		`data: {"id":"1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var doneSeen bool
+	var stopReason string
+	for _, e := range events {
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+		if e.Done {
+			doneSeen = true
+		}
+	}
+	if stopReason != "end_turn" {
+		t.Fatalf("stop reason = %q, want end_turn", stopReason)
+	}
+	if !doneSeen {
+		t.Fatal("expected Done event when chat-completions stream ends after terminal finish_reason")
+	}
+}
+
 func TestDecodeFinishReasonToolCalls(t *testing.T) {
 	body := sseBody(
 		`data: {"id":"1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,

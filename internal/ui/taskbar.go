@@ -20,7 +20,7 @@ func (m *Model) taskBarHeight() int {
 	if n > maxTaskBarLines {
 		n = maxTaskBarLines
 	}
-	return n
+	return 1 + n // label + items
 }
 
 // taskBarView renders the task progress panel.
@@ -33,6 +33,8 @@ func (m *Model) taskBarView() string {
 
 func renderTaskBar(tasks []protocol.TodoItem, width int, frame int, styles Styles) string {
 	var b strings.Builder
+	b.WriteString(styles.Task.Label.Render("[Todo List]"))
+	b.WriteByte('\n')
 	show := tasks
 	overflow := 0
 	if len(tasks) > maxTaskBarLines {

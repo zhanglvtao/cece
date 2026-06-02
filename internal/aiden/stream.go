@@ -81,9 +81,9 @@ type InputTokenDetails struct {
 }
 
 type ResponsesUsage struct {
-	InputTokens      int               `json:"input_tokens"`
-	OutputTokens     int               `json:"output_tokens"`
-	TotalTokens      int               `json:"total_tokens"`
+	InputTokens        int                `json:"input_tokens"`
+	OutputTokens       int                `json:"output_tokens"`
+	TotalTokens        int                `json:"total_tokens"`
 	InputTokensDetails InputTokensDetails `json:"input_tokens_details"`
 	InputTokenDetails  InputTokenDetails  `json:"input_token_details"`
 }
@@ -94,6 +94,7 @@ type parserState struct {
 	thinkingIndex     int
 	activeToolIndices map[int]bool
 	textBlockStarted  bool
+	terminalChunkSeen bool
 }
 
 func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
@@ -149,6 +150,11 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 
 		if err := scanner.Err(); err != nil {
 			out <- agent.ApiStreamEvent{Err: err}
+			return
+		}
+
+		if state.terminalChunkSeen {
+			out <- agent.ApiStreamEvent{Done: true}
 		}
 	}()
 
@@ -329,6 +335,8 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 	}
 
 	if choice.FinishReason != "" {
+		state.terminalChunkSeen = true
+
 		if state.thinkingOpen {
 			out <- agent.ApiStreamEvent{
 				EventType:  "content_block_stop",

@@ -54,6 +54,7 @@ type Styles struct {
 		Scroll    lipgloss.Style
 	}
 	Task struct {
+		Label      lipgloss.Style
 		Pending    lipgloss.Style
 		InProgress lipgloss.Style
 		Completed  lipgloss.Style
@@ -127,6 +128,7 @@ func DefaultStyles() Styles {
 	s.Status.Tool = lipgloss.NewStyle().Foreground(theme.Yellow)
 	s.Status.Scroll = lipgloss.NewStyle().Foreground(theme.FgMuted)
 
+	s.Task.Label = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Task.Pending = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Task.InProgress = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Task.Completed = lipgloss.NewStyle().Foreground(theme.Green)

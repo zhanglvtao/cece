@@ -449,12 +449,13 @@ func (m *Model) View() tea.View {
 	agentBar := m.agentBarView()
 	headline := m.headlineView()
 	queued := m.queuedListView()
-	// Separator between viewport and status area
-	if taskBar != "" || agentBar != "" || headline != "" || queued != "" {
-		sections = append(sections, sep)
-	}
+	// Task bar: bordered block with label
 	if taskBar != "" {
+		sections = append(sections, sep)
 		sections = append(sections, taskBar)
+		sections = append(sections, sep)
+	} else if agentBar != "" || headline != "" || queued != "" {
+		sections = append(sections, sep)
 	}
 	if agentBar != "" {
 		sections = append(sections, agentBar)
@@ -505,11 +506,10 @@ func (m *Model) View() tea.View {
 		if filePopupView != "" {
 			rowsAboveInput += strings.Count(filePopupView, "\n") + 1
 		}
-		if taskBar != "" || agentBar != "" || headline != "" || queued != "" {
-			rowsAboveInput++ // separator line between viewport and status area
-		}
 		if taskBar != "" {
-			rowsAboveInput += strings.Count(taskBar, "\n") + 1
+			rowsAboveInput += 1 + strings.Count(taskBar, "\n") + 1 + 1 // sep + taskBar + sep
+		} else if agentBar != "" || headline != "" || queued != "" {
+			rowsAboveInput++ // separator line
 		}
 		if agentBar != "" {
 			rowsAboveInput += strings.Count(agentBar, "\n") + 1
