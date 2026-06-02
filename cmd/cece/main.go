@@ -327,6 +327,8 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 	eng.SetTaskList(taskList)
 	eng.SetModelInfo(cfg.Model, contextWindow)
 	registry.Register(tool.NewCompact(eng.CompactHandler()))
+	registry.Register(tool.NewTrimToolResults(eng.TrimToolResultsHandler()))
+	registry.Register(tool.NewPrune(eng.PruneHandler()))
 	registry.Register(tool.NewAgent(eng.AgentHandler()))
 	eng.ContextWindowFor = cfg.ContextWindowFor
 	eng.ModelClientFor = func(model string) agent.ModelClient {

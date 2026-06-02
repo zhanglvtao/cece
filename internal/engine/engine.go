@@ -131,9 +131,21 @@ func (e *Engine) ReplaceHistory(messages []agent.Message) {
 // CompactHandler returns a tool.CompactHandler backed by this engine.
 func (e *Engine) CompactHandler() *tool.CompactHandler {
 	return &tool.CompactHandler{
-		Summary:         e.compactSummary,
+		Summary: e.compactSummary,
+	}
+}
+
+// TrimToolResultsHandler returns a tool.TrimToolResultsHandler backed by this engine.
+func (e *Engine) TrimToolResultsHandler() *tool.TrimToolResultsHandler {
+	return &tool.TrimToolResultsHandler{
 		TrimToolResults: e.compactTrimToolResults,
-		Prune:           e.compactPrune,
+	}
+}
+
+// PruneHandler returns a tool.PruneHandler backed by this engine.
+func (e *Engine) PruneHandler() *tool.PruneHandler {
+	return &tool.PruneHandler{
+		Prune: e.compactPrune,
 	}
 }
 

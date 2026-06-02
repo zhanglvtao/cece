@@ -109,7 +109,6 @@ func (t *transcript) apply(event protocol.Event) {
 		parts := []string{}
 		if e.EstimatedInputTokens > 0 {
 			parts = append(parts, fmt.Sprintf("estimated input: %d", e.EstimatedInputTokens))
-			t.contextUsed = e.EstimatedInputTokens
 		}
 		if len(e.ToolResults) > 0 {
 			parts = append(parts, "tool results: "+strings.Join(e.ToolResults, ", "))
@@ -187,7 +186,7 @@ func (t *transcript) apply(event protocol.Event) {
 			idx = t.append(blockTool, "tool: "+e.Name, "")
 			t.toolByID[e.ID] = idx
 		}
-		t.blocks[idx].title = "tool: " + e.Name
+		t.blocks[idx].title = formatToolTitleKVs(e.Name, e.Input)
 		t.blocks[idx].text = formatToolPreview(e.Name, e.Input)
 	case protocol.ToolExecStarted:
 		idx, ok := t.toolByID[e.ID]
@@ -234,7 +233,7 @@ func (t *transcript) apply(event protocol.Event) {
 		} else {
 			t.blocks[idx].text = beforeOutput + "\n---\n" + prefix + ":\n" + result
 		}
-		t.blocks[idx].title = "tool: " + e.Name
+		// Title was already set with KV params by ToolCallCompleted; skip here.
 		t.blocks[idx].done = true
 	case protocol.RunFailed:
 		errMsg := "interrupted"
@@ -290,7 +289,7 @@ func (t *transcript) loadMessage(msg protocol.Message) {
 				t.appendDone(blockAssistant, "cece", b.Text)
 			case protocol.ToolUseContentType:
 				if b.ToolUse != nil {
-					t.appendDone(blockTool, "tool: "+b.ToolUse.Name, formatToolPreview(b.ToolUse.Name, b.ToolUse.Input))
+					t.appendDone(blockTool, formatToolTitleKVs(b.ToolUse.Name, b.ToolUse.Input), formatToolPreview(b.ToolUse.Name, b.ToolUse.Input))
 				}
 			}
 		}
@@ -347,6 +346,16 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	}
 	if !block.done && block.kind != blockUser && block.kind != blockSystem {
 		label += " ..."
+	}
+	// Truncate tool labels to fit one line: "[label...]" must not exceed width.
+	if block.kind == blockTool {
+		maxLabel := width - 2 // account for "[" and "]"
+		if maxLabel < 10 {
+			maxLabel = 10
+		}
+		if len(label) > maxLabel {
+			label = label[:maxLabel-3] + "..."
+		}
 	}
 	text := strings.TrimRight(block.text, "\n")
 	if block.kind == blockThinking {
@@ -461,4 +470,5 @@ func containsString(slice []string, s string) bool {
 	}
 	return false
 }
+
 

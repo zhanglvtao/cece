@@ -368,7 +368,6 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.status = "Tools listed"
 	case protocol.RequestDryRunEvent:
 		m.status = "Dry run ready"
-		m.transcript.contextUsed = e.EstimatedInputTokens
 	case protocol.TodoUpdatedEvent:
 		m.tasks = e.Tasks
 	case protocol.SubAgentStartedEvent:

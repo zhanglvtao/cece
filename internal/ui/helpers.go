@@ -83,6 +83,57 @@ func formatJSONPreview(raw json.RawMessage) string {
 	return summarizeText(strings.Join(lines, "\n"), 1000, 15)
 }
 
+// formatToolTitleKVs formats a tool call's input as a single-line KV string
+// for display in the block title, e.g. "tool: Edit path: /foo old_string: \"bar\"".
+func formatToolTitleKVs(name string, raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return "tool: " + name
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return "tool: " + name
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return "tool: " + name
+	}
+	var parts []string
+	for key, val := range m {
+		parts = append(parts, key+": "+formatToolTitleValue(val))
+	}
+	return "tool: " + name + " " + strings.Join(parts, " ")
+}
+
+func formatToolTitleValue(val any) string {
+	switch v := val.(type) {
+	case string:
+		// Truncate long strings
+		s := v
+		if len(s) > 100 {
+			s = s[:50] + "..."
+		}
+		// Quote if contains spaces or special characters
+		if strings.ContainsAny(s, " \t\n\"'{}[]") {
+			s = strings.ReplaceAll(s, "\"", "\\\"")
+			s = strings.ReplaceAll(s, "\n", "\\n")
+			return `"` + s + `"`
+		}
+		return s
+	case nil:
+		return "null"
+	default:
+		compact, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		s := string(compact)
+		if len(s) > 100 {
+			s = s[:50] + "..."
+		}
+		return s
+	}
+}
+
 // formatToolPreview formats a tool call's input for the transcript.
 // For the Agent tool, it shows a compact summary: description + prompt excerpt.
 // For all other tools, it falls through to formatJSONPreview.
