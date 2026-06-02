@@ -35,6 +35,7 @@ type Styles struct {
 	Picker struct {
 		Title   lipgloss.Style
 		Cursor  lipgloss.Style
+		Item    lipgloss.Style // non-selected item text
 		Help    lipgloss.Style
 		Filter  lipgloss.Style
 		Command lipgloss.Style
@@ -109,6 +110,7 @@ func DefaultStyles() Styles {
 
 	s.Picker.Title = lipgloss.NewStyle().Foreground(theme.Yellow)
 	s.Picker.Cursor = lipgloss.NewStyle().Foreground(theme.Green)
+	s.Picker.Item = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Picker.Help = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Picker.Filter = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Picker.Command = lipgloss.NewStyle().Foreground(theme.Primary)

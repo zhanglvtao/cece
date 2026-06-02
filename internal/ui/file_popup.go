@@ -123,7 +123,7 @@ func (p *FilePopup) buildPicker() {
 	}
 	pk := picker.New("", items, filePopupMaxHeight, func(item any, selected bool) string {
 		e := item.(fileEntry)
-		return styledPickerItem(p.styles.Picker.Cursor, e.path, selected)
+		return styledPickerItem(p.styles.Picker.Cursor, p.styles.Picker.Item, e.path, selected)
 	})
 	pk.SetCompact(true)
 	pk.SetFilterFn(func(item any, q string) bool {

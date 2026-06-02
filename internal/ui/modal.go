@@ -15,11 +15,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// styledPickerItem renders a picker item with colored cursor.
-func styledPickerItem(cursorStyle lipgloss.Style, text string, selected bool) string {
+// styledPickerItem renders a picker item with colored cursor and dimmed non-selected text.
+func styledPickerItem(cursorStyle lipgloss.Style, itemStyle lipgloss.Style, text string, selected bool) string {
 	cursor := "  "
 	if selected {
 		cursor = cursorStyle.Render("> ")
+	} else {
+		text = itemStyle.Render(text)
 	}
 	return cursor + text
 }
@@ -419,7 +421,7 @@ func (m *Model) openModelPicker(models []protocol.ModelInfo) {
 		if provider != "" {
 			provider += "/"
 		}
-		return styledPickerItem(m.styles.Picker.Cursor, provider+name, selected)
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, provider+name, selected)
 	})
 	p.SetFilterFn(func(item any, q string) bool {
 		mi := item.(protocol.ModelInfo)
@@ -611,7 +613,7 @@ func (m *Model) openMCPPicker(servers []protocol.MCPServerInfo) {
 			status = s.Error
 		}
 		text := fmt.Sprintf("%s  %s  %s", s.Name, s.Type, status)
-		return styledPickerItem(m.styles.Picker.Cursor, text, selected)
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, text, selected)
 	})
 	p.SetHelpText("[up/down] move  [enter] toggle connect/disconnect  [esc] close")
 	p.SetOnSelect(func(item any) tea.Cmd {

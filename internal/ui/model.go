@@ -437,31 +437,21 @@ func eventPinsViewportToBottom(event protocol.Event) bool {
 
 func (m *Model) View() tea.View {
 	m.resize()
+	sep := m.styles.Status.Separator.Render(strings.Repeat("─", max(m.width, 0)))
 	sections := []string{m.viewport.View()}
 	modal := m.modalView()
 	if modal != "" {
-		// Add visual separation between chat and picker
-		if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker {
-			sections = append(sections, "")
-		}
+		sections = append(sections, sep)
 		sections = append(sections, modal)
-	}
-	popup := m.slashPopup.View(m.width)
-	if popup != "" {
-		sections = append(sections, popup)
-	}
-	filePopupView := m.filePopup.View(m.width)
-	if filePopupView != "" {
-		sections = append(sections, filePopupView)
 	}
 	// Task bar: show tasks above headline when active
 	taskBar := m.taskBarView()
 	agentBar := m.agentBarView()
 	headline := m.headlineView()
 	queued := m.queuedListView()
-	// Add a blank line between viewport and status/headline (chat ↔ status gap)
+	// Separator between viewport and status area
 	if taskBar != "" || agentBar != "" || headline != "" || queued != "" {
-		sections = append(sections, "")
+		sections = append(sections, sep)
 	}
 	if taskBar != "" {
 		sections = append(sections, taskBar)
@@ -474,6 +464,15 @@ func (m *Model) View() tea.View {
 	}
 	if queued != "" {
 		sections = append(sections, queued)
+	}
+	// Popups must be directly above input box
+	popup := m.slashPopup.View(m.width)
+	if popup != "" {
+		sections = append(sections, popup)
+	}
+	filePopupView := m.filePopup.View(m.width)
+	if filePopupView != "" {
+		sections = append(sections, filePopupView)
 	}
 	sections = append(sections, m.inputView())
 	statusBarView := m.statusBar.Render(m.width)
@@ -498,7 +497,7 @@ func (m *Model) View() tea.View {
 	} else if cur := m.input.Cursor(); cur != nil {
 		rowsAboveInput := m.viewport.Height() // no header
 		if modal != "" {
-			rowsAboveInput += strings.Count(modal, "\n") + 1
+			rowsAboveInput += 1 + strings.Count(modal, "\n") + 1 // sep + modal
 		}
 		if popup != "" {
 			rowsAboveInput += strings.Count(popup, "\n") + 1
@@ -507,7 +506,7 @@ func (m *Model) View() tea.View {
 			rowsAboveInput += strings.Count(filePopupView, "\n") + 1
 		}
 		if taskBar != "" || agentBar != "" || headline != "" || queued != "" {
-			rowsAboveInput++ // blank separator line between viewport and status
+			rowsAboveInput++ // separator line between viewport and status area
 		}
 		if taskBar != "" {
 			rowsAboveInput += strings.Count(taskBar, "\n") + 1
@@ -1171,9 +1170,9 @@ func (m *Model) agentBarView() string {
 	}
 	var b strings.Builder
 	for _, a := range m.runningAgents {
-		icon := "●" // solid circle, blinks via statusFrame handled in taskbar
-		if m.statusFrame%2 == 0 {
-			icon = "◌" // hollow circle for blink effect
+		icon := "■" // solid square, blinks via statusFrame
+		if m.statusFrame%4 >= 2 {
+			icon = "□" // hollow square for blink effect
 		}
 		line := m.styles.Agent.Running.Render(fmt.Sprintf("%s %s", icon, a.Description))
 		b.WriteString(line)

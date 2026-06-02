@@ -77,10 +77,10 @@ func taskStatusIcon(status string, frame int) string {
 	case "pending":
 		return "○"
 	case "in_progress":
-		if frame%2 == 0 {
-			return "⏺"
+		if frame%4 < 2 {
+			return "■"
 		}
-		return " "
+		return "□"
 	case "completed":
 		return "✓"
 	default:

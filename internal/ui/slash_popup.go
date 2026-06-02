@@ -66,7 +66,7 @@ func (p *SlashPopup) buildPicker() {
 		if e.description != "" {
 			text += "  " + e.description
 		}
-		return styledPickerItem(p.styles.Picker.Cursor, text, selected)
+		return styledPickerItem(p.styles.Picker.Cursor, p.styles.Picker.Item, text, selected)
 	})
 	pk.SetCompact(true)
 	pk.SetFilterFn(func(item any, q string) bool {
