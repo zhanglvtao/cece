@@ -3,6 +3,8 @@ package picker
 import (
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestViewLimitsHeight(t *testing.T) {
@@ -117,6 +119,23 @@ func TestMultiLineItems(t *testing.T) {
 	view = p.View()
 	if !strings.Contains(view, "> d") {
 		t.Fatalf("after 3 downs, item 'd' should be selected:\n%s", view)
+	}
+}
+
+func TestHandleKeyFiltersCSIResidueText(t *testing.T) {
+	p := New("pick", []any{"alpha", "beta"}, 5, func(v any, selected bool) string {
+		return FormatItem(v.(string), selected)
+	})
+	p.SetFilterFn(func(item any, q string) bool {
+		return strings.Contains(item.(string), q)
+	})
+
+	result, _ := p.HandleKey(tea.KeyPressMsg(tea.Key{Text: "[27;5;106~"}))
+	if result != ResultNone {
+		t.Fatalf("result = %v, want %v", result, ResultNone)
+	}
+	if p.filter != "" {
+		t.Fatalf("filter = %q, want empty", p.filter)
 	}
 }
 

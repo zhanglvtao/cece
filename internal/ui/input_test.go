@@ -44,9 +44,14 @@ func TestSanitizePasteContent(t *testing.T) {
 			want:  "a\nbc",
 		},
 		{
-			name:  "empty string",
-			input: "",
-			want:  "",
+			name:  "visible CSI residue lines are restored as newlines",
+			input: "def f():[27;5;106~    return 1[27;5;106~",
+			want:  "def f():\n    return 1\n",
+		},
+		{
+			name:  "visible CSI residue inside mixed review text is removed",
+			input: "张吕涛[27;5;106~11 小时前[27;5;106~⚠️ fallback",
+			want:  "张吕涛\n11 小时前\n⚠️ fallback",
 		},
 	}
 	for _, tc := range cases {

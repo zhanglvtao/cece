@@ -593,6 +593,20 @@ func (f *fakeSessionStore) Rename(context.Context, string, string) error        
 func (f *fakeSessionStore) Delete(context.Context, string) error                          { return nil }
 func (f *fakeSessionStore) UpdateMeta(context.Context, string, session.SessionMeta) error { return nil }
 
+func TestModelPasteSanitizesVisibleCSIResidue(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	_, cmd := m.Update(tea.PasteMsg{Content: "line1[27;5;106~line2[27;5;106~"})
+	if cmd != nil {
+		_ = cmd()
+	}
+	if got := sanitizePasteContent("line1[27;5;106~line2[27;5;106~"); got != "line1\nline2\n" {
+		t.Fatalf("sanitizePasteContent() = %q, want %q", got, "line1\nline2\n")
+	}
+	if got := m.input.Value(); strings.Contains(got, "[27;5;106~") {
+		t.Fatalf("input = %q, want no CSI residue", got)
+	}
+}
+
 func TestSlashDryRunDispatchesAction(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")

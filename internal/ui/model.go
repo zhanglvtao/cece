@@ -228,6 +228,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case tea.PasteMsg:
+		msg.Content = sanitizePasteContent(msg.Content)
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		m.checkSlashPopupActive()

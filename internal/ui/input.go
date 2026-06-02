@@ -19,6 +19,11 @@ import (
 // treated as ordinary text input.
 var csiResidueRe = regexp.MustCompile(`^\[\d+(;\d+)*[~A-Za-z]$`)
 
+// csiResidueInlineRe matches visible CSI residue text embedded inside pasted
+// content, such as [27;5;106~, when the leading ESC byte has already been
+// dropped by the terminal/input stack.
+var csiResidueInlineRe = regexp.MustCompile(`\[\d+(;\d+)*[~A-Za-z]`)
+
 // csiSeqRe matches complete CSI escape sequences within pasted text.
 // In modifyOtherKeys mode 2, terminals encode newline (Ctrl+J, 0x0A) as
 // \x1b[27;5;106~. When bracketed paste is active, ultraviolet's paste
@@ -37,8 +42,12 @@ func sanitizePasteContent(s string) string {
 	s = strings.ReplaceAll(s, "\x1b[27;5;106~", "\n")
 	// \x1b[27;5;13~  = Ctrl+M = carriage return (map to newline)
 	s = strings.ReplaceAll(s, "\x1b[27;5;13~", "\n")
-	// Strip any remaining CSI sequences
+	// Visible residue form of the same control keys when ESC has already been dropped.
+	s = strings.ReplaceAll(s, "[27;5;106~", "\n")
+	s = strings.ReplaceAll(s, "[27;5;13~", "\n")
+	// Strip any remaining CSI sequences or visible residue fragments.
 	s = csiSeqRe.ReplaceAllString(s, "")
+	s = csiResidueInlineRe.ReplaceAllString(s, "")
 	return s
 }
 
