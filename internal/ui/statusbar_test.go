@@ -86,6 +86,26 @@ func TestStatusBarRender(t *testing.T) {
 	if !strings.Contains(lines[1], "Read×1") {
 		t.Fatalf("missing Read×1 in line 2: %q", lines[1])
 	}
+
+	// Verify short names for long tool names
+	sb2 := NewStatusBar()
+	sb2.IncrementTool("EnterPlanMode")
+	sb2.IncrementTool("AskUserQuestion")
+	sb2.IncrementTool("WebFetch")
+	sb2.IncrementTool("Compact")
+	got2 := stripAnsi(sb2.Render(120))
+	if !strings.Contains(got2, "Plan×1") {
+		t.Fatalf("missing Plan×1 for EnterPlanMode: %q", got2)
+	}
+	if !strings.Contains(got2, "Ask×1") {
+		t.Fatalf("missing Ask×1 for AskUserQuestion: %q", got2)
+	}
+	if !strings.Contains(got2, "Web×1") {
+		t.Fatalf("missing Web×1 for WebFetch: %q", got2)
+	}
+	if !strings.Contains(got2, "Cmpct×1") {
+		t.Fatalf("missing Cmpct×1 for Compact: %q", got2)
+	}
 }
 
 func TestStatusBarCacheHitRate(t *testing.T) {

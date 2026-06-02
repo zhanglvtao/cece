@@ -166,7 +166,7 @@ func (sb *StatusBar) Render(width int) string {
 		}
 		sort.Strings(names)
 		for _, n := range names {
-			line2Parts = append(line2Parts, sb.styles.Status.Tool.Render(fmt.Sprintf("%s×%d", n, sb.toolCounts[n])))
+			line2Parts = append(line2Parts, sb.styles.Status.Tool.Render(fmt.Sprintf("%s×%d", shortToolName(n), sb.toolCounts[n])))
 		}
 	}
 
@@ -193,6 +193,22 @@ func (sb *StatusBar) Height() int {
 		return 2
 	}
 	return 1
+}
+
+// shortToolName returns a compact display name for the status bar.
+var toolShortNames = map[string]string{
+	"EnterPlanMode":  "Plan",
+	"ExitPlanMode":   "Unplan",
+	"AskUserQuestion": "Ask",
+	"WebFetch":       "Web",
+	"Compact":        "Cmpct",
+}
+
+func shortToolName(name string) string {
+	if s, ok := toolShortNames[name]; ok {
+		return s
+	}
+	return name
 }
 
 func statusModeLabel(mode string) string {
