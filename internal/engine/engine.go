@@ -180,7 +180,7 @@ func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int,
 
 	splitIdx := boundaries[keepTurn]
 	summarize := snapshot[:splitIdx]
-	keep := snapshot[keepTurn:]
+	keep := snapshot[splitIdx:]
 
 	if len(summarize) == 0 {
 		return "", 0, 0, fmt.Errorf("no messages to summarize before turn %d", keepTurn)
@@ -203,8 +203,14 @@ func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int,
 		CompactBoundary: true,
 	}
 
-	newHistory := append([]agent.Message{boundary}, keep...)
-	tokensAfter := agent.EstimateMessagesTokens(newHistory)
+	// Insert boundary between summarized and kept messages.
+	// Old (summarized) messages are preserved for UI scrollback and persistence;
+	// MessagesAfterCompactBoundary skips everything before the boundary for API requests.
+	newHistory := make([]agent.Message, 0, len(snapshot)+1)
+	newHistory = append(newHistory, snapshot[:splitIdx]...)
+	newHistory = append(newHistory, boundary)
+	newHistory = append(newHistory, keep...)
+	tokensAfter := agent.EstimateMessagesTokens(append([]agent.Message{boundary}, keep...))
 
 	e.mu.Lock()
 	e.history = newHistory
@@ -264,7 +270,30 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	copy(snapshot, e.history)
 	e.mu.Unlock()
 
-	newHistory, tokensBefore, tokensAfter := agent.PruneBeforeTurn(snapshot, turn)
+	boundaries := agent.TurnBoundaries(snapshot)
+	tokensBefore := agent.EstimateMessagesTokens(snapshot)
+
+	if turn <= 0 || turn > len(boundaries) {
+		return tokensBefore, tokensBefore
+	}
+
+	startIdx := boundaries[turn-1]
+
+	boundary := agent.Message{
+		Role: agent.UserRole,
+		Content: fmt.Sprintf(
+			"Context pruned: %d messages across %d turns before this point have been removed to free context. Continue the conversation based on what remains.",
+			startIdx, turn,
+		),
+		CompactBoundary: true,
+	}
+
+	// Insert boundary at the prune point, keeping old messages for UI scrollback.
+	newHistory := make([]agent.Message, 0, len(snapshot)+1)
+	newHistory = append(newHistory, snapshot[:startIdx]...)
+	newHistory = append(newHistory, boundary)
+	newHistory = append(newHistory, snapshot[startIdx:]...)
+	tokensAfter := agent.EstimateMessagesTokens(append([]agent.Message{boundary}, snapshot[startIdx:]...))
 
 	e.mu.Lock()
 	e.history = newHistory
@@ -273,14 +302,8 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	e.lastNudgeTurn = e.lastCompactTurn
 	e.mu.Unlock()
 
-	// Persist the boundary message
-	for _, m := range newHistory {
-		if m.CompactBoundary {
-			if sessionID != "" {
-				e.PersistMessage(context.Background(), m)
-			}
-			break
-		}
+	if sessionID != "" {
+		e.PersistMessage(context.Background(), boundary)
 	}
 
 	e.emitEvent(protocol.PrunedEvent{
@@ -748,10 +771,19 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 		return
 	}
 
-	// Append boundary message to history (old messages preserved for UI scrollback)
+	// Insert boundary at the split point between summarized and kept messages.
+	// compactable starts at offset (len(snapshot) - len(compactable)) in the full history.
+	// The split within compactable is at result.SummarizeCount.
+	compactableOffset := len(snapshot) - len(compactable)
+	insertIdx := compactableOffset + result.SummarizeCount
+
+	newHistory := make([]agent.Message, 0, len(snapshot)+1)
+	newHistory = append(newHistory, snapshot[:insertIdx]...)
+	newHistory = append(newHistory, result.Boundary)
+	newHistory = append(newHistory, snapshot[insertIdx:]...)
+
 	e.mu.Lock()
-	e.history = append(e.history, result.Boundary)
-	historyLen := len(e.history)
+	e.history = newHistory
 	sessionID := e.sessionID
 	e.mu.Unlock()
 
@@ -764,7 +796,7 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 		TokensBefore:   result.TokensBefore,
 		TokensAfter:    result.TokensAfter,
 		MessagesBefore: len(snapshot),
-		MessagesAfter:  historyLen - result.SummarizeCount + 1,
+		MessagesAfter:  len(newHistory),
 		Summary:        result.Boundary.Content,
 	})
 }
