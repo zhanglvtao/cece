@@ -363,7 +363,7 @@ func TestDecodeCachedTokensChatCompletions(t *testing.T) {
 	}
 	var cacheRead int
 	for _, e := range events {
-		if e.EventType == "message_start" && e.InputTokens > 0 {
+		if e.EventType == "message_delta" && e.InputTokens > 0 {
 			cacheRead = e.CacheReadTokens
 		}
 	}
@@ -387,7 +387,7 @@ func TestDecodeCachedTokensResponsesAPI(t *testing.T) {
 	}
 	var cacheRead int
 	for _, e := range events {
-		if e.EventType == "message_start" && e.InputTokens > 0 {
+		if e.EventType == "message_delta" && e.InputTokens > 0 {
 			cacheRead = e.CacheReadTokens
 		}
 	}
@@ -411,7 +411,7 @@ func TestDecodeCachedTokensAidenNormalized(t *testing.T) {
 	}
 	var cacheRead int
 	for _, e := range events {
-		if e.EventType == "message_start" && e.InputTokens > 0 {
+		if e.EventType == "message_delta" && e.InputTokens > 0 {
 			cacheRead = e.CacheReadTokens
 		}
 	}

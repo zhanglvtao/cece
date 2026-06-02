@@ -121,11 +121,8 @@ func (t *transcript) apply(event protocol.Event) {
 		t.appendDone(blockInfo, "dryrun", formatDryRun(e))
 	case protocol.StreamStarted:
 		if e.InputTokens > 0 {
-			t.inputTokens += e.InputTokens
 			t.contextUsed = e.InputTokens
 		}
-		t.cacheReadTokens += e.CacheReadTokens
-		t.cacheCreationTokens += e.CacheCreationTokens
 		if e.CacheReadTokens > 0 || e.CacheCreationTokens > 0 {
 			total := e.InputTokens
 			if total == 0 {
@@ -254,6 +251,21 @@ func (t *transcript) apply(event protocol.Event) {
 			for _, msg := range e.History {
 				t.loadMessage(msg)
 			}
+		}
+	case protocol.TurnCompleted:
+		// Use authoritative token data from the engine.
+		if e.LastInputTokens > 0 {
+			t.contextUsed = e.LastInputTokens
+		}
+		if e.TotalInputTokens > 0 {
+			t.inputTokens = e.TotalInputTokens
+		}
+		if e.TotalOutputTokens > 0 {
+			t.outputTokens = e.TotalOutputTokens
+		}
+		if e.CacheReadTokens > 0 || e.CacheCreationTokens > 0 {
+			t.cacheReadTokens = e.CacheReadTokens
+			t.cacheCreationTokens = e.CacheCreationTokens
 		}
 	}
 }

@@ -77,9 +77,17 @@ func (w *FileWalker) Loaded(absRoot string) bool {
 }
 
 func walkDir(root string) []string {
-	var files []string
+	var entries []string
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		relStr := filepath.ToSlash(rel)
+		if relStr == "." {
 			return nil
 		}
 		if info.IsDir() {
@@ -87,18 +95,17 @@ func walkDir(root string) []string {
 			if skipDirs[base] {
 				return filepath.SkipDir
 			}
+			entries = append(entries, relStr+"/")
+			if len(entries) >= walkerMaxFiles {
+				return filepath.SkipDir
+			}
 			return nil
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil
-		}
-		relStr := filepath.ToSlash(rel)
-		files = append(files, relStr)
-		if len(files) >= walkerMaxFiles {
+		entries = append(entries, relStr)
+		if len(entries) >= walkerMaxFiles {
 			return filepath.SkipDir
 		}
 		return nil
 	})
-	return files
+	return entries
 }

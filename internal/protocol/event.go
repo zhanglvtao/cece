@@ -268,7 +268,13 @@ func (PrunedEvent) isEvent() {}
 // TurnCompleted is emitted when a full agent turn finishes (after all
 // tool executions and assistant responses). Replaces the old channel-close
 // signal so the UI only needs to consume from the single event bus.
-type TurnCompleted struct{}
+type TurnCompleted struct {
+	LastInputTokens  int // input tokens of the last API request (= current context usage)
+	TotalInputTokens int // cumulative input tokens across all API calls in this turn
+	TotalOutputTokens int // cumulative output tokens across all API calls in this turn
+	CacheReadTokens  int // cumulative cache read tokens across this session
+	CacheCreationTokens int // cumulative cache creation tokens across this session
+}
 
 func (TurnCompleted) isEvent() {}
 

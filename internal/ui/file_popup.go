@@ -15,6 +15,7 @@ const filePopupMaxHeight = 10
 type fileEntry struct {
 	path     string // display path
 	FullPath string // insertion path
+	isDir    bool   // true if this entry is a directory
 }
 
 // FilePopup wraps a compact Picker for @ file completion.
@@ -133,18 +134,19 @@ func (p *FilePopup) buildPicker() {
 }
 
 // rebuildEntries rebuilds the entry list from the walker cache,
-// sorted by relevance: non-hidden first, shallow depth first, better match first.
+// sorted by relevance: directories first, then non-hidden first, shallow depth first, better match first.
 func (p *FilePopup) rebuildEntries() {
 	files := p.walker.Files(p.spec.AbsRoot)
 	entries := make([]fileEntry, 0, len(files))
 	for _, f := range files {
+		isDir := strings.HasSuffix(f, "/")
 		var fullPath string
 		if p.spec.IsAbs || p.spec.BaseDir != "" {
 			fullPath = p.spec.BaseDir + f
 		} else {
 			fullPath = f
 		}
-		entries = append(entries, fileEntry{path: f, FullPath: fullPath})
+		entries = append(entries, fileEntry{path: f, FullPath: fullPath, isDir: isDir})
 	}
 
 	query := p.spec.FileName
@@ -156,9 +158,14 @@ func (p *FilePopup) rebuildEntries() {
 }
 
 // fileLess defines the sort order for file entries.
-// Priority: prefix match > contains match > no match,
+// Priority: directory > file, prefix match > contains match > no match,
 //           non-hidden > hidden, shallow > deep.
 func fileLess(a, b fileEntry, query string) bool {
+	// Directories before files
+	if a.isDir != b.isDir {
+		return a.isDir
+	}
+
 	sa := fileScore(a, query)
 	sb := fileScore(b, query)
 
@@ -186,7 +193,10 @@ type fileScoreInfo struct {
 
 func fileScore(e fileEntry, query string) fileScoreInfo {
 	base := filepath.Base(e.path)
-	depth := strings.Count(e.path, "/")
+	if e.isDir {
+		base = strings.TrimSuffix(base, "/")
+	}
+	depth := strings.Count(strings.TrimSuffix(e.path, "/"), "/")
 	hidden := isHiddenPath(e.path)
 
 	rank := 0
@@ -219,6 +229,9 @@ func fileMatches(e fileEntry, fileNameQuery string) bool {
 		return true
 	}
 	base := filepath.Base(e.path)
+	if e.isDir {
+		base = strings.TrimSuffix(base, "/")
+	}
 	return containsFold(base, fileNameQuery)
 }
 

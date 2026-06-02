@@ -144,6 +144,22 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		if chunk.EventType == "message_delta" {
 			resp.outputTokens = chunk.OutputTokens
 			resp.stopReason = chunk.StopReason
+			// Some providers (OpenAI-compatible) deliver final usage in message_delta
+			if chunk.InputTokens > 0 {
+				resp.inputTokens = chunk.InputTokens
+				if s.onInputTokens != nil {
+					s.onInputTokens(resp.inputTokens)
+				}
+				s.lastInputTokens = resp.inputTokens
+			}
+			if chunk.CacheReadTokens > 0 {
+				resp.cacheReadTokens = chunk.CacheReadTokens
+			}
+			ch <- StreamStarted{
+				InputTokens:         resp.inputTokens,
+				CacheCreationTokens: resp.cacheCreationTokens,
+				CacheReadTokens:     resp.cacheReadTokens,
+			}
 		}
 
 		// Tool use assembly

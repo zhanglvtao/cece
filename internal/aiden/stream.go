@@ -227,17 +227,16 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 		if hadTools {
 			stopReason = "tool_use"
 		}
-		if event.Response.Usage.InputTokens > 0 {
-			cacheRead := event.Response.Usage.InputTokensDetails.CachedTokens
-			if cacheRead == 0 {
-				cacheRead = event.Response.Usage.InputTokenDetails.CacheRead
-			}
-			out <- agent.ApiStreamEvent{EventType: "message_start", InputTokens: event.Response.Usage.InputTokens, CacheReadTokens: cacheRead}
+		cacheRead := event.Response.Usage.InputTokensDetails.CachedTokens
+		if cacheRead == 0 {
+			cacheRead = event.Response.Usage.InputTokenDetails.CacheRead
 		}
 		out <- agent.ApiStreamEvent{
-			EventType:    "message_delta",
-			StopReason:   stopReason,
-			OutputTokens: event.Response.Usage.OutputTokens,
+			EventType:       "message_delta",
+			StopReason:      stopReason,
+			InputTokens:     event.Response.Usage.InputTokens,
+			OutputTokens:    event.Response.Usage.OutputTokens,
+			CacheReadTokens: cacheRead,
 		}
 		out <- agent.ApiStreamEvent{Done: true}
 	}
@@ -349,18 +348,12 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 			out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
 		}
 
-		if chunk.Usage.PromptTokens > 0 {
-			out <- agent.ApiStreamEvent{
-				EventType:       "message_start",
-				InputTokens:     chunk.Usage.PromptTokens,
-				CacheReadTokens: chunk.Usage.PromptTokensDetails.CachedTokens,
-			}
-		}
-
 		out <- agent.ApiStreamEvent{
-			EventType:    "message_delta",
-			StopReason:   mapStopReason(choice.FinishReason),
-			OutputTokens: chunk.Usage.CompletionTokens,
+			EventType:       "message_delta",
+			StopReason:      mapStopReason(choice.FinishReason),
+			InputTokens:     chunk.Usage.PromptTokens,
+			OutputTokens:    chunk.Usage.CompletionTokens,
+			CacheReadTokens: chunk.Usage.PromptTokensDetails.CachedTokens,
 		}
 	}
 }
