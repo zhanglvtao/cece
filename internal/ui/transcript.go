@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"cece/internal/logger"
 	"cece/internal/protocol"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -237,6 +238,7 @@ func (t *transcript) apply(event protocol.Event) {
 		if e.Err != "" && e.Err != "context canceled" {
 			errMsg = e.Err
 		}
+		errMsg = appendErrorContext(errMsg)
 		t.appendDone(blockError, "error", errMsg)
 	case protocol.PlanApprovalRequested:
 		t.appendDone(blockPlan, "plan: "+e.PlanFile, e.PlanContent)
@@ -489,6 +491,31 @@ func containsString(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// appendErrorContext appends session ID and log file path to an error message
+// so users can locate the corresponding logs.
+func appendErrorContext(errMsg string) string {
+	sid := logger.GetSessionID()
+	lp := logger.LogPath()
+	if sid == "" && lp == "" {
+		return errMsg
+	}
+	var b strings.Builder
+	b.WriteString(errMsg)
+	b.WriteString("\n\n")
+	if sid != "" {
+		b.WriteString("session: ")
+		b.WriteString(sid)
+	}
+	if lp != "" {
+		if sid != "" {
+			b.WriteString("  ")
+		}
+		b.WriteString("log: ")
+		b.WriteString(lp)
+	}
+	return b.String()
 }
 
 

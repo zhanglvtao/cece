@@ -93,6 +93,18 @@ func Sync() {
 
 func SetSessionID(id string) { sessionID.Store(id) }
 
+func GetSessionID() string {
+	id, _ := sessionID.Load().(string)
+	return id
+}
+
+func LogPath() string {
+	if file == nil {
+		return ""
+	}
+	return file.Name()
+}
+
 func Debug(msg string, args ...any) { log(slog.LevelDebug, msg, args...) }
 func Info(msg string, args ...any)  { log(slog.LevelInfo, msg, args...) }
 func Warn(msg string, args ...any)  { log(slog.LevelWarn, msg, args...) }

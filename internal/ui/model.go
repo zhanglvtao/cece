@@ -10,6 +10,7 @@ import (
 
 	"github.com/rivo/uniseg"
 
+	"cece/internal/logger"
 	"cece/internal/protocol"
 	"cece/internal/session"
 	"cece/internal/skill"
@@ -200,8 +201,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case inputErrorMsg:
 		m.busy = false
+		errMsg := appendErrorContext(msg.err.Error())
 		m.status = msg.err.Error()
-		m.transcript.appendDone(blockError, "error", msg.err.Error())
+		m.transcript.appendDone(blockError, "error", errMsg)
 		m.refreshViewport(true)
 		return m, nil
 	case statusSpinnerTickMsg:
@@ -263,7 +265,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.status = "Session created"
 	case protocol.SessionTitleGeneratedEvent:
 		if e.Err != "" {
-			m.status = "Title generation failed"
+			m.status = errorStatus("Title generation failed")
 		} else {
 			m.status = "Title: " + e.Title
 			if e.SessionID == m.currentSessionID {
@@ -287,7 +289,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.RunFailed:
 		m.busy = false
 		m.queued = nil
-		m.status = "Failed"
+		m.status = errorStatus("Failed")
 		m.streamHeadline = ""
 	case protocol.TurnCompleted:
 		m.busy = false
@@ -314,7 +316,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.status = "Answer question"
 	case protocol.ModelsLoadedEvent:
 		if e.Err != "" {
-			m.status = "Failed to load models: " + e.Err
+			m.status = errorStatus("Failed to load models: " + e.Err)
 		} else {
 			m.openModelPicker(e.Models)
 			m.status = "Switch model"
@@ -329,7 +331,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.mode = e.Mode
 	case protocol.SessionLoadedEvent:
 		if e.Err != "" {
-			m.status = "Failed to load session: " + e.Err
+			m.status = errorStatus("Failed to load session: " + e.Err)
 		} else {
 			m.currentSessionID = e.SessionID
 			m.currentSessionEphemeral = false
@@ -377,7 +379,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.status = "MCP servers"
 	case protocol.MCPServerStatusChangedEvent:
 		if e.Error != "" {
-			m.status = fmt.Sprintf("MCP %s: %s", e.Name, e.Error)
+			m.status = errorStatus(fmt.Sprintf("MCP %s: %s", e.Name, e.Error))
 		} else if e.Connected {
 			m.status = fmt.Sprintf("MCP %s: connected", e.Name)
 		} else {
@@ -404,7 +406,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		}
 	case protocol.SubAgentFailedEvent:
 		m.removeRunningAgent(e.ID)
-		m.status = fmt.Sprintf("● %s failed: %s", e.Description, e.Error)
+		m.status = errorStatus(fmt.Sprintf("● %s failed: %s", e.Description, e.Error))
 	}
 	// Sync all status bar data from model state.
 	m.statusBar.UpdateMode(string(m.mode))
@@ -413,6 +415,15 @@ func (m *Model) applyEvent(event protocol.Event) {
 	m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
 	m.statusBar.UpdateCache(m.transcript.cacheReadTokens, m.transcript.cacheCreationTokens)
 	m.refreshViewport(eventPinsViewportToBottom(event))
+}
+
+// errorStatus prefixes a status message with the current session ID.
+func errorStatus(msg string) string {
+	sid := logger.GetSessionID()
+	if sid == "" {
+		return msg
+	}
+	return fmt.Sprintf("[%s] %s", sid, msg)
 }
 
 func eventPinsViewportToBottom(event protocol.Event) bool {
