@@ -239,25 +239,30 @@ Please provide your summary based on the conversation so far, following this str
 func EstimateMessagesTokens(messages []Message) int {
 	total := 0
 	for _, m := range messages {
+		total += overheadPerMessage
 		if m.Content != "" {
-			total += prompt.EstimateTokens(m.Content)
+			total += prompt.PreciseEstimateTokens(m.Content)
 		}
 		for _, cb := range m.ContentBlocks {
 			switch cb.Type {
 			case ApiTextContentType:
-				total += prompt.EstimateTokens(cb.Text)
+				total += overheadTextBlock
+				total += prompt.PreciseEstimateTokens(cb.Text)
 			case ApiToolUseContentType:
+				total += overheadToolUseBlock
 				if cb.ToolUse != nil {
-					total += prompt.EstimateTokens(cb.ToolUse.Name)
-					total += prompt.EstimateTokens(string(cb.ToolUse.Input))
+					total += prompt.PreciseEstimateTokens(cb.ToolUse.Name)
+					total += prompt.PreciseEstimateTokens(string(cb.ToolUse.Input))
 				}
 			case ApiToolResultContentType:
+				total += overheadToolResultBlock
 				if cb.ToolResult != nil {
-					total += prompt.EstimateTokens(cb.ToolResult.Content)
+					total += prompt.PreciseEstimateTokens(cb.ToolResult.Content)
 				}
 			case ApiThinkingContentType:
+				total += overheadThinkingBlock
 				if cb.Thinking != nil {
-					total += prompt.EstimateTokens(cb.Thinking.Text)
+					total += prompt.PreciseEstimateTokens(cb.Thinking.Text)
 				}
 			}
 		}

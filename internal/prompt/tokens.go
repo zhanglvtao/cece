@@ -57,6 +57,12 @@ func EstimateTokens(text string) int {
 	return estimateTokens(text)
 }
 
+// PreciseEstimateTokens exposes the tiktoken BPE estimator to other packages.
+// It is more accurate than EstimateTokens but slower and allocates a BPE encoder.
+func PreciseEstimateTokens(text string) int {
+	return preciseEstimate(text)
+}
+
 var (
 	encodingOnce sync.Once
 	cachedEncoding *tiktoken.Tiktoken
