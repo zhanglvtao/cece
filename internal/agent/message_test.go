@@ -131,14 +131,16 @@ func TestEnsureToolResultCoverage_WithOrphans(t *testing.T) {
 	if len(result) != 3 {
 		t.Fatalf("expected 3 messages (original + synthetic), got %d", len(result))
 	}
-	last := result[len(result)-1]
-	if last.Role != UserRole {
-		t.Fatalf("synthetic message role = %q, want user", last.Role)
+	// Synthetic tool_result must be at index 1 (immediately after the assistant message at index 1),
+	// NOT at the end.
+	synthetic := result[2]
+	if synthetic.Role != UserRole {
+		t.Fatalf("synthetic message role = %q, want user", synthetic.Role)
 	}
-	if len(last.ContentBlocks) != 1 {
-		t.Fatalf("synthetic message content blocks = %d, want 1", len(last.ContentBlocks))
+	if len(synthetic.ContentBlocks) != 1 {
+		t.Fatalf("synthetic message content blocks = %d, want 1", len(synthetic.ContentBlocks))
 	}
-	tr, ok := last.ContentBlocks[0].AsToolResult()
+	tr, ok := synthetic.ContentBlocks[0].AsToolResult()
 	if !ok {
 		t.Fatal("expected tool_result content block")
 	}
@@ -147,6 +149,79 @@ func TestEnsureToolResultCoverage_WithOrphans(t *testing.T) {
 	}
 	if !tr.IsError {
 		t.Error("synthetic tool result should have IsError=true")
+	}
+	// Verify position: synthetic must immediately follow the assistant message that contains the tool_use.
+	if result[1].Role != AssistantRole {
+		t.Fatalf("message at index 1 role = %q, want assistant", result[1].Role)
+	}
+	if result[2].Role != UserRole {
+		t.Fatalf("message at index 2 role = %q, want user (synthetic)", result[2].Role)
+	}
+}
+
+func TestEnsureToolResultCoverage_InsertPosition(t *testing.T) {
+	// Orphaned tool_use in the middle of a conversation.
+	// The synthetic tool_result must be inserted right after the assistant message,
+	// not at the end.
+	msgs := []Message{
+		{Role: UserRole, Content: "run ls"},
+		{
+			Role: AssistantRole,
+			ContentBlocks: []ApiContentBlock{
+				{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Bash", Input: json.RawMessage(`{"cmd":"ls"}`)}},
+			},
+		},
+		{Role: UserRole, Content: "continue"},
+		{
+			Role: AssistantRole,
+			ContentBlocks: []ApiContentBlock{
+				{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_2", Name: "Read", Input: json.RawMessage(`{"path":"/tmp"}`)}},
+			},
+		},
+		{
+			Role: UserRole,
+			ContentBlocks: []ApiContentBlock{
+				{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_2", Content: "file contents"}},
+			},
+		},
+	}
+
+	result := EnsureToolResultCoverage(msgs)
+	// Expected: 5 original + 1 synthetic for call_1 = 6
+	if len(result) != 6 {
+		t.Fatalf("expected 6 messages, got %d", len(result))
+	}
+
+	// result[0] = user "run ls"
+	// result[1] = assistant (tool_use: call_1)
+	// result[2] = user (synthetic tool_result for call_1)  ← INSERTED HERE
+	// result[3] = user "continue"
+	// result[4] = assistant (tool_use: call_2)
+	// result[5] = user (tool_result for call_2)
+
+	if result[2].Role != UserRole {
+		t.Fatalf("inserted message at index 2 role = %q, want user", result[2].Role)
+	}
+	tr, ok := result[2].ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatal("expected tool_result at index 2")
+	}
+	if tr.ToolUseID != "call_1" {
+		t.Errorf("inserted tool_use_id = %q, want call_1", tr.ToolUseID)
+	}
+
+	// Verify the "continue" message shifted to index 3
+	if result[3].Content != "continue" {
+		t.Errorf("message at index 3 content = %q, want 'continue'", result[3].Content)
+	}
+
+	// Verify call_2's tool_result is still at the end
+	tr2, ok := result[5].ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatal("expected tool_result at index 5")
+	}
+	if tr2.ToolUseID != "call_2" {
+		t.Errorf("tool_use_id at index 5 = %q, want call_2", tr2.ToolUseID)
 	}
 }
 
@@ -169,16 +244,62 @@ func TestEnsureToolResultCoverage_PartialOrphans(t *testing.T) {
 	}
 
 	result := EnsureToolResultCoverage(msgs)
+	// Expected: 3 original + 1 synthetic for call_2 = 4
 	if len(result) != 4 {
 		t.Fatalf("expected 4 messages, got %d", len(result))
 	}
-	last := result[len(result)-1]
-	tr, ok := last.ContentBlocks[0].AsToolResult()
+	// Synthetic for call_2 is inserted after the assistant message (index 1),
+	// so it should be at index 2, pushing the existing tool_result to index 3.
+	tr, ok := result[2].ContentBlocks[0].AsToolResult()
 	if !ok {
-		t.Fatal("expected tool_result content block")
+		t.Fatal("expected tool_result content block at index 2")
 	}
 	if tr.ToolUseID != "call_2" {
 		t.Errorf("synthetic tool_use_id = %q, want call_2", tr.ToolUseID)
+	}
+	// The original partial tool_result (call_1) should have shifted to index 3
+	tr1, ok := result[3].ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatal("expected tool_result content block at index 3")
+	}
+	if tr1.ToolUseID != "call_1" {
+		t.Errorf("shifted tool_use_id = %q, want call_1", tr1.ToolUseID)
+	}
+}
+
+func TestValidateToolResultCoverage_NoOrphans(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "hello"},
+		{Role: AssistantRole, Content: "hi"},
+	}
+	result := ValidateToolResultCoverage(msgs)
+	if len(result) != len(msgs) {
+		t.Fatalf("expected %d messages, got %d", len(msgs), len(result))
+	}
+}
+
+func TestValidateToolResultCoverage_PatchesOrphans(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "run ls"},
+		{
+			Role: AssistantRole,
+			ContentBlocks: []ApiContentBlock{
+				{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Bash", Input: json.RawMessage(`{"cmd":"ls"}`)}},
+			},
+		},
+	}
+
+	result := ValidateToolResultCoverage(msgs)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(result))
+	}
+	// Synthetic must immediately follow the assistant message
+	tr, ok := result[2].ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatal("expected tool_result content block")
+	}
+	if tr.ToolUseID != "call_1" {
+		t.Errorf("tool_use_id = %q, want call_1", tr.ToolUseID)
 	}
 }
 

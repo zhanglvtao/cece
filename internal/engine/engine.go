@@ -969,7 +969,7 @@ func buildTurnSnapshot(history []agent.Message, user agent.Message, planState *t
 			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildSparsePlanReminder(plansDir)})
 		}
 	}
-	return agent.EnsureToolResultCoverage(snapshot)
+	return agent.ValidateToolResultCoverage(agent.EnsureToolResultCoverage(snapshot))
 }
 
 // ── userInputQueue ─────────────────────────────────────────────────────────

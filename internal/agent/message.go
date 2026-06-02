@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"cece/internal/prompt"
@@ -185,9 +186,14 @@ func MessagesAfterCompactBoundary(messages []Message) []Message {
 
 // EnsureToolResultCoverage scans messages for orphaned tool_use blocks (assistant
 // messages with tool calls that have no matching tool_result in subsequent user
-// messages) and appends synthetic tool_result blocks for each missing one.
-// This prevents API 400 errors when a session is resumed after an interruption
-// that left tool calls without results.
+// messages) and inserts synthetic tool_result messages immediately after each
+// orphaned assistant message. This prevents API errors when a session is resumed
+// after an interruption that left tool calls without results.
+//
+// Placement matters: OpenAI/codebase/aiden protocols require tool results to
+// immediately follow the assistant message that made the tool call. Appending
+// synthetic results at the end violates message ordering and causes
+// "invalid params" errors from providers.
 func EnsureToolResultCoverage(messages []Message) []Message {
 	knownResults := make(map[string]struct{})
 	for _, m := range messages {
@@ -198,11 +204,17 @@ func EnsureToolResultCoverage(messages []Message) []Message {
 		}
 	}
 
-	var orphans []ApiToolUseBlock
+	// Build the result slice, inserting synthetic tool_result messages
+	// immediately after each assistant message that contains orphaned tool_use blocks.
+	var result []Message
 	for _, m := range messages {
+		result = append(result, m)
+
 		if m.Role != AssistantRole {
 			continue
 		}
+
+		var orphans []ApiToolUseBlock
 		for _, cb := range m.ContentBlocks {
 			if cb.Type == ApiToolUseContentType && cb.ToolUse != nil {
 				if _, has := knownResults[cb.ToolUse.ID]; !has {
@@ -210,28 +222,66 @@ func EnsureToolResultCoverage(messages []Message) []Message {
 				}
 			}
 		}
+
+		if len(orphans) == 0 {
+			continue
+		}
+
+		synthetic := make([]ApiContentBlock, len(orphans))
+		for i, tc := range orphans {
+			synthetic[i] = ApiContentBlock{
+				Type: ApiToolResultContentType,
+				ToolResult: &ApiToolResultBlock{
+					ToolUseID: tc.ID,
+					Content:   "Tool call was interrupted and did not produce a result. You may retry this call if the result is still needed.",
+					IsError:   true,
+				},
+			}
+		}
+
+		result = append(result, Message{
+			Role:          UserRole,
+			ContentBlocks: synthetic,
+		})
 	}
 
-	if len(orphans) == 0 {
-		return messages
-	}
+	return result
+}
 
-	synthetic := make([]ApiContentBlock, len(orphans))
-	for i, tc := range orphans {
-		synthetic[i] = ApiContentBlock{
-			Type: ApiToolResultContentType,
-			ToolResult: &ApiToolResultBlock{
-				ToolUseID: tc.ID,
-				Content:   "Tool call was interrupted and did not produce a result. You may retry this call if the result is still needed.",
-				IsError:   true,
-			},
+// ValidateToolResultCoverage is a safety-net check that verifies every tool_use
+// block has a matching tool_result. If any orphans remain (which should not
+// happen if EnsureToolResultCoverage was called), it patches them in-place.
+// Returns the (possibly patched) message slice.
+func ValidateToolResultCoverage(messages []Message) []Message {
+	knownResults := make(map[string]struct{})
+	for _, m := range messages {
+		for _, cb := range m.ContentBlocks {
+			if tr, ok := cb.AsToolResult(); ok {
+				knownResults[tr.ToolUseID] = struct{}{}
+			}
 		}
 	}
 
-	return append(messages, Message{
-		Role:          UserRole,
-		ContentBlocks: synthetic,
-	})
+	var orphanCount int
+	for _, m := range messages {
+		if m.Role != AssistantRole {
+			continue
+		}
+		for _, cb := range m.ContentBlocks {
+			if cb.Type == ApiToolUseContentType && cb.ToolUse != nil {
+				if _, has := knownResults[cb.ToolUse.ID]; !has {
+					orphanCount++
+				}
+			}
+		}
+	}
+
+	if orphanCount == 0 {
+		return messages
+	}
+
+	slog.Warn("ValidateToolResultCoverage: found orphaned tool_use blocks, patching", "count", orphanCount)
+	return EnsureToolResultCoverage(messages)
 }
 
 // TurnBoundaries returns the start index of each turn in messages.
