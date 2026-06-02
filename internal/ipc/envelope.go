@@ -46,6 +46,7 @@ var actionKinds = map[string]func() protocol.Action{
 	"compact":               func() protocol.Action { return &protocol.CompactAction{} },
 	"truncate_tool_results": func() protocol.Action { return &protocol.TruncateToolResultsAction{} },
 	"rename_session":        func() protocol.Action { return &protocol.RenameSessionAction{} },
+	"auto_title_session":    func() protocol.Action { return &protocol.AutoTitleSessionAction{} },
 	"list_mcp":              func() protocol.Action { return &protocol.ListMCPAction{} },
 	"connect_mcp":           func() protocol.Action { return &protocol.ConnectMCPAction{} },
 	"disconnect_mcp":        func() protocol.Action { return &protocol.DisconnectMCPAction{} },
@@ -225,6 +226,8 @@ func derefAction(a protocol.Action) protocol.Action {
 	case *protocol.TruncateToolResultsAction:
 		return *v
 	case *protocol.RenameSessionAction:
+		return *v
+	case *protocol.AutoTitleSessionAction:
 		return *v
 	case *protocol.ListMCPAction:
 		return *v

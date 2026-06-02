@@ -657,9 +657,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cancelTurn("Cancelled")
 			return m, nil
 		}
+		if strings.TrimSpace(m.input.Value()) != "" {
+			m.input.Reset()
+			m.slashPopup.Close()
+			m.filePopup.Close()
+			return m, nil
+		}
+		// Input is empty — quit. Request auto-title for current session first.
 		if m.currentSessionID != "" && !m.currentSessionEphemeral {
-			if m.openRenameSessionDialog() {
-				return m, nil
+			if actor, ok := m.sender.(Actor); ok {
+				actor.Do(protocol.AutoTitleSessionAction{SessionID: m.currentSessionID})
 			}
 		}
 		return m, func() tea.Msg { return tea.Quit() }

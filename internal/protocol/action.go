@@ -122,6 +122,15 @@ type RenameSessionAction struct {
 
 func (RenameSessionAction) isAction() {}
 
+// AutoTitleSessionAction requests the engine to generate a title for the
+// session using a lightweight model call and rename the session accordingly.
+// This is a best-effort, fire-and-forget action typically sent on exit.
+type AutoTitleSessionAction struct {
+	SessionID string
+}
+
+func (AutoTitleSessionAction) isAction() {}
+
 // ListMCPAction requests listing all MCP server statuses.
 type ListMCPAction struct{}
 

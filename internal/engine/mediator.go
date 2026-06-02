@@ -84,6 +84,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		}
 	case protocol.RenameSessionAction:
 		go m.renameSession(a.SessionID, a.Title)
+	case protocol.AutoTitleSessionAction:
+		go m.autoTitleSession(a.SessionID)
 	case protocol.ListMCPAction:
 		go m.listMCPServers()
 	case protocol.ConnectMCPAction:
@@ -215,6 +217,105 @@ func (m *EngineMediator) renameSession(sessionID, title string) {
 	}
 	if err := m.store.Rename(context.Background(), sessionID, title); err != nil {
 		slog.Error("rename session", "sessionID", sessionID, "error", err)
+	}
+}
+
+// autoTitleSession generates a session title using a lightweight model call
+// and renames the session. Best-effort; failures are logged and ignored.
+func (m *EngineMediator) autoTitleSession(sessionID string) {
+	if m.store == nil || sessionID == "" {
+		return
+	}
+
+	ctx := context.Background()
+
+	// Load messages to build a summary for the title generation prompt.
+	msgs, err := m.store.LoadMessages(ctx, sessionID)
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+
+	// Extract up to 6 recent user/assistant text messages for context.
+	var conversationLines []string
+	for _, raw := range msgs {
+		var partial struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}
+		if json.Unmarshal(raw, &partial) != nil {
+			continue
+		}
+		if partial.Role != "user" && partial.Role != "assistant" {
+			continue
+		}
+		text := strings.TrimSpace(partial.Content)
+		if text == "" {
+			continue
+		}
+		// Truncate long messages to keep the prompt small.
+		if len(text) > 200 {
+			text = text[:200] + "…"
+		}
+		conversationLines = append(conversationLines, partial.Role+": "+text)
+		if len(conversationLines) >= 6 {
+			break
+		}
+	}
+	if len(conversationLines) == 0 {
+		return
+	}
+
+	conversation := strings.Join(conversationLines, "\n")
+
+	// Build a minimal request to the current model client.
+	client := m.Engine.Client()
+	if client == nil {
+		return
+	}
+
+	systemPrompt := agent.SystemPrompt{
+		Blocks: []agent.SystemBlock{{
+			Text: "Generate a short, descriptive title (max 60 characters) for this conversation. Output ONLY the title text, nothing else. No quotes, no punctuation at the end.",
+		}},
+	}
+
+	messages := []agent.Message{
+		{Role: agent.UserRole, Content: conversation},
+	}
+
+	stream, err := client.Stream(ctx, messages, systemPrompt, nil, 64)
+	if err != nil {
+		slog.Error("auto title: stream failed", "sessionID", sessionID, "error", err)
+		return
+	}
+
+	var title strings.Builder
+	for ev := range stream {
+		if ev.Err != nil {
+			slog.Error("auto title: stream error", "sessionID", sessionID, "error", ev.Err)
+			return
+		}
+		if ev.Done {
+			break
+		}
+		if ev.Detail == "text_delta" {
+			title.WriteString(ev.Delta)
+		}
+	}
+
+	generated := strings.TrimSpace(title.String())
+	generated = strings.Trim(generated, "\"'`")
+	if len(generated) > 80 {
+		generated = generated[:77] + "…"
+	}
+	if generated == "" {
+		return
+	}
+
+	if err := m.store.Rename(ctx, sessionID, generated); err != nil {
+		slog.Error("auto title: rename failed", "sessionID", sessionID, "error", err)
+	} else {
+		slog.Info("auto title: session renamed", "sessionID", sessionID, "title", generated)
 	}
 }
 
