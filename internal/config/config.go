@@ -60,6 +60,7 @@ type LintConfig map[string]string
 
 type Config struct {
 	Model               string
+	LightModel          string           // lightweight model for title generation etc.
 	Debug               bool
 	Yolo                bool
 	MaxTokens           int
@@ -73,6 +74,7 @@ type Config struct {
 type settingsFile struct {
 	Provider struct {
 		Model               string           `json:"model"`
+		LightModel          string           `json:"lightModel"`
 		MaxTokens           int              `json:"maxTokens"`
 		ModelContextMapping map[string]int   `json:"modelContextMapping"`
 		Providers           []ProviderConfig `json:"providers"`
@@ -96,6 +98,7 @@ func Load(projectDir string) (Config, error) {
 
 	sf := loadSettingsFiles(projectDir)
 	cfg.Model = strings.TrimSpace(sf.Provider.Model)
+	cfg.LightModel = strings.TrimSpace(sf.Provider.LightModel)
 	cfg.MaxTokens = sf.Provider.MaxTokens
 	cfg.DefaultMode = sf.DefaultMode.Mode
 	cfg.ModelContextMapping = sf.Provider.ModelContextMapping
@@ -175,6 +178,11 @@ func mergeSettings(project, user settingsFile) settingsFile {
 		out.Provider.Model = project.Provider.Model
 	} else {
 		out.Provider.Model = user.Provider.Model
+	}
+	if strings.TrimSpace(project.Provider.LightModel) != "" {
+		out.Provider.LightModel = project.Provider.LightModel
+	} else {
+		out.Provider.LightModel = user.Provider.LightModel
 	}
 	if project.Provider.MaxTokens != 0 {
 		out.Provider.MaxTokens = project.Provider.MaxTokens

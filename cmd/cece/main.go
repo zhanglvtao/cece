@@ -455,7 +455,15 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		return allModels, nil
 	}
 
-	mediator := engine.NewEngineMediator(eng, store, providerResolver, createClientFn, listAllModelsFn, mcpMgr)
+	var lightModelClientFn func() agent.ModelClient
+	if cfg.LightModel != "" {
+		lightModel := cfg.LightModel
+		lightModelClientFn = func() agent.ModelClient {
+			return eng.ModelClientFor(lightModel)
+		}
+	}
+
+	mediator := engine.NewEngineMediator(eng, store, providerResolver, createClientFn, listAllModelsFn, mcpMgr, lightModelClientFn)
 	return runtimeBundle{
 		mediator:      mediator,
 		store:         store,

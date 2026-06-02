@@ -19,11 +19,12 @@ import (
 // core agent engine. It embeds *Engine to satisfy ui.Sender / ui.Actor / ui.Eventer.
 type EngineMediator struct {
 	*Engine
-	store            session.Store
-	providerResolver func(configName string) (apiKey, baseURL, authMode, authHelper, protocol string)
-	createClientFn   func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient
-	listAllModelsFn  func(ctx context.Context) ([]protocol.ModelInfo, error)
-	mcpManager       *mcp.Manager
+	store              session.Store
+	providerResolver   func(configName string) (apiKey, baseURL, authMode, authHelper, protocol string)
+	createClientFn     func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient
+	listAllModelsFn    func(ctx context.Context) ([]protocol.ModelInfo, error)
+	mcpManager         *mcp.Manager
+	lightModelClientFn func() agent.ModelClient // returns lightweight model client, nil = fallback to current client
 }
 
 func NewEngineMediator(
@@ -33,14 +34,16 @@ func NewEngineMediator(
 	createClientFn func(string, string, string, string, string, string, string) agent.ModelClient,
 	listAllModelsFn func(context.Context) ([]protocol.ModelInfo, error),
 	mcpManager *mcp.Manager,
+	lightModelClientFn func() agent.ModelClient,
 ) *EngineMediator {
 	return &EngineMediator{
-		Engine:           eng,
-		store:            store,
-		providerResolver: providerResolver,
-		createClientFn:   createClientFn,
-		listAllModelsFn:  listAllModelsFn,
-		mcpManager:       mcpManager,
+		Engine:             eng,
+		store:              store,
+		providerResolver:   providerResolver,
+		createClientFn:     createClientFn,
+		listAllModelsFn:    listAllModelsFn,
+		mcpManager:         mcpManager,
+		lightModelClientFn: lightModelClientFn,
 	}
 }
 
@@ -267,8 +270,13 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 
 	conversation := strings.Join(conversationLines, "\n")
 
-	// Build a minimal request to the current model client.
+	// Build a minimal request to the lightweight model client (fallback to current).
 	client := m.Engine.Client()
+	if m.lightModelClientFn != nil {
+		if lc := m.lightModelClientFn(); lc != nil {
+			client = lc
+		}
+	}
 	if client == nil {
 		return
 	}
