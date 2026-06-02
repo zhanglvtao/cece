@@ -14,6 +14,7 @@ type Runtime interface {
 	Input(context.Context, string) error
 	Do(protocol.Action)
 	Events() <-chan protocol.Event
+	Wait() // block until background tasks complete (for graceful shutdown)
 }
 
 func Serve(ctx context.Context, runtime Runtime, stdin io.Reader, stdout io.Writer) error {
@@ -69,6 +70,7 @@ func Serve(ctx context.Context, runtime Runtime, stdin io.Reader, stdout io.Writ
 		select {
 		case <-ctx.Done():
 			wg.Wait()
+			runtime.Wait()
 			return nil
 		default:
 		}
@@ -90,9 +92,11 @@ func Serve(ctx context.Context, runtime Runtime, stdin io.Reader, stdout io.Writ
 	if err := scanner.Err(); err != nil {
 		cancel()
 		wg.Wait()
+		runtime.Wait()
 		return fmt.Errorf("read stdin: %w", err)
 	}
 	cancel()
 	wg.Wait()
+	runtime.Wait()
 	return nil
 }

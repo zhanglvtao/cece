@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
+	"time"
 
 	"cece/internal/agent"
 	"cece/internal/mcp"
@@ -25,6 +27,7 @@ type EngineMediator struct {
 	listAllModelsFn    func(ctx context.Context) ([]protocol.ModelInfo, error)
 	mcpManager         *mcp.Manager
 	lightModelClientFn func() agent.ModelClient // returns lightweight model client, nil = fallback to current client
+	bgWg               sync.WaitGroup           // tracks background goroutines for graceful shutdown
 }
 
 func NewEngineMediator(
@@ -47,6 +50,29 @@ func NewEngineMediator(
 	}
 }
 
+// goBackground launches fn in a goroutine tracked by bgWg.
+func (m *EngineMediator) goBackground(fn func()) {
+	m.bgWg.Add(1)
+	go func() {
+		defer m.bgWg.Done()
+		fn()
+	}()
+}
+
+// Wait blocks until all background goroutines finish, with a 10s timeout.
+func (m *EngineMediator) Wait() {
+	done := make(chan struct{})
+	go func() {
+		m.bgWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		slog.Warn("mediator: timed out waiting for background tasks")
+	}
+}
+
 // Do dispatches A-class actions to Engine and handles B-class actions here.
 func (m *EngineMediator) Do(action protocol.Action) {
 	switch a := action.(type) {
@@ -66,7 +92,7 @@ func (m *EngineMediator) Do(action protocol.Action) {
 	case protocol.ClearHistoryAction:
 		m.Engine.ClearHistory()
 	case protocol.CompactAction:
-		go m.Engine.CompactHistory(context.Background())
+		m.goBackground(func() { m.Engine.CompactHistory(context.Background()) })
 	case protocol.TruncateToolResultsAction:
 		m.Engine.TruncateToolResults()
 
@@ -74,11 +100,11 @@ func (m *EngineMediator) Do(action protocol.Action) {
 	case protocol.SwitchModelAction:
 		m.switchModel(a)
 	case protocol.LoadSessionAction:
-		go m.loadSession(a.SessionID)
+		m.goBackground(func() { m.loadSession(a.SessionID) })
 	case protocol.ListModelsAction:
-		go m.listModels()
+		m.goBackground(m.listModels)
 	case protocol.CyclePermissionModeAction:
-		go m.cycleMode()
+		m.goBackground(m.cycleMode)
 	case protocol.SetPermissionModeAction:
 		m.setMode(a.Mode)
 	case protocol.SetExitTargetModeAction:
@@ -86,17 +112,17 @@ func (m *EngineMediator) Do(action protocol.Action) {
 			ps.SetExitTargetMode(tool.PermissionMode(a.Mode))
 		}
 	case protocol.RenameSessionAction:
-		go m.renameSession(a.SessionID, a.Title)
+		m.goBackground(func() { m.renameSession(a.SessionID, a.Title) })
 	case protocol.AutoTitleSessionAction:
-		go m.autoTitleSession(a.SessionID)
+		m.goBackground(func() { m.autoTitleSession(a.SessionID) })
 	case protocol.ListMCPAction:
-		go m.listMCPServers()
+		m.goBackground(m.listMCPServers)
 	case protocol.ConnectMCPAction:
-		go m.connectMCP(a.Name)
+		m.goBackground(func() { m.connectMCP(a.Name) })
 	case protocol.DisconnectMCPAction:
-		go m.disconnectMCP(a.Name)
+		m.goBackground(func() { m.disconnectMCP(a.Name) })
 	case protocol.ListToolsAction:
-		go m.listTools()
+		m.goBackground(m.listTools)
 	case protocol.DryRunRequestAction:
 		m.Engine.DryRunRequest(a.Input)
 	}

@@ -912,7 +912,14 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 			}
 			e.emitEvent(d)
 		}
-		e.emitEvent(protocol.TurnCompleted{})
+		sb := e.StatusBarSnapshot()
+		e.emitEvent(protocol.TurnCompleted{
+			LastInputTokens:     e.lastInputTokens,
+			TotalInputTokens:    e.totalInputTokens,
+			TotalOutputTokens:   e.totalOutputTokens,
+			CacheReadTokens:     sb.CacheReadTokens,
+			CacheCreationTokens: sb.CacheCreationTokens,
+		})
 	}()
 
 	return nil

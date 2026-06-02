@@ -30,6 +30,7 @@ func (f *fakeRuntime) Do(action protocol.Action) {
 	f.actions = append(f.actions, action)
 }
 func (f *fakeRuntime) Events() <-chan protocol.Event { return f.events }
+func (f *fakeRuntime) Wait()                         {}
 
 func TestServeDispatchesInputAndAction(t *testing.T) {
 	r := newFakeRuntime()

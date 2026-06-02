@@ -968,6 +968,16 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 			m.status = "Truncating tool results"
 		}
 		return nil
+	case "/title":
+		if m.currentSessionID != "" && !m.currentSessionEphemeral {
+			if actor, ok := m.sender.(Actor); ok {
+				actor.Do(protocol.AutoTitleSessionAction{SessionID: m.currentSessionID})
+				m.status = "Generating title"
+			}
+		} else {
+			m.status = "No session to title"
+		}
+		return nil
 	case "/skills":
 		if m.skillStore != nil {
 			m.transcript.appendDone(blockInfo, "skills", skill.FormatSkillList(m.skillStore.All()))
