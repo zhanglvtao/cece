@@ -36,21 +36,6 @@ type ErrorEvent struct {
 	Code    int    `json:"code,omitempty"`
 }
 
-type OpenAIChunk struct {
-	Choices []struct {
-		Delta struct {
-			Content          string             `json:"content"`
-			ReasoningContent string             `json:"reasoning_content"`
-			ToolCalls        []CodebaseToolCall `json:"tool_calls"`
-		} `json:"delta"`
-		FinishReason string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-	} `json:"usage"`
-}
-
 type streamState struct {
 	messageStarted    bool
 	thinkingOpen      bool
@@ -60,7 +45,6 @@ type streamState struct {
 	textBlockIndex    int
 	inputTokens       int
 	outputTokens      int
-	doneEmitted       bool
 }
 
 // DecodeStreamEvent reads a codebase-api SSE stream and emits agent.ApiStreamEvent values.
@@ -95,24 +79,16 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 				continue
 			}
 
-		dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if dataStr == "" {
-			continue
-		}
-		if dataStr == "[DONE]" {
-			emitDone(&DoneEvent{FinishReason: "stop"}, out, state)
-			continue
-		}
+			dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if dataStr == "" {
+				continue
+			}
 
-		processEvent(currentEvent, dataStr, out, state)
-	}
+			processEvent(currentEvent, dataStr, out, state)
+		}
 
 		if err := scanner.Err(); err != nil {
 			out <- agent.ApiStreamEvent{Err: err}
-		} else {
-			// Stream ended without done event — close open blocks and
-			// emit Done so the consumer never waits forever.
-			emitDone(&DoneEvent{FinishReason: "stop"}, out, state)
 		}
 	}()
 
@@ -165,36 +141,8 @@ func processEvent(eventType, data string, out chan<- agent.ApiStreamEvent, state
 		// Informational events, safely ignored
 
 	default:
-		if eventType == "" && processOpenAIChunk(data, out, state) {
-			return
-		}
 		logger.Debug("codebase unknown event type", "type", eventType, "data", data)
 	}
-}
-
-func processOpenAIChunk(data string, out chan<- agent.ApiStreamEvent, state *streamState) bool {
-	var ev OpenAIChunk
-	if err := json.Unmarshal([]byte(data), &ev); err != nil || (len(ev.Choices) == 0 && ev.Usage == nil) {
-		return false
-	}
-
-	if ev.Usage != nil {
-		state.inputTokens = ev.Usage.PromptTokens
-		state.outputTokens = ev.Usage.CompletionTokens
-	}
-
-	for _, choice := range ev.Choices {
-		emitOutput(&OutputEvent{
-			Response:         choice.Delta.Content,
-			ReasoningContent: choice.Delta.ReasoningContent,
-			ToolCalls:        choice.Delta.ToolCalls,
-		}, out, state)
-		if choice.FinishReason != "" {
-			emitDone(&DoneEvent{FinishReason: choice.FinishReason}, out, state)
-		}
-	}
-
-	return true
 }
 
 func emitOutput(ev *OutputEvent, out chan<- agent.ApiStreamEvent, state *streamState) {
@@ -293,10 +241,6 @@ func emitOutput(ev *OutputEvent, out chan<- agent.ApiStreamEvent, state *streamS
 }
 
 func emitDone(ev *DoneEvent, out chan<- agent.ApiStreamEvent, state *streamState) {
-	if state.doneEmitted {
-		return
-	}
-	state.doneEmitted = true
 	// Close thinking block if still open
 	if state.thinkingOpen {
 		out <- agent.ApiStreamEvent{
