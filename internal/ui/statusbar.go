@@ -208,6 +208,13 @@ func shortToolName(name string) string {
 	if s, ok := toolShortNames[name]; ok {
 		return s
 	}
+	// MCP tools: "mcp_serverName_toolName" → "serverName/toolName"
+	if after, ok := strings.CutPrefix(name, "mcp_"); ok {
+		if idx := strings.Index(after, "_"); idx >= 0 {
+			return after[:idx] + "/" + after[idx+1:]
+		}
+		return after
+	}
 	return name
 }
 

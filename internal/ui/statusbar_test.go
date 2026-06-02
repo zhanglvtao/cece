@@ -106,6 +106,22 @@ func TestStatusBarRender(t *testing.T) {
 	if !strings.Contains(got2, "Cmpct×1") {
 		t.Fatalf("missing Cmpct×1 for Compact: %q", got2)
 	}
+
+	// Verify MCP tool name shortening
+	sb3 := NewStatusBar()
+	sb3.IncrementTool("mcp_github_search_repositories")
+	sb3.IncrementTool("mcp_github_get_file")
+	sb3.IncrementTool("mcp_slack_send_message")
+	got3 := stripAnsi(sb3.Render(120))
+	if !strings.Contains(got3, "github/search_repositories×1") {
+		t.Fatalf("missing shortened MCP tool name: %q", got3)
+	}
+	if !strings.Contains(got3, "github/get_file×1") {
+		t.Fatalf("missing shortened MCP tool name: %q", got3)
+	}
+	if !strings.Contains(got3, "slack/send_message×1") {
+		t.Fatalf("missing shortened MCP tool name: %q", got3)
+	}
 }
 
 func TestStatusBarCacheHitRate(t *testing.T) {
