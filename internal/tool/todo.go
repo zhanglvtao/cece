@@ -133,22 +133,10 @@ func (t todoTool) Run(ctx context.Context, input json.RawMessage, emitter Emitte
 		}
 	}
 
-	// If all completed, clear the list (auto-dismiss)
-	allDone := len(parsed.Todos) > 0
-	for _, item := range parsed.Todos {
-		if item.Status != TodoCompleted {
-			allDone = false
-			break
-		}
-	}
-	if allDone {
-		parsed.Todos = nil
-	}
-
 	t.taskList.Replace(parsed.Todos)
 
 	if len(parsed.Todos) == 0 {
-		return Result{Content: "Tasks updated. All tasks completed — list cleared."}
+		return Result{Content: "Tasks updated. List cleared."}
 	}
 
 	// Summarize current state

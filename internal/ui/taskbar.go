@@ -75,7 +75,7 @@ func taskStyleFromStatus(status string, s Styles) lipgloss.Style {
 func taskStatusIcon(status string, frame int) string {
 	switch status {
 	case "pending":
-		return "○"
+		return "□"
 	case "in_progress":
 		if frame%4 < 2 {
 			return "■"
