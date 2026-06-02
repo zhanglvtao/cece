@@ -672,7 +672,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Input is empty — quit. Request auto-title for current session first.
-		if m.currentSessionID != "" && !m.currentSessionEphemeral {
+		if m.currentSessionID != "" {
 			if actor, ok := m.sender.(Actor); ok {
 				actor.Do(protocol.AutoTitleSessionAction{SessionID: m.currentSessionID})
 			}
@@ -978,7 +978,7 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 		}
 		return nil
 	case "/title":
-		if m.currentSessionID != "" && !m.currentSessionEphemeral {
+		if m.currentSessionID != "" {
 			if actor, ok := m.sender.(Actor); ok {
 				actor.Do(protocol.AutoTitleSessionAction{SessionID: m.currentSessionID})
 				m.status = "Generating title"
