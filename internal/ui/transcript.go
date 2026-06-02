@@ -252,6 +252,8 @@ func (t *transcript) apply(event protocol.Event) {
 				t.loadMessage(msg)
 			}
 		}
+	case protocol.ContextNudgedEvent:
+		t.appendDone(blockInfo, "nudge", fmt.Sprintf("ctx %d%% used (%dK/%dK), %d turns since compact", e.ContextPct, (e.ContextUsed+999)/1000, (e.ContextWindow+999)/1000, e.TurnsSinceCompact))
 	case protocol.TurnCompleted:
 		// Use authoritative token data from the engine.
 		if e.LastInputTokens > 0 {

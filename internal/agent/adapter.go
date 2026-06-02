@@ -162,6 +162,14 @@ func ToDTO(e Event) protocol.Event {
 			PrunedTurns:    v.PrunedTurns,
 		}
 
+	case ContextNudged:
+		return protocol.ContextNudgedEvent{
+			TurnsSinceCompact: v.TurnsSinceCompact,
+			ContextPct:        v.ContextPct,
+			ContextUsed:       v.ContextUsed,
+			ContextWindow:     v.ContextWindow,
+		}
+
 	case TurnCompleted:
 		return protocol.TurnCompleted{}
 

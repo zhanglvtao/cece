@@ -369,6 +369,8 @@ func (m *Model) applyEvent(event protocol.Event) {
 			e.PrunedTurns,
 			(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
 		m.statusBar.ResetToolCounts()
+	case protocol.ContextNudgedEvent:
+		m.status = fmt.Sprintf("Context nudge: %d%% used, %d turns since compact", e.ContextPct, e.TurnsSinceCompact)
 
 	case protocol.MCPServersListedEvent:
 		m.openMCPPicker(e.Servers)

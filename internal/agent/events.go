@@ -257,6 +257,17 @@ type TruncatedToolResults struct {
 
 func (TruncatedToolResults) isEvent() {}
 
+// ContextNudged is emitted when the system injects a context-pressure reminder
+// into the conversation to nudge the LLM toward compacting.
+type ContextNudged struct {
+	TurnsSinceCompact int
+	ContextPct        int // 0-100
+	ContextUsed       int // tokens
+	ContextWindow     int // tokens
+}
+
+func (ContextNudged) isEvent() {}
+
 // Pruned is emitted when messages before a turn are pruned entirely.
 type Pruned struct {
 	TokensBefore   int

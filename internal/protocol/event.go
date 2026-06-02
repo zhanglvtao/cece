@@ -265,6 +265,17 @@ type PrunedEvent struct {
 
 func (PrunedEvent) isEvent() {}
 
+// ContextNudgedEvent is emitted when the system injects a context-pressure
+// reminder into the conversation to nudge the LLM toward compacting.
+type ContextNudgedEvent struct {
+	TurnsSinceCompact int
+	ContextPct        int // 0-100
+	ContextUsed       int // tokens
+	ContextWindow     int // tokens
+}
+
+func (ContextNudgedEvent) isEvent() {}
+
 // TurnCompleted is emitted when a full agent turn finishes (after all
 // tool executions and assistant responses). Replaces the old channel-close
 // signal so the UI only needs to consume from the single event bus.

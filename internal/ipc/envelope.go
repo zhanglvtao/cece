@@ -84,6 +84,7 @@ var eventKinds = map[string]func() protocol.Event{
 	"compacted":                 func() protocol.Event { return &protocol.CompactedEvent{} },
 	"truncated_tool_results":    func() protocol.Event { return &protocol.TruncatedToolResultsEvent{} },
 	"pruned":                    func() protocol.Event { return &protocol.PrunedEvent{} },
+	"context_nudged":            func() protocol.Event { return &protocol.ContextNudgedEvent{} },
 	"turn_completed":            func() protocol.Event { return &protocol.TurnCompleted{} },
 	"session_title_generated":  func() protocol.Event { return &protocol.SessionTitleGeneratedEvent{} },
 	"models_loaded":             func() protocol.Event { return &protocol.ModelsLoadedEvent{} },

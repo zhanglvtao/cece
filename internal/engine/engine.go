@@ -52,6 +52,8 @@ type Engine struct {
 	toolCounts        map[string]int         // cumulative tool execution counts
 	cacheReadTokens   int                    // cumulative cache read tokens
 	cacheCreationTokens int                  // cumulative cache creation tokens
+	lastCompactTurn   int                    // turn count at last compact/prune
+	lastNudgeTurn     int                    // turn count at last nudge injection
 	inputQueue        *userInputQueue        // queued user inputs while agent is busy
 	questionAnswers   []tool.QuestionAnswer
 	eventCh           chan protocol.Event // global event channel for async responses
@@ -207,6 +209,8 @@ func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int,
 	e.mu.Lock()
 	e.history = newHistory
 	sessionID := e.sessionID
+	e.lastCompactTurn = len(agent.TurnBoundaries(newHistory))
+	e.lastNudgeTurn = e.lastCompactTurn
 	e.mu.Unlock()
 
 	if sessionID != "" {
@@ -265,6 +269,8 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	e.mu.Lock()
 	e.history = newHistory
 	sessionID := e.sessionID
+	e.lastCompactTurn = len(agent.TurnBoundaries(newHistory))
+	e.lastNudgeTurn = e.lastCompactTurn
 	e.mu.Unlock()
 
 	// Persist the boundary message
@@ -545,6 +551,67 @@ func (e *Engine) SetTokenState(lastInput, totalInput, totalOutput int) {
 	e.lastInputTokens = lastInput
 	e.totalInputTokens = totalInput
 	e.totalOutputTokens = totalOutput
+}
+
+// ── Context Nudge ─────────────────────────────────────────────────────────
+
+const (
+	nudgeTurnThreshold     = 20 // turns since last compact before first nudge
+	nudgeTurnInterval      = 10 // turns between subsequent nudges
+	nudgeContextPctThreshold = 60 // minimum context % used to trigger nudge
+)
+
+// shouldNudge checks whether a context-pressure nudge should be injected.
+// Returns (shouldNudge, turnsSinceCompact, contextPct, contextWindow).
+func (e *Engine) shouldNudge() (bool, int, int, int) {
+	e.mu.Lock()
+	history := e.history
+	lastCompactTurn := e.lastCompactTurn
+	lastNudgeTurn := e.lastNudgeTurn
+	lastInputTokens := e.lastInputTokens
+	contextWindow := e.contextWindow
+	e.mu.Unlock()
+
+	if contextWindow <= 0 || lastInputTokens <= 0 {
+		return false, 0, 0, contextWindow
+	}
+
+	totalTurns := len(agent.TurnBoundaries(history))
+	turnsSinceCompact := totalTurns - lastCompactTurn
+	turnsSinceNudge := totalTurns - lastNudgeTurn
+	contextPct := lastInputTokens * 100 / contextWindow
+
+	// Both conditions must be met: enough turns since compact AND high context usage.
+	if turnsSinceCompact < nudgeTurnThreshold {
+		return false, turnsSinceCompact, contextPct, contextWindow
+	}
+	if contextPct < nudgeContextPctThreshold {
+		return false, turnsSinceCompact, contextPct, contextWindow
+	}
+	// Rate-limit: must accumulate enough turns since last nudge.
+	if turnsSinceNudge < nudgeTurnInterval {
+		return false, turnsSinceCompact, contextPct, contextWindow
+	}
+
+	return true, turnsSinceCompact, contextPct, contextWindow
+}
+
+// injectNudge appends a context-pressure system-reminder to the snapshot
+// and updates nudge tracking state. Returns the modified snapshot.
+func (e *Engine) injectNudge(snapshot []agent.Message, turnsSinceCompact, contextPct, contextWindow int) []agent.Message {
+	usedK := (e.lastInputTokens + 999) / 1000
+	windowK := (contextWindow + 999) / 1000
+	nudgeText := fmt.Sprintf(
+		"<system-reminder>\nContext pressure: %d%% used (%dK/%dK), %d turns since last compact.\nConsider using Compact, TrimToolResults, or Prune to free context.\n</system-reminder>",
+		contextPct, usedK, windowK, turnsSinceCompact,
+	)
+	snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: nudgeText})
+
+	e.mu.Lock()
+	e.lastNudgeTurn = len(agent.TurnBoundaries(e.history))
+	e.mu.Unlock()
+
+	return snapshot
 }
 
 // IncrementAPICalls increments the API call counter.
@@ -855,6 +922,17 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	e.mu.Unlock()
 
 	snapshot := e.beginInputTurn(user)
+
+	// Check if a context-pressure nudge should be injected.
+	if ok, turns, pct, cw := e.shouldNudge(); ok {
+		snapshot = e.injectNudge(snapshot, turns, pct, cw)
+		e.emitEvent(protocol.ContextNudgedEvent{
+			TurnsSinceCompact: turns,
+			ContextPct:        pct,
+			ContextUsed:       e.lastInputTokens,
+			ContextWindow:     cw,
+		})
+	}
 
 	sessionCoordinator := agent.NewSessionCoordinator(e.store)
 	newSession := sessionCoordinator.StartTurn(ctx, input, e.SessionID(), e.isSessionCreated())
