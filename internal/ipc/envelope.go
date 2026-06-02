@@ -85,6 +85,7 @@ var eventKinds = map[string]func() protocol.Event{
 	"truncated_tool_results":    func() protocol.Event { return &protocol.TruncatedToolResultsEvent{} },
 	"pruned":                    func() protocol.Event { return &protocol.PrunedEvent{} },
 	"turn_completed":            func() protocol.Event { return &protocol.TurnCompleted{} },
+	"session_title_generated":  func() protocol.Event { return &protocol.SessionTitleGeneratedEvent{} },
 	"models_loaded":             func() protocol.Event { return &protocol.ModelsLoadedEvent{} },
 	"mode_changed":              func() protocol.Event { return &protocol.ModeChangedEvent{} },
 	"mode":                      func() protocol.Event { return &protocol.ModeEvent{} },
@@ -305,6 +306,8 @@ func derefEvent(ev protocol.Event) protocol.Event {
 	case *protocol.PrunedEvent:
 		return *v
 	case *protocol.TurnCompleted:
+		return *v
+	case *protocol.SessionTitleGeneratedEvent:
 		return *v
 	case *protocol.ModelsLoadedEvent:
 		return *v

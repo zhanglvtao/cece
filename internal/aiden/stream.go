@@ -309,12 +309,6 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 		}
 
 		if tc.ID != "" && tc.Function.Name != "" {
-			for idx := range state.activeToolIndices {
-				if idx < tc.Index {
-					out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
-					delete(state.activeToolIndices, idx)
-				}
-			}
 			state.activeToolIndices[tc.Index] = true
 			out <- agent.ApiStreamEvent{
 				EventType:    "content_block_start",

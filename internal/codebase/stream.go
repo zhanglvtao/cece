@@ -217,13 +217,6 @@ func emitOutput(ev *OutputEvent, out chan<- agent.ApiStreamEvent, state *streamS
 			if tc.FunctionCall == nil || tc.FunctionCall.Name == "" {
 				logger.Debug("codebase skipping tool call with empty name", "index", tc.Index, "id", tc.ID)
 			} else {
-				// Close any previously opened tool calls with smaller indices
-				for idx := range state.activeToolIndices {
-					if idx < tc.Index {
-						out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
-						delete(state.activeToolIndices, idx)
-					}
-				}
 				state.activeToolIndices[tc.Index] = true
 				out <- agent.ApiStreamEvent{
 					EventType:    "content_block_start",
