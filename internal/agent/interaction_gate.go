@@ -44,6 +44,10 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 		return nil
 	}
 
+	if g.isPlanMode() && g.hasOnlyReadOnlyCalls(calls) {
+		// Auto-approve read/exec/mode-effect tools in plan mode.
+		return nil
+	}
 	if g.isPlansDirOnlyWrites(calls) {
 		// Auto-approve in Plan mode: all writes target the plans directory.
 		return nil
@@ -74,6 +78,24 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 
 	events <- ToolCallsReady{Calls: calls}
 	return g.wait(ctx)
+}
+
+// hasOnlyReadOnlyCalls returns true when every tool call in the batch is a
+// read-effect, mode-effect, or exec-effect (Bash) tool. In plan mode these
+// are safe to auto-approve because the ToolExecutor still blocks write-effect
+// tools and the system prompt constrains Bash to read-only commands.
+func (g *InteractionGate) hasOnlyReadOnlyCalls(calls []ApiToolUseBlock) bool {
+	for _, c := range calls {
+		t, ok := g.registry.Get(c.Name)
+		if !ok {
+			return false
+		}
+		eff := tool.EffectOf(t)
+		if eff == tool.EffectWrite {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *InteractionGate) wait(ctx context.Context) error {

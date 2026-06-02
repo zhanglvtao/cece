@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -91,7 +92,7 @@ func (c *HubClient) ListSessions() ([]*ManagedSession, error) {
 		return nil, err
 	}
 	if resp.Error != "" {
-		return nil, fmt.Errorf(resp.Error)
+		return nil, errors.New(resp.Error)
 	}
 
 	var sessions []*ManagedSession
@@ -108,7 +109,7 @@ func (c *HubClient) GetSession(id string) (*ManagedSession, error) {
 		return nil, err
 	}
 	if resp.Error != "" {
-		return nil, fmt.Errorf(resp.Error)
+		return nil, errors.New(resp.Error)
 	}
 
 	var ms ManagedSession
@@ -125,7 +126,7 @@ func (c *HubClient) CreateSession() (*ManagedSession, error) {
 		return nil, err
 	}
 	if resp.Error != "" {
-		return nil, fmt.Errorf(resp.Error)
+		return nil, errors.New(resp.Error)
 	}
 
 	var ms ManagedSession
@@ -142,7 +143,7 @@ func (c *HubClient) DeleteSession(id string) error {
 		return err
 	}
 	if resp.Error != "" {
-		return fmt.Errorf(resp.Error)
+		return errors.New(resp.Error)
 	}
 	return nil
 }
@@ -154,7 +155,7 @@ func (c *HubClient) SendInput(id, text string) error {
 		return err
 	}
 	if resp.Error != "" {
-		return fmt.Errorf(resp.Error)
+		return errors.New(resp.Error)
 	}
 	return nil
 }
@@ -166,7 +167,7 @@ func (c *HubClient) CancelSession(id string) error {
 		return err
 	}
 	if resp.Error != "" {
-		return fmt.Errorf(resp.Error)
+		return errors.New(resp.Error)
 	}
 	return nil
 }
@@ -178,7 +179,7 @@ func (c *HubClient) Status() (*HubStatus, error) {
 		return nil, err
 	}
 	if resp.Error != "" {
-		return nil, fmt.Errorf(resp.Error)
+		return nil, errors.New(resp.Error)
 	}
 
 	var status HubStatus
@@ -195,7 +196,7 @@ func (c *HubClient) Shutdown() error {
 		return err
 	}
 	if resp.Error != "" {
-		return fmt.Errorf(resp.Error)
+		return errors.New(resp.Error)
 	}
 	return nil
 }

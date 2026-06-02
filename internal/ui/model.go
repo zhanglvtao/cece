@@ -61,18 +61,18 @@ type Model struct {
 	width               int
 	height              int
 
-	streamHeadline      string // latest assistant text for inline indicator
-	tasks               []protocol.TodoItem
-	runningAgents       []runningAgent
+	streamHeadline string // latest assistant text for inline indicator
+	tasks          []protocol.TodoItem
+	runningAgents  []runningAgent
 
-	styles      Styles
-	transcript  transcript
-	viewport    viewport.Model
-	input       textarea.Model
-	modal       modalState
-	slashPopup  *SlashPopup
-	filePopup   *FilePopup
-	statusBar   *StatusBar
+	styles     Styles
+	transcript transcript
+	viewport   viewport.Model
+	input      textarea.Model
+	modal      modalState
+	slashPopup *SlashPopup
+	filePopup  *FilePopup
+	statusBar  *StatusBar
 
 	sessions                session.Store
 	currentSessionID        string
@@ -117,13 +117,13 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 		contextWindow: cw,
 		status:        "Ready",
 		styles:        styles,
-		slashPopup:   NewSlashPopup(styles),
-		filePopup:    NewFilePopup(projectDir),
-		transcript:   newTranscript(),
-		viewport:     viewport.New(viewport.WithWidth(80), viewport.WithHeight(20)),
-		input:        input,
-		statusBar:    sb,
-		historyIndex: -1,
+		slashPopup:    NewSlashPopup(styles),
+		filePopup:     NewFilePopup(projectDir),
+		transcript:    newTranscript(),
+		viewport:      viewport.New(viewport.WithWidth(80), viewport.WithHeight(20)),
+		input:         input,
+		statusBar:     sb,
+		historyIndex:  -1,
 	}
 }
 
@@ -203,7 +203,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport(true)
 		return m, nil
 	case statusSpinnerTickMsg:
-		if !m.statusShowsSpinner() && !m.hasInProgressTask() {
+		if !m.statusShowsSpinner() && !m.hasInProgressTask() && len(m.runningAgents) == 0 {
 			m.statusSpinnerActive = false
 			return m, nil
 		}
@@ -371,8 +371,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.TodoUpdatedEvent:
 		m.tasks = e.Tasks
 	case protocol.SubAgentStartedEvent:
+		m.upsertRunningAgent(e.ID, e.Description)
 		m.status = fmt.Sprintf("● %s", e.Description)
 	case protocol.SubAgentCompletedEvent:
+		m.removeRunningAgent(e.ID)
 		if e.HitMaxTurns {
 			m.status = fmt.Sprintf("● %s done (hit max turns)", e.Description)
 		} else {
@@ -380,6 +382,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 				(e.InputTokens+999)/1000, (e.OutputTokens+999)/1000)
 		}
 	case protocol.SubAgentFailedEvent:
+		m.removeRunningAgent(e.ID)
 		m.status = fmt.Sprintf("● %s failed: %s", e.Description, e.Error)
 	}
 	// Sync all status bar data from model state.
@@ -421,14 +424,18 @@ func (m *Model) View() tea.View {
 	}
 	// Task bar: show tasks above headline when active
 	taskBar := m.taskBarView()
+	agentBar := m.agentBarView()
 	headline := m.headlineView()
 	queued := m.queuedListView()
 	// Add a blank line between viewport and status/headline (chat ↔ status gap)
-	if taskBar != "" || headline != "" || queued != "" {
+	if taskBar != "" || agentBar != "" || headline != "" || queued != "" {
 		sections = append(sections, "")
 	}
 	if taskBar != "" {
 		sections = append(sections, taskBar)
+	}
+	if agentBar != "" {
+		sections = append(sections, agentBar)
 	}
 	if headline != "" {
 		sections = append(sections, headline)
@@ -453,7 +460,7 @@ func (m *Model) View() tea.View {
 		// The input line is the last option line (before help line) in the modal.
 		// Modal layout: "Question X/Y\n{question}\n{options}\n{help}"
 		modalLines := strings.Count(modal, "\n") + 1
-		cur.Y = m.viewport.Height() + modalLines - 2 // -1 for 0-index, -1 for help line
+		cur.Y = m.viewport.Height() + modalLines - 2      // -1 for 0-index, -1 for help line
 		cur.X = 6 + uniseg.StringWidth(m.modal.textInput) // "> [ ] " prefix (6 chars) + typed text display width
 		view.Cursor = cur
 	} else if cur := m.input.Cursor(); cur != nil {
@@ -467,11 +474,14 @@ func (m *Model) View() tea.View {
 		if filePopupView != "" {
 			rowsAboveInput += strings.Count(filePopupView, "\n") + 1
 		}
-		if taskBar != "" || headline != "" || queued != "" {
+		if taskBar != "" || agentBar != "" || headline != "" || queued != "" {
 			rowsAboveInput++ // blank separator line between viewport and status
 		}
 		if taskBar != "" {
 			rowsAboveInput += strings.Count(taskBar, "\n") + 1
+		}
+		if agentBar != "" {
+			rowsAboveInput += strings.Count(agentBar, "\n") + 1
 		}
 		if headline != "" {
 			rowsAboveInput += strings.Count(headline, "\n") + 1
@@ -518,7 +528,8 @@ func (m *Model) resize() {
 		headlineH = 2 // headline(1) + blank separator between viewport and headline(1)
 	}
 	taskBarH := m.taskBarHeight()
-	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH - headlineH - taskBarH
+	agentBarH := m.agentBarHeight()
+	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH - headlineH - taskBarH - agentBarH
 	if viewportH < 3 {
 		viewportH = 3
 	}
@@ -601,7 +612,7 @@ func (m *Model) statusShowsSpinner() bool {
 }
 
 func (m *Model) ensureStatusSpinner() tea.Cmd {
-	if !m.statusShowsSpinner() && !m.hasInProgressTask() {
+	if !m.statusShowsSpinner() && !m.hasInProgressTask() && len(m.runningAgents) == 0 {
 		m.statusSpinnerActive = false
 		return nil
 	}
@@ -1077,6 +1088,29 @@ func gitBranch(dir string) string {
 type runningAgent struct {
 	ID          string
 	Description string
+}
+
+func (m *Model) upsertRunningAgent(id, description string) {
+	for i := range m.runningAgents {
+		if m.runningAgents[i].ID == id {
+			m.runningAgents[i].Description = description
+			return
+		}
+	}
+	m.runningAgents = append(m.runningAgents, runningAgent{ID: id, Description: description})
+}
+
+func (m *Model) removeRunningAgent(id string) {
+	for i := range m.runningAgents {
+		if m.runningAgents[i].ID == id {
+			m.runningAgents = append(m.runningAgents[:i], m.runningAgents[i+1:]...)
+			return
+		}
+	}
+}
+
+func (m *Model) agentBarHeight() int {
+	return len(m.runningAgents)
 }
 
 func (m *Model) agentBarView() string {

@@ -57,6 +57,9 @@ type Styles struct {
 		InProgress lipgloss.Style
 		Completed  lipgloss.Style
 	}
+	Agent struct {
+		Running lipgloss.Style
+	}
 }
 
 // DefaultStyles returns the style set built from ANSI terminal colors.
@@ -125,6 +128,7 @@ func DefaultStyles() Styles {
 	s.Task.Pending = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Task.InProgress = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Task.Completed = lipgloss.NewStyle().Foreground(theme.Green)
+	s.Agent.Running = lipgloss.NewStyle().Foreground(theme.Primary)
 
 	return s
 }

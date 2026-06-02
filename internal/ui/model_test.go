@@ -441,6 +441,23 @@ func TestStatusRendersAboveInput(t *testing.T) {
 	}
 }
 
+func TestSubAgentRunBarTracksLifecycle(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
+
+	m.applyEvent(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
+	view := stripAnsi(m.agentBarView())
+	if !strings.Contains(view, "Exploring UI") {
+		t.Fatalf("running sub-agent not rendered:\n%s", view)
+	}
+
+	m.applyEvent(protocol.SubAgentCompletedEvent{ID: "agent-1", Description: "Exploring UI"})
+	view = stripAnsi(m.agentBarView())
+	if strings.Contains(view, "Exploring UI") {
+		t.Fatalf("completed sub-agent still rendered:\n%s", view)
+	}
+}
+
 // stripAnsi removes ANSI escape sequences from s.
 func stripAnsi(s string) string {
 	var out strings.Builder
@@ -599,8 +616,8 @@ func TestSlashDryRunDispatchesAction(t *testing.T) {
 func TestDryRunEventRendersRequestLayers(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.applyEvent(protocol.RequestDryRunEvent{
-		Input:               "preview",
-		MaxTokens:           100,
+		Input:                "preview",
+		MaxTokens:            100,
 		EstimatedInputTokens: 42,
 		PromptLayers: []protocol.PromptLayerDryRun{{
 			Name:          "stable",
