@@ -89,6 +89,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		m.Engine.AnswerQuestion(a.Answers)
 	case protocol.QueueInputAction:
 		m.Engine.QueueInput(a.Text)
+		case protocol.DequeueLastInputAction:
+			m.Engine.PopLastQueuedInput()
 	case protocol.ClearHistoryAction:
 		m.Engine.ClearHistory()
 	case protocol.CompactAction:

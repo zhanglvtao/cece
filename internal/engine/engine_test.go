@@ -153,6 +153,61 @@ func TestEngineTurnEngineInterface(t *testing.T) {
 	}
 }
 
+func TestEngineHistorySnapshotReturnsSafeRequestHistory(t *testing.T) {
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.LoadHistory(context.Background(), "test-session", []agent.Message{
+		{Role: agent.UserRole, Content: "old user"},
+		{
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
+						ID:    "old_orphan",
+						Name:  "Edit",
+						Input: json.RawMessage(`{"input":"bad"}`),
+					},
+				},
+			},
+		},
+		{Role: agent.UserRole, Content: "summary", CompactBoundary: true},
+		{
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
+						ID:    "kept_orphan",
+						Name:  "ExitPlanMode",
+						Input: json.RawMessage(`{"plan_file":"/tmp/plan.md"}`),
+					},
+				},
+			},
+		},
+	})
+
+	snapshot := eng.HistorySnapshot()
+	if len(snapshot) != 3 {
+		t.Fatalf("snapshot len = %d, want compact boundary + assistant + synthetic result", len(snapshot))
+	}
+	if snapshot[0].Content != "summary" || !snapshot[0].CompactBoundary {
+		t.Fatalf("first snapshot message = %+v, want compact boundary summary", snapshot[0])
+	}
+	if snapshot[1].Role != agent.AssistantRole {
+		t.Fatalf("second snapshot role = %q, want assistant", snapshot[1].Role)
+	}
+	if len(snapshot[1].ContentBlocks) != 1 || snapshot[1].ContentBlocks[0].ToolUse.ID != "kept_orphan" {
+		t.Fatalf("assistant tool use = %+v, want kept_orphan only", snapshot[1].ContentBlocks)
+	}
+	tr, ok := snapshot[2].ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatalf("third snapshot message = %+v, want synthetic tool_result", snapshot[2])
+	}
+	if tr.ToolUseID != "kept_orphan" || !tr.IsError {
+		t.Fatalf("synthetic result = %+v, want error result for kept_orphan", tr)
+	}
+}
+
 // ── tool stubs for tool execution tests ────────────────────────────────────
 
 type stubTool struct{}

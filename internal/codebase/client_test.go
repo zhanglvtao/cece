@@ -215,9 +215,9 @@ func TestStreamStripsThinkingFromPayload(t *testing.T) {
 	if toolCall["type"] != "function" {
 		t.Fatalf("tool_call type = %v, want function", toolCall["type"])
 	}
-	functionCall := toolCall["function_call"].(map[string]any)
+	functionCall := toolCall["function"].(map[string]any)
 	if functionCall["name"] != "Read" {
-		t.Fatalf("function_call.name = %v, want Read", functionCall["name"])
+		t.Fatalf("function.name = %v, want Read", functionCall["name"])
 	}
 	if functionCall["arguments"] != `{"file_path":"/tmp/x"}` {
 		t.Fatalf("arguments = %v, want file_path payload", functionCall["arguments"])
@@ -280,6 +280,16 @@ func TestStreamSecondRequestReplayUsesEmptyContentArrayForToolOnlyAssistant(t *t
 	}
 	if len(assistant.ToolCalls) != 1 {
 		t.Fatalf("assistant tool_calls len = %d, want 1", len(assistant.ToolCalls))
+	}
+	toolCall := assistant.ToolCalls[0]
+	if toolCall.Function == nil {
+		t.Fatal("assistant tool_call function is nil")
+	}
+	if toolCall.FunctionCall != nil {
+		t.Fatal("assistant tool_call function_call should be nil in outbound history")
+	}
+	if toolCall.Function.Name != "Bash" {
+		t.Fatalf("assistant tool_call function.name = %q, want Bash", toolCall.Function.Name)
 	}
 	if len(assistant.Content) != 0 {
 		t.Fatalf("assistant content = %+v, want empty array", assistant.Content)

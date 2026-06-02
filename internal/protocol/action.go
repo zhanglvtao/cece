@@ -92,6 +92,11 @@ type QueueInputAction struct {
 
 func (QueueInputAction) isAction() {}
 
+// DequeueLastInputAction removes the last queued input from the engine's input queue.
+type DequeueLastInputAction struct{}
+
+func (DequeueLastInputAction) isAction() {}
+
 // ListModelsAction requests the runtime to list available models.
 type ListModelsAction struct{}
 

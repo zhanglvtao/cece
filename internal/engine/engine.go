@@ -22,41 +22,41 @@ import (
 // Engine implements agent.TurnEngine (for TurnBootstrap) and satisfies the
 // ui.Sender / ui.Actor / ui.Eventer interfaces consumed by the BubbleTea UI.
 type Engine struct {
-	mu                sync.Mutex
-	client            agent.ModelClient
-	registry          *tool.Registry
-	assembler         *prompt.ContextAssembler
-	projectDir        string
-	planState         *tool.PlanModeState
-	taskList          *tool.TaskList
-	history           []agent.Message
-	historyWatermark  int             // history length before current turn; used to rollback on interrupt
-	cancel            context.CancelFunc
-	confirmCh         chan struct{} // set per Input call, cleared on completion
-	yolo              bool          // auto-approve tool execution without UI confirmation
-	maxTokens         int           // configurable max output tokens
+	mu               sync.Mutex
+	client           agent.ModelClient
+	registry         *tool.Registry
+	assembler        *prompt.ContextAssembler
+	projectDir       string
+	planState        *tool.PlanModeState
+	taskList         *tool.TaskList
+	history          []agent.Message
+	historyWatermark int // history length before current turn; used to rollback on interrupt
+	cancel           context.CancelFunc
+	confirmCh        chan struct{} // set per Input call, cleared on completion
+	yolo             bool          // auto-approve tool execution without UI confirmation
+	maxTokens        int           // configurable max output tokens
 
-	ContextWindowFor  func(model string) int // returns context window for a model ID
-	ModelClientFor   func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client
-	store             session.Store          // optional persistence backend
-	sessionID         string                 // current session ID, empty = not yet created
-	sessionCreated    bool                   // true after first Input creates a session
-	modelName         string                 // current model name for meta persistence
-	contextWindow     int                    // current context window size for meta persistence
-	protocol          string                 // current protocol (anthropic, aiden, codebase, etc.)
-	configName        string                 // current provider config name
-	lastInputTokens   int                    // last request input tokens for resume water level
-	totalInputTokens  int                    // cumulative input tokens across turns
-	totalOutputTokens int                    // cumulative output tokens across turns
-	apiCalls          int                    // cumulative API call count
-	toolCounts        map[string]int         // cumulative tool execution counts
-	cacheReadTokens   int                    // cumulative cache read tokens
-	cacheCreationTokens int                  // cumulative cache creation tokens
-	lastCompactTurn   int                    // turn count at last compact/prune
-	lastNudgeTurn     int                    // turn count at last nudge injection
-	inputQueue        *userInputQueue        // queued user inputs while agent is busy
-	questionAnswers   []tool.QuestionAnswer
-	eventCh           chan protocol.Event // global event channel for async responses
+	ContextWindowFor    func(model string) int               // returns context window for a model ID
+	ModelClientFor      func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client
+	store               session.Store                        // optional persistence backend
+	sessionID           string                               // current session ID, empty = not yet created
+	sessionCreated      bool                                 // true after first Input creates a session
+	modelName           string                               // current model name for meta persistence
+	contextWindow       int                                  // current context window size for meta persistence
+	protocol            string                               // current protocol (anthropic, aiden, codebase, etc.)
+	configName          string                               // current provider config name
+	lastInputTokens     int                                  // last request input tokens for resume water level
+	totalInputTokens    int                                  // cumulative input tokens across turns
+	totalOutputTokens   int                                  // cumulative output tokens across turns
+	apiCalls            int                                  // cumulative API call count
+	toolCounts          map[string]int                       // cumulative tool execution counts
+	cacheReadTokens     int                                  // cumulative cache read tokens
+	cacheCreationTokens int                                  // cumulative cache creation tokens
+	lastCompactTurn     int                                  // turn count at last compact/prune
+	lastNudgeTurn       int                                  // turn count at last nudge injection
+	inputQueue          *userInputQueue                      // queued user inputs while agent is busy
+	questionAnswers     []tool.QuestionAnswer
+	eventCh             chan protocol.Event // global event channel for async responses
 }
 
 func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, maxTokens int, assembler *prompt.ContextAssembler, projectDir string) *Engine {
@@ -69,20 +69,20 @@ func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, max
 		taskList:   tool.NewTaskList(),
 		yolo:       yolo,
 		maxTokens:  maxTokens,
-		inputQueue:       &userInputQueue{},
-		toolCounts:       make(map[string]int),
-		eventCh:          make(chan protocol.Event, 4096),
+		inputQueue: &userInputQueue{},
+		toolCounts: make(map[string]int),
+		eventCh:    make(chan protocol.Event, 4096),
 	}
 }
 
 // ── TurnEngine interface implementation ───────────────────────────────────
 
-func (e *Engine) ProjectDir() string                      { return e.projectDir }
-func (e *Engine) Assembler() *prompt.ContextAssembler     { return e.assembler }
-func (e *Engine) Client() agent.ModelClient                { return e.client }
-func (e *Engine) Registry() *tool.Registry                { return e.registry }
-func (e *Engine) PlanState() *tool.PlanModeState          { return e.planState }
-func (e *Engine) TaskList() *tool.TaskList               { return e.taskList }
+func (e *Engine) ProjectDir() string                  { return e.projectDir }
+func (e *Engine) Assembler() *prompt.ContextAssembler { return e.assembler }
+func (e *Engine) Client() agent.ModelClient           { return e.client }
+func (e *Engine) Registry() *tool.Registry            { return e.registry }
+func (e *Engine) PlanState() *tool.PlanModeState      { return e.planState }
+func (e *Engine) TaskList() *tool.TaskList            { return e.taskList }
 
 // SetMCPTools replaces all MCP tools in the registry.
 // It removes any tool whose name starts with "mcp_" then adds the given tools.
@@ -91,8 +91,8 @@ func (e *Engine) SetMCPTools(tools []tool.Tool) {
 	defer e.mu.Unlock()
 	e.registry.SetMCPTools(tools)
 }
-func (e *Engine) Yolo() bool                              { return e.yolo }
-func (e *Engine) MaxTokens() int                          { return e.maxTokens }
+func (e *Engine) Yolo() bool                               { return e.yolo }
+func (e *Engine) MaxTokens() int                           { return e.maxTokens }
 func (e *Engine) ToolResultPolicy() agent.ToolResultPolicy { return agent.ToolResultPolicy{} }
 func (e *Engine) SessionID() string {
 	e.mu.Lock()
@@ -120,7 +120,14 @@ func (e *Engine) HistorySnapshot() []agent.Message {
 	defer e.mu.Unlock()
 	out := make([]agent.Message, len(e.history))
 	copy(out, e.history)
-	return out
+	return safeRequestHistory(out)
+}
+
+func safeRequestHistory(messages []agent.Message) []agent.Message {
+	raw := agent.MessagesAfterCompactBoundary(messages)
+	snapshot := make([]agent.Message, len(raw))
+	copy(snapshot, raw)
+	return agent.ValidateToolResultCoverage(agent.EnsureToolResultCoverage(snapshot))
 }
 
 // ReplaceHistory replaces the entire conversation history with the given messages.
@@ -579,8 +586,8 @@ func (e *Engine) SetTokenState(lastInput, totalInput, totalOutput int) {
 // ── Context Nudge ─────────────────────────────────────────────────────────
 
 const (
-	nudgeTurnThreshold     = 20 // turns since last compact before first nudge
-	nudgeTurnInterval      = 10 // turns between subsequent nudges
+	nudgeTurnThreshold       = 20 // turns since last compact before first nudge
+	nudgeTurnInterval        = 10 // turns between subsequent nudges
 	nudgeContextPctThreshold = 60 // minimum context % used to trigger nudge
 )
 
@@ -857,6 +864,11 @@ func (e *Engine) ClearQueuedInputs() {
 	e.inputQueue.Clear()
 }
 
+// PopLastQueuedInput removes and returns the last queued input.
+func (e *Engine) PopLastQueuedInput() (string, bool) {
+	return e.inputQueue.PopLast()
+}
+
 // Confirm signals the Engine to proceed with pending tool execution.
 func (e *Engine) Confirm() {
 	e.mu.Lock()
@@ -1062,9 +1074,7 @@ func (e *Engine) previewInputTurn(user agent.Message) []agent.Message {
 
 func buildTurnSnapshot(history []agent.Message, user agent.Message, planState *tool.PlanModeState, consumePlanReminder bool) []agent.Message {
 	all := append(append([]agent.Message(nil), history...), user)
-	raw := agent.MessagesAfterCompactBoundary(all)
-	snapshot := make([]agent.Message, len(raw))
-	copy(snapshot, raw)
+	snapshot := safeRequestHistory(all)
 	if planState != nil && planState.Mode() == tool.PermissionModePlan {
 		reminderType := planState.ReminderType()
 		plansDir := planState.PlansDir()
@@ -1079,7 +1089,7 @@ func buildTurnSnapshot(history []agent.Message, user agent.Message, planState *t
 			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildSparsePlanReminder(plansDir)})
 		}
 	}
-	return agent.ValidateToolResultCoverage(agent.EnsureToolResultCoverage(snapshot))
+	return snapshot
 }
 
 // ── userInputQueue ─────────────────────────────────────────────────────────
@@ -1113,4 +1123,15 @@ func (q *userInputQueue) Clear() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.items = nil
+}
+
+func (q *userInputQueue) PopLast() (string, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) == 0 {
+		return "", false
+	}
+	last := q.items[len(q.items)-1]
+	q.items = q.items[:len(q.items)-1]
+	return last, true
 }

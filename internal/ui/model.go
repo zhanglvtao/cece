@@ -719,6 +719,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "up":
+		if strings.TrimSpace(m.input.Value()) == "" && len(m.queued) > 0 {
+			m.dequeueLast()
+			return m, nil
+		}
 		if m.inputAtStart() && m.historyPrev() {
 			return m, nil
 		}
@@ -1060,6 +1064,25 @@ func (m *Model) queueInput(input string) {
 	}
 	m.queued = append(m.queued, input)
 	m.status = fmt.Sprintf("Queued (%d)", len(m.queued))
+}
+
+// dequeueLast pops the last queued message back into the input for editing.
+func (m *Model) dequeueLast() {
+	if len(m.queued) == 0 {
+		return
+	}
+	last := m.queued[len(m.queued)-1]
+	m.queued = m.queued[:len(m.queued)-1]
+	if len(m.queued) == 0 {
+		m.status = "Ready"
+	} else {
+		m.status = fmt.Sprintf("Queued (%d)", len(m.queued))
+	}
+	m.input.SetValue(last)
+	m.input.CursorEnd()
+	if actor, ok := m.sender.(Actor); ok {
+		actor.Do(protocol.DequeueLastInputAction{})
+	}
 }
 
 func (m *Model) cancelTurn(status string) {

@@ -304,13 +304,18 @@ func isRecoverableProviderError(err error) bool {
 		return true
 	}
 
-	// Codebase API parameter errors
-	if strings.Contains(msg, "codebase api error") &&
-		(strings.Contains(msg, "code=4001") ||
+	// Codebase API parameter errors. Message protocol errors must remain fatal;
+	// recovering them as assistant text pollutes history and causes retry loops.
+	if strings.Contains(msg, "codebase api error") {
+		if strings.Contains(strings.ToLower(msg), "invalid message") {
+			return false
+		}
+		if strings.Contains(msg, "code=4001") ||
 			strings.Contains(msg, "ErrParamInvalid") ||
 			strings.Contains(msg, "invalid param") ||
-			strings.Contains(msg, "trae_permanent_error")) {
-		return true
+			strings.Contains(msg, "trae_permanent_error") {
+			return true
+		}
 	}
 
 	// Aiden API parameter errors (400 Bad Request with validation messages)

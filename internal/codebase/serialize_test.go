@@ -85,18 +85,18 @@ func TestSerializeAssistantWithTextAndToolUse(t *testing.T) {
 	if tc.ID != "call_1" {
 		t.Errorf("expected tool call id 'call_1', got %q", tc.ID)
 	}
-	// History replay keeps the codebase-native function_call key.
-	if tc.FunctionCall == nil {
-		t.Fatal("expected function_call to be non-nil")
+	// History replay uses OpenAI-compatible function key.
+	if tc.Function == nil {
+		t.Fatal("expected function to be non-nil")
 	}
-	if tc.Function != nil {
-		t.Fatal("expected function to stay nil for serialized history")
+	if tc.FunctionCall != nil {
+		t.Fatal("expected function_call to stay nil for serialized history")
 	}
-	if tc.FunctionCall.Name != "Bash" {
-		t.Errorf("expected function_call.name 'Bash', got %q", tc.FunctionCall.Name)
+	if tc.Function.Name != "Bash" {
+		t.Errorf("expected function.name 'Bash', got %q", tc.Function.Name)
 	}
-	if tc.FunctionCall.Arguments != `{"command":"ls"}` {
-		t.Errorf("unexpected arguments: %q", tc.FunctionCall.Arguments)
+	if tc.Function.Arguments != `{"command":"ls"}` {
+		t.Errorf("unexpected arguments: %q", tc.Function.Arguments)
 	}
 }
 
@@ -306,17 +306,17 @@ func TestSerializeJSONRoundTrip(t *testing.T) {
 		t.Errorf("expected content type 'text', got %v", contentObj["type"])
 	}
 
-	// Verify serialized history uses function_call, not OpenAI function.
+	// Verify serialized history uses OpenAI-compatible function, not function_call.
 	toolCalls := parsed[1]["tool_calls"].([]any)
 	if len(toolCalls) != 1 {
 		t.Fatalf("expected 1 tool_call, got %d", len(toolCalls))
 	}
 	tc := toolCalls[0].(map[string]any)
-	if _, ok := tc["function_call"]; !ok {
-		t.Error("expected 'function_call' key in tool_call, not found")
+	if _, ok := tc["function"]; !ok {
+		t.Error("expected 'function' key in tool_call, not found")
 	}
-	if _, ok := tc["function"]; ok {
-		t.Error("did not expect 'function' key in serialized history tool_call")
+	if _, ok := tc["function_call"]; ok {
+		t.Error("did not expect 'function_call' key in serialized history tool_call")
 	}
 }
 

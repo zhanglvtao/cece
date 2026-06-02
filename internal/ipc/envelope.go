@@ -41,6 +41,7 @@ var actionKinds = map[string]func() protocol.Action{
 	"set_exit_target_mode":  func() protocol.Action { return &protocol.SetExitTargetModeAction{} },
 	"load_session":          func() protocol.Action { return &protocol.LoadSessionAction{} },
 	"queue_input":           func() protocol.Action { return &protocol.QueueInputAction{} },
+	"dequeue_last_input":    func() protocol.Action { return &protocol.DequeueLastInputAction{} },
 	"list_models":           func() protocol.Action { return &protocol.ListModelsAction{} },
 	"clear_history":         func() protocol.Action { return &protocol.ClearHistoryAction{} },
 	"compact":               func() protocol.Action { return &protocol.CompactAction{} },
@@ -218,6 +219,8 @@ func derefAction(a protocol.Action) protocol.Action {
 	case *protocol.LoadSessionAction:
 		return *v
 	case *protocol.QueueInputAction:
+		return *v
+	case *protocol.DequeueLastInputAction:
 		return *v
 	case *protocol.ListModelsAction:
 		return *v

@@ -32,14 +32,14 @@ type CodebaseContent struct {
 	Text string `json:"text"`
 }
 
-// CodebaseToolCall represents a tool call in an assistant message.
-// Codebase serializes history as "function_call", but stream chunks may use
-// either "function_call" or OpenAI-style "function".
+// CodebaseToolCall represents a tool call in an assistant message. Outbound
+// history uses OpenAI-style "function". Stream chunks may still use either
+// "function_call" or "function", so both fields stay for decoding.
 type CodebaseToolCall struct {
 	Index        int               `json:"index"`
 	ID           string            `json:"id"`
 	Type         string            `json:"type"`
-	FunctionCall *CodebaseFuncCall `json:"function_call"`
+	FunctionCall *CodebaseFuncCall `json:"function_call,omitempty"`
 	Function     *CodebaseFuncCall `json:"function,omitempty"`
 }
 
@@ -134,7 +134,7 @@ func serializeMessage(m agent.Message) CodebaseMessage {
 						Index: len(msg.ToolCalls),
 						ID:    cb.ToolUse.ID,
 						Type:  "function",
-						FunctionCall: &CodebaseFuncCall{
+						Function: &CodebaseFuncCall{
 							Name:      cb.ToolUse.Name,
 							Arguments: string(cb.ToolUse.Input),
 						},
