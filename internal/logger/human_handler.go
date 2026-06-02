@@ -53,18 +53,34 @@ func (h *humanHandler) Handle(_ context.Context, r slog.Record) error {
 	ts := r.Time.In(h.loc).Format("2006-01-02 15:04:05.000")
 	level := levelString(r.Level)
 
+	// Extract session_id from attrs to use as prefix instead of trailing attr.
+	var sessionID string
+	var remainingAttrs []slog.Attr
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == "session_id" {
+			sessionID = a.Value.String()
+			return true
+		}
+		remainingAttrs = append(remainingAttrs, a)
+		return true
+	})
+
 	var b strings.Builder
 	b.WriteString(ts)
 	b.WriteByte(' ')
 	b.WriteString(level)
 	b.WriteByte(' ')
+	if sessionID != "" {
+		b.WriteString("[")
+		b.WriteString(sessionID)
+		b.WriteString("] ")
+	}
 	b.WriteString(r.Message)
 
-	r.Attrs(func(a slog.Attr) bool {
+	for _, a := range remainingAttrs {
 		b.WriteByte(' ')
 		b.WriteString(formatAttr(a))
-		return true
-	})
+	}
 
 	b.WriteByte('\n')
 

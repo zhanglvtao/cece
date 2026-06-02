@@ -193,6 +193,50 @@ func TestDecodeToolCallStartAndDelta(t *testing.T) {
 	}
 }
 
+func TestDecodeOpenAIToolCallFunctionShape(t *testing.T) {
+	body := sseBody(
+		`event: output`,
+		`data: {"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"Bash"}}]}`,
+		``,
+		`event: output`,
+		`data: {"tool_calls":[{"index":0,"type":"function","function":{"arguments":"{\"cmd"}}]}`,
+		``,
+		`event: output`,
+		`data: {"tool_calls":[{"index":0,"type":"function","function":{"arguments":"\":\"ls\"}"}}]}`,
+		``,
+		`event: done`,
+		`data: {"finish_reason":"tool_calls"}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var toolName, toolID string
+	var inputParts []string
+	for _, e := range events {
+		if e.EventType == "content_block_start" && e.ToolCallID != "" {
+			toolID = e.ToolCallID
+			toolName = e.ToolCallName
+		}
+		if e.Detail == "input_json_delta" {
+			inputParts = append(inputParts, e.ToolCallInput)
+		}
+	}
+
+	if toolID != "call_1" {
+		t.Fatalf("expected tool_call_id 'call_1', got %q", toolID)
+	}
+	if toolName != "Bash" {
+		t.Fatalf("expected tool_call_name 'Bash', got %q", toolName)
+	}
+	combined := strings.Join(inputParts, "")
+	if combined != `{"cmd":"ls"}` {
+		t.Fatalf("expected combined input '{\"cmd\":\"ls\"}', got %q", combined)
+	}
+}
+
 func TestDecodeReasoningContent(t *testing.T) {
 	body := sseBody(
 		`event: output`,

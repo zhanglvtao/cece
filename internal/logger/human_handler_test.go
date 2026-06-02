@@ -83,6 +83,46 @@ func TestHumanHandlerLevelFiltering(t *testing.T) {
 	}
 }
 
+func TestHumanHandlerSessionIDPrefix(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	var buf bytes.Buffer
+	h := newHumanHandler(&buf, loc, true, nil)
+	sh := &sessionHandler{next: h}
+	log := slog.New(sh)
+
+	SetSessionID("abc-123")
+	t.Cleanup(func() { SetSessionID("") })
+
+	log.Info("stream request", "url", "https://api.example.com")
+
+	line := buf.String()
+	if !strings.Contains(line, "[abc-123] stream request") {
+		t.Fatalf("session_id should appear as prefix: %q", line)
+	}
+	if strings.Contains(line, "session_id=abc-123") {
+		t.Fatalf("session_id should NOT appear as trailing attr: %q", line)
+	}
+}
+
+func TestHumanHandlerNoSessionID(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	var buf bytes.Buffer
+	h := newHumanHandler(&buf, loc, true, nil)
+	sh := &sessionHandler{next: h}
+	log := slog.New(sh)
+
+	SetSessionID("")
+	log.Info("hello")
+
+	line := buf.String()
+	if strings.Contains(line, "[") {
+		t.Fatalf("no bracket prefix when session_id is empty: %q", line)
+	}
+	if !strings.Contains(line, "INFO  hello") {
+		t.Fatalf("message should appear without session prefix: %q", line)
+	}
+}
+
 func TestSessionHandlerInjectsSessionID(t *testing.T) {
 	SetSessionID("sess-123")
 	t.Cleanup(func() { SetSessionID("") })
