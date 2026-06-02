@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"crypto/rand"
+	"encoding/hex"
 	"sync/atomic"
 	"time"
 )
@@ -21,6 +23,12 @@ var (
 	humanBuf  *bufio.Writer
 	sessionID atomic.Value
 )
+
+func generateSessionID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 // Init initializes the global logger with dual output:
 //   - JSON format to path (e.g. .cece/cece.log)
@@ -58,7 +66,7 @@ func Init(path string, debug bool) error {
 	jsonHandler := newUTC8Handler(bufWriter, loc, debug, func() { bufWriter.Flush() })
 	humanHandler := newHumanHandler(humanBuf, loc, debug, func() { humanBuf.Flush() })
 
-	SetSessionID("")
+	SetSessionID(generateSessionID())
 	tee := &sessionHandler{next: &teeHandler{a: jsonHandler, b: humanHandler}}
 	slog.SetDefault(slog.New(tee))
 

@@ -33,12 +33,21 @@ type CodebaseContent struct {
 }
 
 // CodebaseToolCall represents a tool call in an assistant message.
-// Note: uses "function_call" (not "function" like OpenAI).
+// Codebase serializes history as "function_call", but stream chunks may use
+// either "function_call" or OpenAI-style "function".
 type CodebaseToolCall struct {
-	Index        int                `json:"index"`
-	ID           string             `json:"id"`
-	Type         string             `json:"type"`
-	FunctionCall *CodebaseFuncCall  `json:"function_call"`
+	Index        int               `json:"index"`
+	ID           string            `json:"id"`
+	Type         string            `json:"type"`
+	FunctionCall *CodebaseFuncCall `json:"function_call"`
+	Function     *CodebaseFuncCall `json:"function,omitempty"`
+}
+
+func (tc CodebaseToolCall) effectiveFunctionCall() *CodebaseFuncCall {
+	if tc.FunctionCall != nil {
+		return tc.FunctionCall
+	}
+	return tc.Function
 }
 
 // CodebaseFuncCall holds the function name and arguments for a tool call.
@@ -55,9 +64,9 @@ type CodebaseTool struct {
 
 // CodebaseToolDef holds the function definition within a tool.
 type CodebaseToolDef struct {
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Parameters  any       `json:"parameters"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Parameters  any    `json:"parameters"`
 }
 
 // textContent is a helper to create a single-element content array.
@@ -132,7 +141,7 @@ func serializeMessage(m agent.Message) CodebaseMessage {
 					})
 				}
 			case agent.ApiThinkingContentType:
-			// ApiRedactedThinkingContentType: dropped (no text to send)
+				// ApiRedactedThinkingContentType: dropped (no text to send)
 			}
 		}
 		text := m.Content

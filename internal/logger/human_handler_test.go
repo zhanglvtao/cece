@@ -108,10 +108,9 @@ func TestHumanHandlerNoSessionID(t *testing.T) {
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	var buf bytes.Buffer
 	h := newHumanHandler(&buf, loc, true, nil)
-	sh := &sessionHandler{next: h}
-	log := slog.New(sh)
+	// Log directly without sessionHandler — no session_id attr injected.
+	log := slog.New(h)
 
-	SetSessionID("")
 	log.Info("hello")
 
 	line := buf.String()
@@ -120,6 +119,23 @@ func TestHumanHandlerNoSessionID(t *testing.T) {
 	}
 	if !strings.Contains(line, "INFO  hello") {
 		t.Fatalf("message should appear without session prefix: %q", line)
+	}
+}
+
+func TestGenerateSessionID(t *testing.T) {
+	id := generateSessionID()
+	if len(id) != 8 {
+		t.Fatalf("session id length = %d, want 8: %q", len(id), id)
+	}
+	for _, c := range id {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			t.Fatalf("session id contains non-hex char: %q", id)
+		}
+	}
+	// Should generate different IDs on successive calls.
+	id2 := generateSessionID()
+	if id == id2 {
+		t.Fatalf("two generated IDs should differ: %q == %q", id, id2)
 	}
 }
 

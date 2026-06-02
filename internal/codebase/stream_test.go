@@ -7,6 +7,7 @@ import (
 
 	"cece/internal/agent"
 )
+
 func sseBody(lines ...string) io.ReadCloser {
 	return io.NopCloser(strings.NewReader(strings.Join(lines, "\n") + "\n"))
 }

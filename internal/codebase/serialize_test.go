@@ -85,9 +85,12 @@ func TestSerializeAssistantWithTextAndToolUse(t *testing.T) {
 	if tc.ID != "call_1" {
 		t.Errorf("expected tool call id 'call_1', got %q", tc.ID)
 	}
-	// key difference: function_call (not function)
+	// History replay keeps the codebase-native function_call key.
 	if tc.FunctionCall == nil {
 		t.Fatal("expected function_call to be non-nil")
+	}
+	if tc.Function != nil {
+		t.Fatal("expected function to stay nil for serialized history")
 	}
 	if tc.FunctionCall.Name != "Bash" {
 		t.Errorf("expected function_call.name 'Bash', got %q", tc.FunctionCall.Name)
@@ -303,7 +306,7 @@ func TestSerializeJSONRoundTrip(t *testing.T) {
 		t.Errorf("expected content type 'text', got %v", contentObj["type"])
 	}
 
-	// Verify tool_calls use function_call
+	// Verify serialized history uses function_call, not OpenAI function.
 	toolCalls := parsed[1]["tool_calls"].([]any)
 	if len(toolCalls) != 1 {
 		t.Fatalf("expected 1 tool_call, got %d", len(toolCalls))
@@ -311,6 +314,9 @@ func TestSerializeJSONRoundTrip(t *testing.T) {
 	tc := toolCalls[0].(map[string]any)
 	if _, ok := tc["function_call"]; !ok {
 		t.Error("expected 'function_call' key in tool_call, not found")
+	}
+	if _, ok := tc["function"]; ok {
+		t.Error("did not expect 'function' key in serialized history tool_call")
 	}
 }
 
