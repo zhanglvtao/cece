@@ -13,6 +13,7 @@ const (
 
 	// Semantic colors.
 	Primary = ansi.Cyan   // brand / prompt / active indicator
+	Magenta = ansi.Magenta // sub-agent indicator
 	Blue    = ansi.Blue   // plan / info
 	Yellow  = ansi.Yellow // tool calls / warnings
 	Green   = ansi.Green  // success / selected

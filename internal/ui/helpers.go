@@ -83,6 +83,42 @@ func formatJSONPreview(raw json.RawMessage) string {
 	return summarizeText(strings.Join(lines, "\n"), 1000, 15)
 }
 
+// formatToolPreview formats a tool call's input for the transcript.
+// For the Agent tool, it shows a compact summary: description + prompt excerpt.
+// For all other tools, it falls through to formatJSONPreview.
+func formatToolPreview(name string, raw json.RawMessage) string {
+	if name != "Agent" || len(raw) == 0 {
+		return formatJSONPreview(raw)
+	}
+	var p struct {
+		Description string `json:"description"`
+		Prompt      string `json:"prompt"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return formatJSONPreview(raw)
+	}
+	var b strings.Builder
+	if p.Description != "" {
+		b.WriteString(p.Description)
+		b.WriteString("\n")
+	}
+	if p.Prompt != "" {
+		promptPreview := p.Prompt
+		if len(promptPreview) > 200 {
+			promptPreview = promptPreview[:200] + "..."
+		}
+		// Show first few lines
+		lines := strings.Split(promptPreview, "\n")
+		maxLines := 5
+		if len(lines) > maxLines {
+			lines = lines[:maxLines]
+			lines = append(lines, "...")
+		}
+		b.WriteString(strings.Join(lines, "\n"))
+	}
+	return b.String()
+}
+
 func summarizeText(s string, maxBytes, maxLines int) string {
 	s = strings.TrimRight(s, "\n")
 	if s == "" {

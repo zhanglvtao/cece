@@ -188,7 +188,7 @@ func (t *transcript) apply(event protocol.Event) {
 			t.toolByID[e.ID] = idx
 		}
 		t.blocks[idx].title = "tool: " + e.Name
-		t.blocks[idx].text = formatJSONPreview(e.Input)
+		t.blocks[idx].text = formatToolPreview(e.Name, e.Input)
 	case protocol.ToolExecStarted:
 		idx, ok := t.toolByID[e.ID]
 		if !ok {
@@ -290,7 +290,7 @@ func (t *transcript) loadMessage(msg protocol.Message) {
 				t.appendDone(blockAssistant, "cece", b.Text)
 			case protocol.ToolUseContentType:
 				if b.ToolUse != nil {
-					t.appendDone(blockTool, "tool: "+b.ToolUse.Name, formatJSONPreview(b.ToolUse.Input))
+					t.appendDone(blockTool, "tool: "+b.ToolUse.Name, formatToolPreview(b.ToolUse.Name, b.ToolUse.Input))
 				}
 			}
 		}
