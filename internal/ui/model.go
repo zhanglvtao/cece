@@ -437,13 +437,12 @@ func eventPinsViewportToBottom(event protocol.Event) bool {
 
 func (m *Model) View() tea.View {
 	m.resize()
-	const ind = "  " // indent for non-chat views
-	sep := m.styles.Status.Separator.Render(strings.Repeat("─", max(m.width-2, 0)))
+	sep := m.styles.Status.Separator.Render(strings.Repeat("─", max(m.width, 0)))
 	sections := []string{m.viewport.View()}
 	modal := m.modalView()
 	if modal != "" {
-		sections = append(sections, ind+sep)
-		sections = append(sections, indentLines(modal, ind))
+		sections = append(sections, sep)
+		sections = append(sections, modal)
 	}
 	// Task bar: show tasks above headline when active
 	taskBar := m.taskBarView()
@@ -452,33 +451,33 @@ func (m *Model) View() tea.View {
 	queued := m.queuedListView()
 	// Separator between viewport and status area
 	if taskBar != "" || agentBar != "" || headline != "" || queued != "" {
-		sections = append(sections, ind+sep)
+		sections = append(sections, sep)
 	}
 	if taskBar != "" {
-		sections = append(sections, indentLines(taskBar, ind))
+		sections = append(sections, taskBar)
 	}
 	if agentBar != "" {
-		sections = append(sections, indentLines(agentBar, ind))
+		sections = append(sections, agentBar)
 	}
 	if headline != "" {
-		sections = append(sections, ind+headline)
+		sections = append(sections, headline)
 	}
 	if queued != "" {
-		sections = append(sections, indentLines(queued, ind))
+		sections = append(sections, queued)
 	}
 	// Popups must be directly above input box
 	popup := m.slashPopup.View(m.width)
 	if popup != "" {
-		sections = append(sections, indentLines(popup, ind))
+		sections = append(sections, popup)
 	}
 	filePopupView := m.filePopup.View(m.width)
 	if filePopupView != "" {
-		sections = append(sections, indentLines(filePopupView, ind))
+		sections = append(sections, filePopupView)
 	}
 	sections = append(sections, m.inputView())
 	statusBarView := m.statusBar.Render(m.width)
 	if statusBarView != "" {
-		sections = append(sections, indentLines(statusBarView, ind))
+		sections = append(sections, statusBarView)
 	}
 	content := strings.Join(sections, "\n")
 	view := tea.NewView(content)
@@ -1133,18 +1132,6 @@ func gitBranch(dir string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
-}
-
-// indentLines prefixes every line of s with prefix.
-func indentLines(s, prefix string) string {
-	if s == "" || prefix == "" {
-		return s
-	}
-	lines := strings.Split(s, "\n")
-	for i, l := range lines {
-		lines[i] = prefix + l
-	}
-	return strings.Join(lines, "\n")
 }
 
 // ── Running Agent tracking ──────────────────────────────────────────────────
