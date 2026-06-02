@@ -77,6 +77,8 @@ type Model struct {
 	sessions                session.Store
 	currentSessionID        string
 	currentSessionEphemeral bool
+	pendingQuit             bool // set on ctrl+c, quit after title generation completes
+	shouldQuit              bool // set by applyEvent when pendingQuit title is done
 	skillStore              *skill.Store
 	queued                  []string
 	history                 []string
@@ -217,6 +219,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, ev := range msg.events {
 			m.applyEvent(ev)
 		}
+		if m.shouldQuit {
+			m.shouldQuit = false
+			return m, func() tea.Msg { return tea.Quit() }
+		}
 		cmds := []tea.Cmd{}
 		if cmd := m.ensureStatusSpinner(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -263,6 +269,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 			if e.SessionID == m.currentSessionID {
 				m.currentSessionEphemeral = false
 			}
+		}
+		if m.pendingQuit {
+			m.shouldQuit = true
+			m.pendingQuit = false
 		}
 	case protocol.ModelRequestStarted:
 		m.busy = true
@@ -671,10 +681,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.filePopup.Close()
 			return m, nil
 		}
-		// Input is empty — quit. Request auto-title for current session first.
+		// Input is empty — request auto-title then quit after it completes.
 		if m.currentSessionID != "" {
 			if actor, ok := m.sender.(Actor); ok {
 				actor.Do(protocol.AutoTitleSessionAction{SessionID: m.currentSessionID})
+				m.pendingQuit = true
+				m.status = "Generating title…"
+				return m, nil
 			}
 		}
 		return m, func() tea.Msg { return tea.Quit() }
