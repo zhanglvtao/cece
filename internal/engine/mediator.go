@@ -239,19 +239,21 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 	}
 
 	// Extract up to 6 recent user/assistant text messages for context.
+	// Skip tool_result blocks — they bloat the prompt without helping title generation.
 	var conversationLines []string
 	for _, raw := range msgs {
-		var partial struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		}
-		if json.Unmarshal(raw, &partial) != nil {
+		var msg agent.Message
+		if json.Unmarshal(raw, &msg) != nil {
 			continue
 		}
-		if partial.Role != "user" && partial.Role != "assistant" {
+		if msg.Role != agent.UserRole && msg.Role != agent.AssistantRole {
 			continue
 		}
-		text := strings.TrimSpace(partial.Content)
+		text := msg.TextContent()
+		if text == "" {
+			continue
+		}
+		text = strings.TrimSpace(text)
 		if text == "" {
 			continue
 		}
@@ -259,7 +261,7 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 		if len(text) > 200 {
 			text = text[:200] + "…"
 		}
-		conversationLines = append(conversationLines, partial.Role+": "+text)
+		conversationLines = append(conversationLines, string(msg.Role)+": "+text)
 		if len(conversationLines) >= 6 {
 			break
 		}
