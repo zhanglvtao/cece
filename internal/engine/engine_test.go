@@ -252,4 +252,52 @@ func waitForTurnCompleted(t *testing.T, eng *Engine) {
 	}
 }
 
+// blockingClient blocks until its stream context is cancelled, then returns.
+type blockingClient struct {
+	unblock chan struct{} // close to unblock (optional)
+}
 
+func (b *blockingClient) Stream(ctx context.Context, _ []agent.Message, _ agent.SystemPrompt, _ []tool.Definition, _ int) (<-chan agent.ApiStreamEvent, error) {
+	out := make(chan agent.ApiStreamEvent)
+	go func() {
+		defer close(out)
+		select {
+		case <-ctx.Done():
+		case <-b.unblock:
+		}
+	}()
+	return out, nil
+}
+
+func TestEngineInterruptRollsBackHistory(t *testing.T) {
+	client := &blockingClient{unblock: make(chan struct{})}
+	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
+
+	// Pre-populate some history
+	eng.AppendHistory(agent.Message{Role: agent.UserRole, Content: "previous question"})
+	eng.AppendHistory(agent.Message{Role: agent.AssistantRole, Content: "previous answer"})
+	if eng.HistoryLen() != 2 {
+		t.Fatalf("pre-condition: HistoryLen = %d, want 2", eng.HistoryLen())
+	}
+
+	// Start a turn
+	ctx := context.Background()
+	if err := eng.Input(ctx, "hello"); err != nil {
+		t.Fatalf("Input error: %v", err)
+	}
+
+	// Give the goroutine time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel the turn
+	eng.Cancel()
+
+	// Wait for turn to complete
+	waitForTurnCompleted(t, eng)
+
+	// History should be rolled back — the "hello" user message should be gone
+	if eng.HistoryLen() != 2 {
+		history := eng.History()
+		t.Fatalf("HistoryLen after cancel = %d, want 2; history = %+v", eng.HistoryLen(), history)
+	}
+}

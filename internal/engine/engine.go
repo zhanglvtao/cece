@@ -30,6 +30,7 @@ type Engine struct {
 	planState         *tool.PlanModeState
 	taskList          *tool.TaskList
 	history           []agent.Message
+	historyWatermark  int             // history length before current turn; used to rollback on interrupt
 	cancel            context.CancelFunc
 	confirmCh         chan struct{} // set per Input call, cleared on completion
 	yolo              bool          // auto-approve tool execution without UI confirmation
@@ -835,6 +836,12 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	ctx, cancel := context.WithCancel(ctx)
 
 	user := agent.Message{Role: agent.UserRole, Content: input}
+
+	// Record watermark before appending user message so we can rollback on interrupt.
+	e.mu.Lock()
+	e.historyWatermark = len(e.history)
+	e.mu.Unlock()
+
 	snapshot := e.beginInputTurn(user)
 
 	sessionCoordinator := agent.NewSessionCoordinator(e.store)
@@ -859,6 +866,13 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 		defer close(events)
 		defer func() {
 			e.mu.Lock()
+			// Rollback history if the turn was interrupted (context cancelled).
+			if ctx.Err() != nil {
+				if e.historyWatermark < len(e.history) {
+					slog.Info("turn interrupted, rolling back history", "watermark", e.historyWatermark, "current", len(e.history))
+					e.history = e.history[:e.historyWatermark]
+				}
+			}
 			e.cancel = nil
 			e.confirmCh = nil
 			e.mu.Unlock()
