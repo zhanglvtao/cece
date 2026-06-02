@@ -44,6 +44,17 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 		return nil
 	}
 
+	// ExitPlanMode always requires explicit user approval, even when
+	// combined with other read-only / mode-effect tools.
+	if hasExitPlanMode(calls) {
+		planContent, planFile := exitPlanModePreview(calls)
+		events <- PlanApprovalRequested{
+			PlanContent: planContent,
+			PlanFile:    planFile,
+		}
+		return g.wait(ctx)
+	}
+
 	if g.isPlanMode() && g.hasOnlyReadOnlyCalls(calls) {
 		// Auto-approve read/exec/mode-effect tools in plan mode.
 		return nil
@@ -55,14 +66,6 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 	if g.isPlanMode() && g.hasWriteEffectTools(calls) {
 		// Plan mode + write outside plans dir: skip UI prompt, let ToolExecutor return denial.
 		return nil
-	}
-	if hasExitPlanMode(calls) {
-		planContent, planFile := exitPlanModePreview(calls)
-		events <- PlanApprovalRequested{
-			PlanContent: planContent,
-			PlanFile:    planFile,
-		}
-		return g.wait(ctx)
 	}
 	if hasAskUserQuestion(calls) {
 		questions := parseAskUserQuestionCalls(calls)
