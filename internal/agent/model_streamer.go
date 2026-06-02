@@ -42,9 +42,11 @@ type ModelStreamRequest struct {
 
 // ModelStreamer converts provider stream chunks into chat events and a modelResponse.
 type ModelStreamer struct {
-	client        ModelClient
-	registry      *tool.Registry
-	onInputTokens func(int)
+	client           ModelClient
+	registry         *tool.Registry
+	onInputTokens    func(int)
+	lastInputTokens  int // actual input tokens from last API response
+	lastMessageCount int // number of messages in last request
 }
 
 func NewModelStreamer(client ModelClient, registry *tool.Registry, onInputTokens func(int)) *ModelStreamer {
@@ -60,6 +62,16 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 	}
 
 	estimated := EstimateRequestTokens(req.System, req.Messages, tools)
+
+	// Calibrate using last actual InputTokens as a water level:
+	// estimated = max(pure_estimate, lastActual + incremental_delta)
+	if s.lastInputTokens > 0 && len(req.Messages) > s.lastMessageCount {
+		delta := EstimateRequestTokens(SystemPrompt{}, req.Messages[s.lastMessageCount:], nil)
+		if waterLevel := s.lastInputTokens + delta; waterLevel > estimated {
+			estimated = waterLevel
+		}
+	}
+
 	ch <- ModelRequestStarted{
 		Reason:               req.Reason,
 		ToolResults:          req.ToolResults,
@@ -114,6 +126,8 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			if s.onInputTokens != nil {
 				s.onInputTokens(resp.inputTokens)
 			}
+			s.lastInputTokens = resp.inputTokens
+			s.lastMessageCount = len(req.Messages)
 			resp.cacheReadTokens = chunk.CacheReadTokens
 			resp.cacheCreationTokens = chunk.CacheCreationTokens
 			var toolNames []string
