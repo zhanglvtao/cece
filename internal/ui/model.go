@@ -255,6 +255,15 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.currentSessionID = e.ID
 		m.currentSessionEphemeral = true
 		m.status = "Session created"
+	case protocol.SessionTitleGeneratedEvent:
+		if e.Err != "" {
+			m.status = "Title generation failed"
+		} else {
+			m.status = "Title: " + e.Title
+			if e.SessionID == m.currentSessionID {
+				m.currentSessionEphemeral = false
+			}
+		}
 	case protocol.ModelRequestStarted:
 		m.busy = true
 		m.status = "Requesting"

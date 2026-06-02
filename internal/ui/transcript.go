@@ -267,6 +267,12 @@ func (t *transcript) apply(event protocol.Event) {
 			t.cacheReadTokens = e.CacheReadTokens
 			t.cacheCreationTokens = e.CacheCreationTokens
 		}
+	case protocol.SessionTitleGeneratedEvent:
+		if e.Err != "" {
+			t.appendDone(blockInfo, "title", "title generation failed: "+e.Err)
+		} else {
+			t.appendDone(blockInfo, "title", e.Title)
+		}
 	}
 }
 

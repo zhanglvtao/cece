@@ -261,6 +261,7 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 	// Load messages to build a summary for the title generation prompt.
 	msgs, err := m.store.LoadMessages(ctx, sessionID)
 	if err != nil || len(msgs) == 0 {
+		m.Engine.EmitEvent(protocol.SessionTitleGeneratedEvent{SessionID: sessionID, Err: "no messages"})
 		return
 	}
 
@@ -293,6 +294,7 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 		}
 	}
 	if len(conversationLines) == 0 {
+		m.Engine.EmitEvent(protocol.SessionTitleGeneratedEvent{SessionID: sessionID, Err: "no conversation content"})
 		return
 	}
 
@@ -306,6 +308,7 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 		}
 	}
 	if client == nil {
+		m.Engine.EmitEvent(protocol.SessionTitleGeneratedEvent{SessionID: sessionID, Err: "no model client"})
 		return
 	}
 
@@ -322,6 +325,7 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 	stream, err := client.Stream(ctx, messages, systemPrompt, nil, 64)
 	if err != nil {
 		slog.Error("auto title: stream failed", "sessionID", sessionID, "error", err)
+		m.Engine.EmitEvent(protocol.SessionTitleGeneratedEvent{SessionID: sessionID, Err: err.Error()})
 		return
 	}
 
@@ -329,6 +333,7 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 	for ev := range stream {
 		if ev.Err != nil {
 			slog.Error("auto title: stream error", "sessionID", sessionID, "error", ev.Err)
+			m.Engine.EmitEvent(protocol.SessionTitleGeneratedEvent{SessionID: sessionID, Err: ev.Err.Error()})
 			return
 		}
 		if ev.Done {
@@ -345,13 +350,16 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 		generated = generated[:77] + "…"
 	}
 	if generated == "" {
+		m.Engine.EmitEvent(protocol.SessionTitleGeneratedEvent{SessionID: sessionID, Err: "empty title generated"})
 		return
 	}
 
 	if err := m.store.Rename(ctx, sessionID, generated); err != nil {
 		slog.Error("auto title: rename failed", "sessionID", sessionID, "error", err)
+		m.Engine.EmitEvent(protocol.SessionTitleGeneratedEvent{SessionID: sessionID, Err: err.Error()})
 	} else {
 		slog.Info("auto title: session renamed", "sessionID", sessionID, "title", generated)
+		m.Engine.EmitEvent(protocol.SessionTitleGeneratedEvent{SessionID: sessionID, Title: generated})
 	}
 }
 

@@ -278,6 +278,15 @@ type TurnCompleted struct {
 
 func (TurnCompleted) isEvent() {}
 
+// SessionTitleGeneratedEvent is emitted when an async title generation completes.
+type SessionTitleGeneratedEvent struct {
+	SessionID string
+	Title     string // generated title (empty on error)
+	Err       string // error message (empty on success)
+}
+
+func (SessionTitleGeneratedEvent) isEvent() {}
+
 // ── Async query response events ────────────────────────────────────────────
 
 // ModelsLoadedEvent is the response to ListModelsAction.
