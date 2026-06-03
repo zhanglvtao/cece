@@ -44,4 +44,7 @@ type TurnEngine interface {
 
 	// Queued inputs
 	DrainQueuedInputs() []string
+
+	// Nudge
+	DrainNudgeReminder() string
 }

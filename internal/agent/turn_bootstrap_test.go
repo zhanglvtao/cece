@@ -42,6 +42,7 @@ func (e *dryRunEngine) UpdateCacheTokens(int, int)  {}
 func (e *dryRunEngine) ResetQuestionAnswers()       {}
 func (e *dryRunEngine) GetQuestionAnswers() []tool.QuestionAnswer { return nil }
 func (e *dryRunEngine) DrainQueuedInputs() []string { return nil }
+func (e *dryRunEngine) DrainNudgeReminder() string  { return "" }
 
 type dryRunCollector struct{}
 

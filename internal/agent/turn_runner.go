@@ -24,6 +24,7 @@ type TurnDeps struct {
 	UpdateSessionMeta    func(context.Context, modelResponse)
 	DrainQueuedInputs    func() []string
 	DrainModeReminder    func() string
+	DrainNudgeReminder   func() string
 	HistorySnapshot      func() []Message
 	ResetQuestionAnswers func()
 	IncrementAPICalls    func()
@@ -147,6 +148,12 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		if r.deps.DrainModeReminder != nil {
 			if reminder := r.deps.DrainModeReminder(); reminder != "" {
 				messages = append(messages, Message{Role: UserRole, Content: reminder})
+			}
+		}
+		// Inject context-pressure nudge if needed.
+		if r.deps.DrainNudgeReminder != nil {
+			if nudge := r.deps.DrainNudgeReminder(); nudge != "" {
+				messages = append(messages, Message{Role: UserRole, Content: nudge})
 			}
 		}
 		// Next model call is triggered by tool results (or user intervention).

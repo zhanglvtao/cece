@@ -147,6 +147,7 @@ func (b *TurnBootstrap) turnDeps() TurnDeps {
 		},
 		DrainQueuedInputs:  eng.DrainQueuedInputs,
 		DrainModeReminder:  eng.PlanState().DrainModeReminder,
+		DrainNudgeReminder: eng.DrainNudgeReminder,
 		HistorySnapshot:    eng.HistorySnapshot,
 		IncrementAPICalls:  eng.IncrementAPICalls,
 		IncrementToolCount: eng.IncrementToolCount,
