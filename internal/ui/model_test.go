@@ -447,8 +447,17 @@ func TestSubAgentRunBarTracksLifecycle(t *testing.T) {
 
 	m.applyEvent(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
 	view := stripAnsi(m.agentBarView())
-	if !strings.Contains(view, "[Agent: Exploring UI]") {
-		t.Fatalf("running sub-agent label not rendered:\n%s", view)
+	if !strings.Contains(view, "[Agent: Exploring UI]\n■ running") {
+		t.Fatalf("running sub-agent label/activity not rendered:\n%s", view)
+	}
+
+	m.applyEvent(protocol.SubAgentActivityEvent{ID: "agent-1", Activity: "Read /tmp/file.go"})
+	view = stripAnsi(m.agentBarView())
+	if !strings.Contains(view, "[Agent: Exploring UI]\n■ Read /tmp/file.go") {
+		t.Fatalf("running sub-agent activity not rendered:\n%s", view)
+	}
+	if strings.Contains(m.status, "Exploring UI") {
+		t.Fatalf("sub-agent start/activity should not duplicate in status: %q", m.status)
 	}
 
 	m.applyEvent(protocol.SubAgentCompletedEvent{ID: "agent-1", Description: "Exploring UI"})

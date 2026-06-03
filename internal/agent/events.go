@@ -299,6 +299,14 @@ type SubAgentStarted struct {
 
 func (SubAgentStarted) isEvent() {}
 
+// SubAgentActivity is emitted when a sub-agent reports current activity.
+type SubAgentActivity struct {
+	ID       string
+	Activity string
+}
+
+func (SubAgentActivity) isEvent() {}
+
 // SubAgentCompleted is emitted when a sub-agent finishes successfully.
 type SubAgentCompleted struct {
 	ID           string

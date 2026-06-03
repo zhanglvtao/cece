@@ -395,15 +395,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.tasks = e.Tasks
 	case protocol.SubAgentStartedEvent:
 		m.upsertRunningAgent(e.ID, e.Description)
-		m.status = fmt.Sprintf("● %s", e.Description)
+	case protocol.SubAgentActivityEvent:
+		m.updateRunningAgentActivity(e.ID, e.Activity)
 	case protocol.SubAgentCompletedEvent:
 		m.removeRunningAgent(e.ID)
-		if e.HitMaxTurns {
-			m.status = fmt.Sprintf("● %s done (hit max turns)", e.Description)
-		} else {
-			m.status = fmt.Sprintf("● %s done (%dK in / %dK out)", e.Description,
-				(e.InputTokens+999)/1000, (e.OutputTokens+999)/1000)
-		}
 	case protocol.SubAgentFailedEvent:
 		m.removeRunningAgent(e.ID)
 		m.status = errorStatus(fmt.Sprintf("● %s failed: %s", e.Description, e.Error))
@@ -1163,6 +1158,7 @@ func gitBranch(dir string) string {
 type runningAgent struct {
 	ID          string
 	Description string
+	Activity    string
 }
 
 func (m *Model) upsertRunningAgent(id, description string) {
@@ -1172,7 +1168,20 @@ func (m *Model) upsertRunningAgent(id, description string) {
 			return
 		}
 	}
-	m.runningAgents = append(m.runningAgents, runningAgent{ID: id, Description: description})
+	m.runningAgents = append(m.runningAgents, runningAgent{ID: id, Description: description, Activity: "running"})
+}
+
+func (m *Model) updateRunningAgentActivity(id, activity string) {
+	activity = strings.TrimSpace(activity)
+	if activity == "" {
+		return
+	}
+	for i := range m.runningAgents {
+		if m.runningAgents[i].ID == id {
+			m.runningAgents[i].Activity = activity
+			return
+		}
+	}
 }
 
 func (m *Model) removeRunningAgent(id string) {
@@ -1185,7 +1194,7 @@ func (m *Model) removeRunningAgent(id string) {
 }
 
 func (m *Model) agentBarHeight() int {
-	return len(m.runningAgents)
+	return len(m.runningAgents) * 2
 }
 
 func (m *Model) agentBarView() string {
@@ -1199,8 +1208,14 @@ func (m *Model) agentBarView() string {
 			icon = "□" // hollow square for blink effect
 		}
 		label := m.styles.Agent.Label.Render(fmt.Sprintf("[Agent: %s]", a.Description))
-		line := fmt.Sprintf("%s %s", label, m.styles.Agent.Running.Render(icon))
-		b.WriteString(line)
+		activity := a.Activity
+		if activity == "" {
+			activity = "running"
+		}
+		line := fmt.Sprintf("%s %s", icon, activity)
+		b.WriteString(label)
+		b.WriteByte('\n')
+		b.WriteString(m.styles.Agent.Running.Render(line))
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")

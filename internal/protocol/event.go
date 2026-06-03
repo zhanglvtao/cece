@@ -59,7 +59,7 @@ type ToolDryRun struct {
 type RequestDryRunEvent struct {
 	Input                string
 	MaxTokens            int
-	EstimatedInputTokens  int
+	EstimatedInputTokens int
 	PromptLayers         []PromptLayerDryRun
 	Messages             []MessageDryRun
 	Tools                []ToolDryRun
@@ -280,10 +280,10 @@ func (ContextNudgedEvent) isEvent() {}
 // tool executions and assistant responses). Replaces the old channel-close
 // signal so the UI only needs to consume from the single event bus.
 type TurnCompleted struct {
-	LastInputTokens  int // input tokens of the last API request (= current context usage)
-	TotalInputTokens int // cumulative input tokens across all API calls in this turn
-	TotalOutputTokens int // cumulative output tokens across all API calls in this turn
-	CacheReadTokens  int // cumulative cache read tokens across this session
+	LastInputTokens     int // input tokens of the last API request (= current context usage)
+	TotalInputTokens    int // cumulative input tokens across all API calls in this turn
+	TotalOutputTokens   int // cumulative output tokens across all API calls in this turn
+	CacheReadTokens     int // cumulative cache read tokens across this session
 	CacheCreationTokens int // cumulative cache creation tokens across this session
 }
 
@@ -330,20 +330,20 @@ func (HistoryClearedEvent) isEvent() {}
 
 // SessionLoadedEvent is the response to LoadSessionAction.
 type SessionLoadedEvent struct {
-	SessionID          string
-	History            []Message
-	Model              string
-	ContextWindow      int
-	LastInput          int
-	TotalInput         int
-	TotalOutput        int
-	Protocol           string
-	ConfigName         string
-	APICalls           int
-	ToolCounts         map[string]int
-	CacheReadTokens    int
+	SessionID           string
+	History             []Message
+	Model               string
+	ContextWindow       int
+	LastInput           int
+	TotalInput          int
+	TotalOutput         int
+	Protocol            string
+	ConfigName          string
+	APICalls            int
+	ToolCounts          map[string]int
+	CacheReadTokens     int
 	CacheCreationTokens int
-	Err                string
+	Err                 string
 }
 
 func (SessionLoadedEvent) isEvent() {}
@@ -388,6 +388,14 @@ type SubAgentStartedEvent struct {
 }
 
 func (SubAgentStartedEvent) isEvent() {}
+
+// SubAgentActivityEvent is emitted when a running sub-agent reports current activity.
+type SubAgentActivityEvent struct {
+	ID       string
+	Activity string
+}
+
+func (SubAgentActivityEvent) isEvent() {}
 
 // SubAgentCompletedEvent is emitted when a sub-agent finishes successfully.
 type SubAgentCompletedEvent struct {

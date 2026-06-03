@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -373,6 +374,22 @@ func TestRunSubAgentEmitsFailedOnCancellation(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for SubAgentFailedEvent")
 		}
+	}
+}
+
+func TestSubAgentActivityTextUsesToolInputForToolStart(t *testing.T) {
+	labels := map[string]string{}
+	activity := subAgentActivityText(agent.ToolCallCompleted{
+		ID:    "tool-1",
+		Name:  "Read",
+		Input: json.RawMessage(`{"path":"/tmp/file.go"}`),
+	}, labels)
+	if !strings.Contains(activity, "/tmp/file.go") {
+		t.Fatalf("activity = %q, want path", activity)
+	}
+	activity = subAgentActivityText(agent.ToolExecStarted{ID: "tool-1", Name: "Read"}, labels)
+	if !strings.Contains(activity, "/tmp/file.go") {
+		t.Fatalf("exec activity = %q, want cached path", activity)
 	}
 }
 

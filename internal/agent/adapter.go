@@ -1,7 +1,7 @@
 package agent
 
 import (
-		"encoding/json"
+	"encoding/json"
 
 	"cece/internal/protocol"
 	"cece/internal/tool"
@@ -179,6 +179,9 @@ func ToDTO(e Event) protocol.Event {
 	case SubAgentStarted:
 		return protocol.SubAgentStartedEvent{ID: v.ID, Description: v.Description}
 
+	case SubAgentActivity:
+		return protocol.SubAgentActivityEvent{ID: v.ID, Activity: v.Activity}
+
 	case SubAgentCompleted:
 		return protocol.SubAgentCompletedEvent{
 			ID: v.ID, Description: v.Description,
@@ -234,12 +237,12 @@ func contentBlockToDTO(b ApiContentBlock) protocol.ContentBlock {
 	case ApiToolResultContentType:
 		if b.ToolResult != nil {
 			cb.ToolResult = &protocol.ToolResultBlock{
-					ToolUseID:  b.ToolResult.ToolUseID,
-					Content:    b.ToolResult.Content,
-					IsError:    b.ToolResult.IsError,
-					Truncated:  b.ToolResult.Truncated,
-					TotalLines: b.ToolResult.TotalLines,
-				}
+				ToolUseID:  b.ToolResult.ToolUseID,
+				Content:    b.ToolResult.Content,
+				IsError:    b.ToolResult.IsError,
+				Truncated:  b.ToolResult.Truncated,
+				TotalLines: b.ToolResult.TotalLines,
+			}
 		}
 	}
 	return cb

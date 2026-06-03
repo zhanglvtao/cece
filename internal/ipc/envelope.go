@@ -87,7 +87,7 @@ var eventKinds = map[string]func() protocol.Event{
 	"pruned":                    func() protocol.Event { return &protocol.PrunedEvent{} },
 	"context_nudged":            func() protocol.Event { return &protocol.ContextNudgedEvent{} },
 	"turn_completed":            func() protocol.Event { return &protocol.TurnCompleted{} },
-	"session_title_generated":  func() protocol.Event { return &protocol.SessionTitleGeneratedEvent{} },
+	"session_title_generated":   func() protocol.Event { return &protocol.SessionTitleGeneratedEvent{} },
 	"models_loaded":             func() protocol.Event { return &protocol.ModelsLoadedEvent{} },
 	"mode_changed":              func() protocol.Event { return &protocol.ModeChangedEvent{} },
 	"mode":                      func() protocol.Event { return &protocol.ModeEvent{} },
@@ -96,9 +96,10 @@ var eventKinds = map[string]func() protocol.Event{
 	"mcp_servers_listed":        func() protocol.Event { return &protocol.MCPServersListedEvent{} },
 	"mcp_server_status_changed": func() protocol.Event { return &protocol.MCPServerStatusChangedEvent{} },
 	"task_updated":              func() protocol.Event { return &protocol.TodoUpdatedEvent{} },
-	"subagent_started":         func() protocol.Event { return &protocol.SubAgentStartedEvent{} },
-	"subagent_completed":       func() protocol.Event { return &protocol.SubAgentCompletedEvent{} },
-	"subagent_failed":          func() protocol.Event { return &protocol.SubAgentFailedEvent{} },
+	"subagent_started":          func() protocol.Event { return &protocol.SubAgentStartedEvent{} },
+	"subagent_activity":         func() protocol.Event { return &protocol.SubAgentActivityEvent{} },
+	"subagent_completed":        func() protocol.Event { return &protocol.SubAgentCompletedEvent{} },
+	"subagent_failed":           func() protocol.Event { return &protocol.SubAgentFailedEvent{} },
 	"tools_listed":              func() protocol.Event { return &protocol.ToolsListedEvent{} },
 }
 
@@ -330,6 +331,8 @@ func derefEvent(ev protocol.Event) protocol.Event {
 	case *protocol.TodoUpdatedEvent:
 		return *v
 	case *protocol.SubAgentStartedEvent:
+		return *v
+	case *protocol.SubAgentActivityEvent:
 		return *v
 	case *protocol.SubAgentCompletedEvent:
 		return *v

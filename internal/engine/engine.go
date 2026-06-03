@@ -447,6 +447,68 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 	}, nil
 }
 
+func (e *Engine) forwardSubAgentActivity(agentID string, ch <-chan agent.Event) {
+	toolLabels := map[string]string{}
+	for ev := range ch {
+		activity := subAgentActivityText(ev, toolLabels)
+		if activity == "" {
+			continue
+		}
+		e.emitEvent(protocol.SubAgentActivityEvent{ID: agentID, Activity: activity})
+	}
+}
+
+func subAgentActivityText(ev agent.Event, toolLabels map[string]string) string {
+	switch v := ev.(type) {
+	case agent.ModelRequestStarted:
+		if v.Reason == "tool_result" && len(v.ToolResults) > 0 {
+			return "thinking after " + strings.Join(v.ToolResults, ", ")
+		}
+		return "thinking"
+	case agent.ToolCallStarted:
+		return "preparing " + v.Name
+	case agent.ToolCallCompleted:
+		label := toolActivityLabel(v.Name, v.Input)
+		toolLabels[v.ID] = label
+		return label
+	case agent.ToolExecStarted:
+		if label := toolLabels[v.ID]; label != "" {
+			return label
+		}
+		return v.Name
+	case agent.ToolExecDelta:
+		text := strings.TrimSpace(v.Text)
+		if text == "" {
+			return "running tool"
+		}
+		lines := strings.Split(text, "\n")
+		return lines[len(lines)-1]
+	case agent.ToolExecCompleted:
+		if v.Result.IsError {
+			return v.Name + " failed"
+		}
+		return v.Name + " done"
+	case agent.AssistantDelta:
+		text := strings.TrimSpace(v.Text)
+		if text != "" {
+			return "writing: " + text
+		}
+	}
+	return ""
+}
+
+func toolActivityLabel(name string, input []byte) string {
+	s := strings.TrimSpace(string(input))
+	if s == "" || s == "{}" {
+		return name
+	}
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) > 80 {
+		s = s[:77] + "..."
+	}
+	return name + " " + s
+}
+
 func (e *Engine) SetLastInputTokens(tokens int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

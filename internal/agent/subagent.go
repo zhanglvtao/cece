@@ -18,6 +18,7 @@ type SubAgentConfig struct {
 	ProjectDir        string
 	MaxTokens         int
 	MaxTurns          int // 0 = no limit, sub-agent stops naturally when done
+	Events            chan<- Event
 }
 
 // SubAgentResult holds the outcome of a sub-agent run.
@@ -78,7 +79,7 @@ func (sa *SubAgent) Run(ctx context.Context) SubAgentResult {
 			System:    systemPrompt,
 			MaxTokens: sa.config.MaxTokens,
 			Reason:    "subagent",
-		}, nil) // nil events: don't stream internal details to UI
+		}, sa.config.Events)
 
 		if err != nil {
 			// If it's a recoverable provider error, surface as text and let the model self-correct
@@ -121,7 +122,7 @@ func (sa *SubAgent) Run(ctx context.Context) SubAgentResult {
 		}
 
 		// Execute tools directly (no interaction gate — sub-agent always yolo).
-		toolResults := toolExecutor.ExecuteBatch(ctx, resp.toolCalls, nil) // nil events: silent
+		toolResults := toolExecutor.ExecuteBatch(ctx, resp.toolCalls, sa.config.Events)
 		resultMsg := Message{Role: UserRole, ContentBlocks: toolResults}
 		messages = append(messages, resultMsg)
 
