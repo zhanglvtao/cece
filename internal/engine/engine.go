@@ -55,6 +55,7 @@ type Engine struct {
 	lastCompactTurn     int                                  // turn count at last compact/prune
 	lastNudgeTurn       int                                  // turn count at last nudge injection
 	inputQueue          *userInputQueue                      // queued user inputs while agent is busy
+	nextSubAgentID      int                                  // monotonic ID for sub-agent lifecycle events
 	questionAnswers     []tool.QuestionAnswer
 	eventCh             chan protocol.Event // global event channel for async responses
 }
@@ -390,7 +391,10 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 	subAgent := agent.NewSubAgent(client, subRegistry, subAgentConfig)
 
 	// Emit start event
-	agentID := fmt.Sprintf("agent-%d", e.apiCalls)
+	e.mu.Lock()
+	e.nextSubAgentID++
+	agentID := fmt.Sprintf("agent-%d", e.nextSubAgentID)
+	e.mu.Unlock()
 	e.emitEvent(protocol.SubAgentStartedEvent{
 		ID:          agentID,
 		Description: cfg.Description,
@@ -398,19 +402,16 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 
 	result := subAgent.Run(ctx)
 
-	// Emit completion/failure event
-	if result.HitMaxTurns || (result.Content != "" && len(result.Content) > 0 && result.Content[0] == '<') {
-		// Check if it looks like an error
-		if result.Content != "" && len(result.Content) > 0 {
-			e.emitEvent(protocol.SubAgentCompletedEvent{
-				ID:           agentID,
-				Description:  cfg.Description,
-				InputTokens:  result.InputTokens,
-				OutputTokens: result.OutputTokens,
-				TurnsUsed:    result.TurnsUsed,
-				HitMaxTurns:  result.HitMaxTurns,
-			})
+	if result.Cancelled || result.Err != "" {
+		errText := result.Err
+		if errText == "" {
+			errText = result.Content
 		}
+		e.emitEvent(protocol.SubAgentFailedEvent{
+			ID:          agentID,
+			Description: cfg.Description,
+			Error:       errText,
+		})
 	} else {
 		e.emitEvent(protocol.SubAgentCompletedEvent{
 			ID:           agentID,
@@ -435,6 +436,8 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 		OutputTokens: result.OutputTokens,
 		TurnsUsed:    result.TurnsUsed,
 		HitMaxTurns:  result.HitMaxTurns,
+		Cancelled:    result.Cancelled,
+		Err:          result.Err,
 	}, nil
 }
 

@@ -1091,6 +1091,7 @@ func (m *Model) cancelTurn(status string) {
 	}
 	m.busy = false
 	m.queued = nil
+	m.runningAgents = nil
 	m.status = status
 }
 

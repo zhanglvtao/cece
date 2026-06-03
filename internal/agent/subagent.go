@@ -27,6 +27,8 @@ type SubAgentResult struct {
 	OutputTokens int
 	TurnsUsed    int
 	HitMaxTurns  bool
+	Cancelled    bool
+	Err          string
 }
 
 // SubAgent runs an autonomous agent loop for a single delegated task.
@@ -65,6 +67,8 @@ func (sa *SubAgent) Run(ctx context.Context) SubAgentResult {
 				InputTokens:  totalInput,
 				OutputTokens: totalOutput,
 				TurnsUsed:    turns,
+				Cancelled:    true,
+				Err:          ctx.Err().Error(),
 			}
 		default:
 		}
@@ -96,6 +100,7 @@ func (sa *SubAgent) Run(ctx context.Context) SubAgentResult {
 				InputTokens:  totalInput,
 				OutputTokens: totalOutput,
 				TurnsUsed:    turns,
+				Err:          err.Error(),
 			}
 		}
 

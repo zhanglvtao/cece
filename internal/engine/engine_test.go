@@ -324,6 +324,58 @@ func (b *blockingClient) Stream(ctx context.Context, _ []agent.Message, _ agent.
 	return out, nil
 }
 
+func TestRunSubAgentEmitsUniqueIDsForParallelAgents(t *testing.T) {
+	eng := NewEngine(&recordingClient{}, tool.NewRegistry(), true, 1024, nil, t.TempDir())
+
+	ctx := context.Background()
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = eng.AgentHandler().RunSubAgent(ctx, tool.AgentSubAgentConfig{Prompt: "a", Description: "A"}, nil)
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = eng.AgentHandler().RunSubAgent(ctx, tool.AgentSubAgentConfig{Prompt: "b", Description: "B"}, nil)
+		done <- struct{}{}
+	}()
+
+	<-done
+	<-done
+
+	ids := map[string]bool{}
+	for len(ids) < 2 {
+		select {
+		case ev := <-eng.Events():
+			if started, ok := ev.(protocol.SubAgentStartedEvent); ok {
+				ids[started.ID] = true
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for two SubAgentStartedEvent; ids=%v", ids)
+		}
+	}
+}
+
+func TestRunSubAgentEmitsFailedOnCancellation(t *testing.T) {
+	eng := NewEngine(&recordingClient{}, tool.NewRegistry(), true, 1024, nil, t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _ = eng.AgentHandler().RunSubAgent(ctx, tool.AgentSubAgentConfig{Prompt: "a", Description: "A"}, nil)
+
+	for {
+		select {
+		case ev := <-eng.Events():
+			if failed, ok := ev.(protocol.SubAgentFailedEvent); ok {
+				if failed.Description != "A" || failed.Error == "" {
+					t.Fatalf("failed event = %#v", failed)
+				}
+				return
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for SubAgentFailedEvent")
+		}
+	}
+}
+
 func TestEngineInterruptRollsBackHistory(t *testing.T) {
 	client := &blockingClient{unblock: make(chan struct{})}
 	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")

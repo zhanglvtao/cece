@@ -36,6 +36,8 @@ type AgentSubAgentResult struct {
 	OutputTokens int
 	TurnsUsed    int
 	HitMaxTurns  bool
+	Cancelled    bool
+	Err          string
 }
 
 type agentTool struct {
@@ -92,13 +94,13 @@ func (agentTool) Info() Definition {
 }
 
 type agentParams struct {
-	Prompt           string   `json:"prompt"`
-	Description      string   `json:"description,omitempty"`
-	SubAgentType     string   `json:"subagent_type,omitempty"`
-	Model            string   `json:"model,omitempty"`
-	Tools            []string `json:"tools,omitempty"`
-	SystemPrompt     string   `json:"system_prompt,omitempty"`
-	MaxTurns         int      `json:"max_turns,omitempty"`
+	Prompt       string   `json:"prompt"`
+	Description  string   `json:"description,omitempty"`
+	SubAgentType string   `json:"subagent_type,omitempty"`
+	Model        string   `json:"model,omitempty"`
+	Tools        []string `json:"tools,omitempty"`
+	SystemPrompt string   `json:"system_prompt,omitempty"`
+	MaxTurns     int      `json:"max_turns,omitempty"`
 }
 
 func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
@@ -135,6 +137,9 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 	if err != nil {
 		slog.Error("sub-agent failed", "description", description, "error", err)
 		return Result{Content: fmt.Sprintf("Sub-agent failed: %v", err), IsError: true}
+	}
+	if result.Cancelled || result.Err != "" {
+		return Result{Content: result.Content, IsError: true}
 	}
 
 	// Build result with metadata

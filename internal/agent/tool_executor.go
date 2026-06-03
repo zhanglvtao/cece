@@ -63,7 +63,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 	for i, call := range calls {
 		go func(idx int, c ApiToolUseBlock) {
 			emitter := &chanEmitter{ch: ch, id: c.ID}
-			ch <- ToolExecStarted{ID: c.ID, Name: c.Name}
+			emitToolEvent(ch, ToolExecStarted{ID: c.ID, Name: c.Name})
 			var result tool.Result
 			if c.Name == tool.AskUserQuestionToolName {
 				answers := []tool.QuestionAnswer(nil)
@@ -83,7 +83,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 					result = e.registry.Execute(ctx, c.Name, c.Input, emitter)
 				}
 			}
-			ch <- ToolExecCompleted{ID: c.ID, Name: c.Name, Result: result}
+			emitToolEvent(ch, ToolExecCompleted{ID: c.ID, Name: c.Name, Result: result})
 			results <- execResult{index: idx, result: result}
 		}(i, call)
 	}
@@ -104,7 +104,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 			}
 		}
 		if hasTaskCall {
-			ch <- TaskUpdated{Tasks: e.taskList.Snapshot()}
+			emitToolEvent(ch, TaskUpdated{Tasks: e.taskList.Snapshot()})
 		}
 	}
 
@@ -120,7 +120,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 		default:
 			msg = "Default mode"
 		}
-		ch <- ModeChangedDuringExec{Mode: newMode, Message: msg}
+		emitToolEvent(ch, ModeChangedDuringExec{Mode: newMode, Message: msg})
 	}
 
 	blocks := make([]ApiContentBlock, len(calls))
@@ -147,7 +147,17 @@ type chanEmitter struct {
 }
 
 func (e *chanEmitter) Emit(text string) {
+	if e == nil || e.ch == nil {
+		return
+	}
 	e.ch <- ToolExecDelta{ID: e.id, Text: text}
+}
+
+func emitToolEvent(ch chan<- Event, ev Event) {
+	if ch == nil {
+		return
+	}
+	ch <- ev
 }
 
 func countLines(s string) int {

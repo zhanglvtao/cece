@@ -14,14 +14,14 @@ import (
 
 // modelResponse holds the result of a single model stream invocation.
 type modelResponse struct {
-	stopReason        string
-	inputTokens       int
-	outputTokens      int
-	toolCalls         []ApiToolUseBlock // non-empty when stopReason == "tool_use"
-	textContent       string            // assistant text reply
-	thinkingBlocks    []ApiContentBlock // thinking + redacted_thinking blocks
-	cacheReadTokens   int               // cache read tokens from this stream
-	cacheCreationTokens int             // cache creation tokens from this stream
+	stopReason          string
+	inputTokens         int
+	outputTokens        int
+	toolCalls           []ApiToolUseBlock // non-empty when stopReason == "tool_use"
+	textContent         string            // assistant text reply
+	thinkingBlocks      []ApiContentBlock // thinking + redacted_thinking blocks
+	cacheReadTokens     int               // cache read tokens from this stream
+	cacheCreationTokens int               // cache creation tokens from this stream
 }
 
 // toolCallState tracks incremental assembly of a tool_use block across SSE events.
@@ -72,11 +72,11 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		}
 	}
 
-	ch <- ModelRequestStarted{
+	emitModelEvent(ch, ModelRequestStarted{
 		Reason:               req.Reason,
 		ToolResults:          req.ToolResults,
 		EstimatedInputTokens: estimated,
-	}
+	})
 
 	chunks, err := s.client.Stream(ctx, req.Messages, req.System, tools, req.MaxTokens)
 	if err != nil {
@@ -104,7 +104,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				if isContextTooLongError(chunk.Err.Error()) {
 					text = fmt.Sprintf("[Context Window Exceeded] %s\nYour conversation has grown beyond the model's context window. Call the Compact tool immediately to compress history before continuing. This is your responsibility — the system will not auto-compact.", chunk.Err.Error())
 				}
-				ch <- RunFailed{Err: chunk.Err}
+				emitModelEvent(ch, RunFailed{Err: chunk.Err})
 				return modelResponse{
 					stopReason:  "end_turn",
 					textContent: text,
@@ -114,11 +114,11 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		}
 
 		if chunk.EventType != "" && !chunk.Done {
-			ch <- StreamEventDetail{
+			emitModelEvent(ch, StreamEventDetail{
 				EventType: chunk.EventType,
 				Detail:    chunk.Detail,
 				Text:      truncate(chunk.Delta, 60),
-			}
+			})
 		}
 
 		if chunk.EventType == "message_start" {
@@ -134,12 +134,12 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			for _, def := range tools {
 				toolNames = append(toolNames, def.Name)
 			}
-			ch <- StreamStarted{
+			emitModelEvent(ch, StreamStarted{
 				InputTokens:         resp.inputTokens,
 				Tools:               toolNames,
 				CacheCreationTokens: chunk.CacheCreationTokens,
 				CacheReadTokens:     chunk.CacheReadTokens,
-			}
+			})
 		}
 		if chunk.EventType == "message_delta" {
 			resp.outputTokens = chunk.OutputTokens
@@ -155,11 +155,11 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			if chunk.CacheReadTokens > 0 {
 				resp.cacheReadTokens = chunk.CacheReadTokens
 			}
-			ch <- StreamStarted{
+			emitModelEvent(ch, StreamStarted{
 				InputTokens:         resp.inputTokens,
 				CacheCreationTokens: resp.cacheCreationTokens,
 				CacheReadTokens:     resp.cacheReadTokens,
-			}
+			})
 		}
 
 		// Tool use assembly
@@ -171,20 +171,20 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				id:   chunk.ToolCallID,
 				name: chunk.ToolCallName,
 			}
-			ch <- ToolCallStarted{
+			emitModelEvent(ch, ToolCallStarted{
 				ID:    chunk.ToolCallID,
 				Name:  chunk.ToolCallName,
 				Index: chunk.Index,
-			}
+			})
 		}
 		if chunk.Detail == "input_json_delta" && chunk.ToolCallInput != "" {
 			if ts, ok := toolInputStates[chunk.Index]; ok {
 				ts.input.WriteString(chunk.ToolCallInput)
-				ch <- ToolCallDelta{
+				emitModelEvent(ch, ToolCallDelta{
 					ID:    ts.id,
 					Index: chunk.Index,
 					Input: chunk.ToolCallInput,
-				}
+				})
 			}
 		}
 		if chunk.EventType == "content_block_stop" {
@@ -202,12 +202,12 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 					Name:  ts.name,
 					Input: raw,
 				})
-				ch <- ToolCallCompleted{
+				emitModelEvent(ch, ToolCallCompleted{
 					ID:    ts.id,
 					Name:  ts.name,
 					Input: raw,
 					Index: chunk.Index,
-				}
+				})
 			}
 		}
 
@@ -215,14 +215,14 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		if chunk.EventType == "content_block_start" && chunk.IsThinking {
 			thinkingIndex = chunk.Index
 			thinkingBuf.Reset()
-			ch <- ThinkingStarted{Index: chunk.Index}
+			emitModelEvent(ch, ThinkingStarted{Index: chunk.Index})
 		}
 		if chunk.EventType == "content_block_start" && chunk.IsRedactedThinking {
 			redactedThinkingIndex = chunk.Index
 		}
 		if chunk.Detail == "thinking_delta" && chunk.ThinkingDelta != "" {
 			thinkingBuf.WriteString(chunk.ThinkingDelta)
-			ch <- ThinkingDelta{Text: chunk.ThinkingDelta}
+			emitModelEvent(ch, ThinkingDelta{Text: chunk.ThinkingDelta})
 		}
 		if chunk.EventType == "content_block_stop" && thinkingIndex >= 0 && chunk.Index == thinkingIndex {
 			fullThinking := thinkingBuf.String()
@@ -236,7 +236,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 					Signature: sig,
 				},
 			})
-			ch <- ThinkingCompleted{Text: fullThinking, Signature: sig}
+			emitModelEvent(ch, ThinkingCompleted{Text: fullThinking, Signature: sig})
 		}
 		if chunk.EventType == "content_block_stop" && redactedThinkingIndex >= 0 && chunk.Index == redactedThinkingIndex {
 			resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
@@ -251,11 +251,11 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		// Text delta (excludes thinking_delta which is routed above)
 		if chunk.Delta != "" && chunk.Detail != "thinking_delta" {
 			if !assistantStarted {
-				ch <- AssistantStarted{}
+				emitModelEvent(ch, AssistantStarted{})
 				assistantStarted = true
 			}
 			textBuf.WriteString(chunk.Delta)
-			ch <- AssistantDelta{Text: chunk.Delta}
+			emitModelEvent(ch, AssistantDelta{Text: chunk.Delta})
 		}
 
 		if chunk.Done {
@@ -264,17 +264,24 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			for _, tc := range resp.toolCalls {
 				callNames = append(callNames, tc.Name)
 			}
-			ch <- StreamCompleted{
+			emitModelEvent(ch, StreamCompleted{
 				OutputTokens: resp.outputTokens,
 				StopReason:   resp.stopReason,
 				Duration:     time.Since(start),
 				ToolCalls:    callNames,
-			}
+			})
 			return resp, nil
 		}
 	}
 
 	return modelResponse{}, errors.New("stream ended without message_stop")
+}
+
+func emitModelEvent(ch chan<- Event, ev Event) {
+	if ch == nil {
+		return
+	}
+	ch <- ev
 }
 
 func truncate(s string, n int) string {

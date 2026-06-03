@@ -458,6 +458,22 @@ func TestSubAgentRunBarTracksLifecycle(t *testing.T) {
 	}
 }
 
+func TestCancelTurnClearsRunningSubAgents(t *testing.T) {
+	sender := newRecordingSender()
+	m := NewModel(sender, "sonnet", "/tmp")
+	m.applyEvent(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
+
+	m.cancelTurn("Cancelled")
+
+	if len(m.runningAgents) != 0 {
+		t.Fatalf("runningAgents len = %d, want 0", len(m.runningAgents))
+	}
+	view := stripAnsi(m.agentBarView())
+	if strings.Contains(view, "Exploring UI") {
+		t.Fatalf("cancelled sub-agent still rendered:\n%s", view)
+	}
+}
+
 // stripAnsi removes ANSI escape sequences from s.
 func stripAnsi(s string) string {
 	var out strings.Builder
