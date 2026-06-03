@@ -95,6 +95,7 @@ type parserState struct {
 	activeToolIndices map[int]bool
 	textBlockStarted  bool
 	terminalChunkSeen bool
+	doneEmitted       bool
 }
 
 func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
@@ -122,7 +123,10 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 
 			dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if dataStr == "[DONE]" {
-				out <- agent.ApiStreamEvent{Done: true}
+				if !state.doneEmitted {
+					state.doneEmitted = true
+					out <- agent.ApiStreamEvent{Done: true}
+				}
 				return
 			}
 
@@ -153,7 +157,19 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 			return
 		}
 
-		if state.terminalChunkSeen {
+		// Stream ended without [DONE] — close open blocks and emit Done.
+		if state.thinkingOpen {
+			out <- agent.ApiStreamEvent{
+				EventType:  "content_block_stop",
+				Index:      state.thinkingIndex,
+				IsThinking: true,
+			}
+		}
+		for idx := range state.activeToolIndices {
+			out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+		}
+		if !state.doneEmitted {
+			state.doneEmitted = true
 			out <- agent.ApiStreamEvent{Done: true}
 		}
 	}()
@@ -244,7 +260,10 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 			OutputTokens:    event.Response.Usage.OutputTokens,
 			CacheReadTokens: cacheRead,
 		}
-		out <- agent.ApiStreamEvent{Done: true}
+		if !state.doneEmitted {
+			state.doneEmitted = true
+			out <- agent.ApiStreamEvent{Done: true}
+		}
 	}
 }
 

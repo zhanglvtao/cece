@@ -23,6 +23,55 @@ func collectEvents(ch <-chan agent.ApiStreamEvent) ([]agent.ApiStreamEvent, erro
 	return events, nil
 }
 
+func TestDecodeStreamEndsWithoutDoneFallback(t *testing.T) {
+	// Simulate codebase API stream that sends reasoning_content but ends
+	// without finish_reason, [DONE], or event:done — the stream just EOFs.
+	body := sseBody(
+		`data: {"id":"1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"thinking..."},"finish_reason":null}],"usage":null}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var doneSeen bool
+	for _, e := range events {
+		if e.Done {
+			doneSeen = true
+		}
+	}
+	if !doneSeen {
+		t.Fatal("expected Done event when stream EOFs without finish_reason or [DONE]")
+	}
+}
+
+func TestDecodeStreamDoneNotDuplicated(t *testing.T) {
+	// Stream with explicit done event — fallback must NOT emit a second Done.
+	body := sseBody(
+		`event: output`,
+		`data: {"response":"hi"}`,
+		``,
+		`event: done`,
+		`data: {"finish_reason":"stop"}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var doneCount int
+	for _, e := range events {
+		if e.Done {
+			doneCount++
+		}
+	}
+	if doneCount != 1 {
+		t.Fatalf("expected exactly 1 Done event, got %d", doneCount)
+	}
+}
+
 func TestDecodeTextResponse(t *testing.T) {
 	body := sseBody(
 		`event: output`,

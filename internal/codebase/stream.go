@@ -45,6 +45,7 @@ type streamState struct {
 	textBlockIndex    int
 	inputTokens       int
 	outputTokens      int
+	doneEmitted       bool
 }
 
 // DecodeStreamEvent reads a codebase-api SSE stream and emits agent.ApiStreamEvent values.
@@ -89,6 +90,10 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 
 		if err := scanner.Err(); err != nil {
 			out <- agent.ApiStreamEvent{Err: err}
+		} else {
+			// Stream ended without done event — close open blocks and
+			// emit Done so the consumer never waits forever.
+			emitDone(&DoneEvent{FinishReason: "stop"}, out, state)
 		}
 	}()
 
@@ -241,6 +246,10 @@ func emitOutput(ev *OutputEvent, out chan<- agent.ApiStreamEvent, state *streamS
 }
 
 func emitDone(ev *DoneEvent, out chan<- agent.ApiStreamEvent, state *streamState) {
+	if state.doneEmitted {
+		return
+	}
+	state.doneEmitted = true
 	// Close thinking block if still open
 	if state.thinkingOpen {
 		out <- agent.ApiStreamEvent{
