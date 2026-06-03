@@ -60,6 +60,7 @@ type Styles struct {
 		Completed  lipgloss.Style
 	}
 	Agent struct {
+		Label   lipgloss.Style
 		Running lipgloss.Style
 	}
 }
@@ -132,6 +133,7 @@ func DefaultStyles() Styles {
 	s.Task.Pending = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Task.InProgress = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Task.Completed = lipgloss.NewStyle().Foreground(theme.Green)
+	s.Agent.Label = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Agent.Running = lipgloss.NewStyle().Foreground(theme.Magenta)
 
 	return s

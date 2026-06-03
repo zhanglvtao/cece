@@ -1198,7 +1198,8 @@ func (m *Model) agentBarView() string {
 		if m.statusFrame%4 >= 2 {
 			icon = "□" // hollow square for blink effect
 		}
-		line := m.styles.Agent.Running.Render(fmt.Sprintf("%s %s", icon, a.Description))
+		label := m.styles.Agent.Label.Render(fmt.Sprintf("[Agent: %s]", a.Description))
+		line := fmt.Sprintf("%s %s", label, m.styles.Agent.Running.Render(icon))
 		b.WriteString(line)
 		b.WriteByte('\n')
 	}
