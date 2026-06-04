@@ -132,7 +132,7 @@ func DefaultStyles() Styles {
 	s.Status.Model = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Status.Context = lipgloss.NewStyle().Foreground(theme.Blue)
 	s.Status.Tokens = lipgloss.NewStyle().Foreground(theme.FgSubtle)
-	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.Green)
+	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Tool = lipgloss.NewStyle().Foreground(theme.Yellow)
 	s.Status.ToolFile = lipgloss.NewStyle().Foreground(theme.Green)     // file ops
 	s.Status.ToolWeb = lipgloss.NewStyle().Foreground(theme.Magenta)   // web ops
