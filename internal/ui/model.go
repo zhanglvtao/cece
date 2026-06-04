@@ -501,13 +501,13 @@ func (m *Model) View() tea.View {
 		sections = append(sections, agentBar)
 		sections = append(sections, sep)
 	}
-	if headline != "" {
-		sections = append(sections, headline)
-		sections = append(sections, sep)
-	}
 	if queued != "" {
 		sections = append(sections, queued)
 		sections = append(sections, sep)
+	}
+	// headline (e.g. "Requesting") is always directly above input, no separator
+	if headline != "" {
+		sections = append(sections, headline)
 	}
 	// Popups must be directly above input box
 	popup := m.slashPopup.View(m.width)
@@ -558,7 +558,7 @@ func (m *Model) View() tea.View {
 			rowsAboveInput += strings.Count(agentBar, "\n") + 2 // agentBar + sep
 		}
 		if headline != "" {
-			rowsAboveInput += strings.Count(headline, "\n") + 2 // headline + sep
+			rowsAboveInput += strings.Count(headline, "\n") + 1 // headline, no sep
 		}
 		if queued != "" {
 			rowsAboveInput += strings.Count(queued, "\n") + 2 // queued + sep
