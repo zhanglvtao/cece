@@ -270,6 +270,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// ApplyEventForTest applies a protocol event directly to the model. For testing only.
+func (m *Model) ApplyEventForTest(event protocol.Event) {
+	m.applyEvent(event)
+}
+
 func (m *Model) applyEvent(event protocol.Event) {
 	m.transcript.apply(event)
 	switch e := event.(type) {
@@ -294,6 +299,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.busy = true
 		m.status = "Requesting"
 		m.statusBar.SetAPICalls(e.APICalls)
+		if e.ContextWindow > 0 && e.ContextWindow != m.contextWindow {
+			logger.Info("UI: contextWindow synced from ModelRequestStarted", "old", m.contextWindow, "new", e.ContextWindow)
+			m.contextWindow = e.ContextWindow
+		}
 	case protocol.AssistantStarted:
 		m.busy = true
 		m.status = "Streaming"
@@ -309,6 +318,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.busy = false
 		m.status = "Ready"
 		m.streamHeadline = ""
+		if e.ContextWindow > 0 && e.ContextWindow != m.contextWindow {
+			logger.Info("UI: contextWindow synced from TurnCompleted", "old", m.contextWindow, "new", e.ContextWindow)
+			m.contextWindow = e.ContextWindow
+		}
 	case protocol.QueuedInputPromoted:
 		if len(m.queued) > 0 {
 			m.queued = m.queued[1:]

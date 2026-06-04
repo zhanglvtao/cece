@@ -1159,6 +1159,7 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 			switch v := d.(type) {
 			case protocol.ModelRequestStarted:
 				v.APICalls = e.apiCalls
+				v.ContextWindow = e.contextWindow
 				d = v
 			case protocol.ToolExecCompleted:
 				v.ToolCounts = e.toolCountsSnapshot()
@@ -1173,6 +1174,7 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 			TotalOutputTokens:   e.totalOutputTokens,
 			CacheReadTokens:     sb.CacheReadTokens,
 			CacheCreationTokens: sb.CacheCreationTokens,
+			ContextWindow:       e.contextWindow,
 		})
 	}()
 
@@ -1266,4 +1268,26 @@ func (q *userInputQueue) PopLast() (string, bool) {
 	last := q.items[len(q.items)-1]
 	q.items = q.items[:len(q.items)-1]
 	return last, true
+}
+
+// ── Test helpers ───────────────────────────────────────────────────────────
+
+// SetNudgeStateForTest sets internal state to trigger context nudge.
+// For testing only.
+func (e *Engine) SetNudgeStateForTest(lastCompactTurn, lastNudgeTurn, lastInputTokens int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.lastCompactTurn = lastCompactTurn
+	e.lastNudgeTurn = lastNudgeTurn
+	e.lastInputTokens = lastInputTokens
+}
+
+// HistoryForTest returns a copy of the conversation history.
+// For testing only.
+func (e *Engine) HistoryForTest() []agent.Message {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]agent.Message, len(e.history))
+	copy(out, e.history)
+	return out
 }

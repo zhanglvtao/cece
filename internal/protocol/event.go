@@ -32,6 +32,7 @@ type ModelRequestStarted struct {
 	ToolResults          []string // tool result names (when Reason="tool_result")
 	EstimatedInputTokens int      // locally estimated input tokens
 	APICalls             int      // cumulative API call count (injected by Engine)
+	ContextWindow        int      // engine's current context window size (synced to TUI)
 }
 
 func (ModelRequestStarted) isEvent() {}
@@ -286,6 +287,7 @@ type TurnCompleted struct {
 	CacheReadTokens     int // cumulative cache read tokens across this session
 	CacheCreationTokens int // cumulative cache creation tokens across this session
 	TurnCount           int // cumulative conversation turn count
+	ContextWindow       int // engine's current context window size (synced to TUI)
 }
 
 func (TurnCompleted) isEvent() {}
