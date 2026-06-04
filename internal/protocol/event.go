@@ -415,6 +415,14 @@ func (SubAgentStartedEvent) isEvent() {}
 type SubAgentActivityEvent struct {
 	ID       string
 	Activity string
+	// Structured fields for the agent bar view — filled by forwardSubAgentActivity.
+	Model           string // model name from StreamStarted
+	InputTokens     int    // cumulative input tokens
+	OutputTokens    int    // cumulative output tokens
+	CacheReadTokens int    // cumulative cache read tokens
+	TurnCount       int    // number of LLM turns completed so far
+	ToolCall        string // formatted current tool call, e.g. "Bash command: \"find...\""
+	LastAssistantMsg string // most recent assistant text snippet (first line)
 }
 
 func (SubAgentActivityEvent) isEvent() {}

@@ -70,12 +70,12 @@ func (m *Model) TasksForTest() []protocol.TodoItem {
 func (m *Model) RunningAgentsForTest() []RunningAgentSnapshot {
 	out := make([]RunningAgentSnapshot, len(m.runningAgents))
 	for i, a := range m.runningAgents {
-		acts := make([]string, len(a.Activities))
-		copy(acts, a.Activities)
 		out[i] = RunningAgentSnapshot{
 			ID:          a.ID,
 			Description: a.Description,
-			Activities:  acts,
+			Model:       a.Model,
+			ToolCall:    a.ToolCall,
+			LastMsg:     a.LastMsg,
 		}
 	}
 	return out
@@ -85,7 +85,9 @@ func (m *Model) RunningAgentsForTest() []RunningAgentSnapshot {
 type RunningAgentSnapshot struct {
 	ID          string
 	Description string
-	Activities  []string
+	Model       string
+	ToolCall    string
+	LastMsg     string
 }
 
 // SlashPopupActiveForTest reports whether the slash command popup is open.

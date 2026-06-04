@@ -437,7 +437,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.SubAgentStartedEvent:
 		m.upsertRunningAgent(e.ID, e.Description)
 	case protocol.SubAgentActivityEvent:
-		m.updateRunningAgentActivity(e.ID, e.Activity)
+		m.updateRunningAgentActivity(e)
 	case protocol.SubAgentCompletedEvent:
 		m.removeRunningAgent(e.ID)
 	case protocol.SubAgentFailedEvent:
@@ -640,7 +640,7 @@ func (m *Model) queuedListView() string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString("• ")
+		b.WriteString("○ ")
 		b.WriteString(msg)
 	}
 	return b.String()
@@ -1223,12 +1223,16 @@ func gitBranch(dir string) string {
 // ── Running Agent tracking ──────────────────────────────────────────────────
 
 type runningAgent struct {
-	ID          string
-	Description string
-	Activities  []string
+	ID               string
+	Description      string
+	Model            string
+	InputTokens      int
+	OutputTokens     int
+	CacheReadTokens  int
+	TurnCount        int
+	ToolCall         string
+	LastMsg          string
 }
-
-const maxAgentActivities = 5
 
 func (m *Model) upsertRunningAgent(id, description string) {
 	for i := range m.runningAgents {
@@ -1237,26 +1241,34 @@ func (m *Model) upsertRunningAgent(id, description string) {
 			return
 		}
 	}
-	m.runningAgents = append(m.runningAgents, runningAgent{ID: id, Description: description, Activities: []string{"running"}})
+	m.runningAgents = append(m.runningAgents, runningAgent{ID: id, Description: description})
 }
 
-func (m *Model) updateRunningAgentActivity(id, activity string) {
-	activity = strings.TrimSpace(activity)
-	if activity == "" {
-		return
-	}
+func (m *Model) updateRunningAgentActivity(e protocol.SubAgentActivityEvent) {
 	for i := range m.runningAgents {
-		if m.runningAgents[i].ID == id {
-			acts := m.runningAgents[i].Activities
-			// Skip if same as last activity (deduplicate consecutive)
-			if len(acts) > 0 && acts[len(acts)-1] == activity {
-				return
+		if m.runningAgents[i].ID == e.ID {
+			a := &m.runningAgents[i]
+			if e.Model != "" {
+				a.Model = e.Model
 			}
-			acts = append(acts, activity)
-			if len(acts) > maxAgentActivities {
-				acts = acts[len(acts)-maxAgentActivities:]
+			if e.InputTokens > 0 {
+				a.InputTokens = e.InputTokens
 			}
-			m.runningAgents[i].Activities = acts
+			if e.OutputTokens > 0 {
+				a.OutputTokens = e.OutputTokens
+			}
+			if e.CacheReadTokens > 0 {
+				a.CacheReadTokens = e.CacheReadTokens
+			}
+			if e.TurnCount > 0 {
+				a.TurnCount = e.TurnCount
+			}
+			if e.ToolCall != "" {
+				a.ToolCall = e.ToolCall
+			}
+			if e.LastAssistantMsg != "" {
+				a.LastMsg = e.LastAssistantMsg
+			}
 			return
 		}
 	}
@@ -1275,7 +1287,13 @@ func (m *Model) agentBarHeight() int {
 	if len(m.runningAgents) == 0 {
 		return 0
 	}
-	h := len(m.runningAgents) // one line per agent
+	h := 0
+	for _, a := range m.runningAgents {
+		h++ // main line
+		if a.LastMsg != "" {
+			h++ // assistant message line
+		}
+	}
 	h += (len(m.runningAgents) - 1) * 2 // blank line between agents
 	return h
 }
@@ -1284,6 +1302,7 @@ func (m *Model) agentBarView() string {
 	if len(m.runningAgents) == 0 {
 		return ""
 	}
+	dimmed := m.styles.Agent.Done
 	var b strings.Builder
 	for i, a := range m.runningAgents {
 		if i > 0 {
@@ -1294,8 +1313,40 @@ func (m *Model) agentBarView() string {
 		if m.statusFrame%4 >= 2 {
 			dot = "○"
 		}
+		// Line 1: ● [Agent] description  model | turn N | in XK out XK cache XK
 		label := m.styles.Agent.Label.Render(dot) + " " + m.styles.Agent.Label.Render("[Agent]") + " " + a.Description
+		var meta []string
+		if a.Model != "" {
+			meta = append(meta, a.Model)
+		}
+		if a.TurnCount > 0 {
+			meta = append(meta, fmt.Sprintf("turn %d", a.TurnCount))
+		}
+		if a.InputTokens > 0 || a.OutputTokens > 0 {
+			parts := []string{}
+			if a.InputTokens > 0 {
+				parts = append(parts, "in "+formatTokenK(a.InputTokens))
+			}
+			if a.OutputTokens > 0 {
+				parts = append(parts, "out "+formatTokenK(a.OutputTokens))
+			}
+			if a.CacheReadTokens > 0 {
+				parts = append(parts, "cache "+formatTokenK(a.CacheReadTokens))
+			}
+			meta = append(meta, strings.Join(parts, " "))
+		}
+		if len(meta) > 0 {
+			label += "  " + dimmed.Render(strings.Join(meta, " | "))
+		}
+		if a.ToolCall != "" {
+			label += "  " + dimmed.Render(a.ToolCall)
+		}
 		b.WriteString(label)
+		// Line 2: last assistant message
+		if a.LastMsg != "" {
+			b.WriteByte('\n')
+			b.WriteString("  " + dimmed.Render(a.LastMsg))
+		}
 	}
 	return b.String()
 }

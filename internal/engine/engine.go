@@ -339,9 +339,11 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 	e.mu.Unlock()
 
 	// If a different model is requested, route to the corresponding client.
+	subModel := e.modelName // default: same as parent
 	if cfg.Model != "" && modelClientFor != nil {
 		if subClient := modelClientFor(cfg.Model); subClient != nil {
 			client = subClient
+			subModel = cfg.Model
 		}
 	}
 
@@ -383,7 +385,7 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 	agentID := fmt.Sprintf("agent-%d", e.nextSubAgentID)
 	e.mu.Unlock()
 	activityCh := make(chan agent.Event, 64)
-	go e.forwardSubAgentActivity(agentID, activityCh)
+	go e.forwardSubAgentActivity(agentID, subModel, activityCh)
 
 	subAgentConfig := agent.SubAgentConfig{
 		Prompt:            cfg.Prompt,
@@ -445,14 +447,104 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 	}, nil
 }
 
-func (e *Engine) forwardSubAgentActivity(agentID string, ch <-chan agent.Event) {
+// subAgentState tracks per-agent info for the agent bar view.
+type subAgentState struct {
+	model           string
+	inputTokens     int
+	outputTokens    int
+	cacheReadTokens int
+	turnCount       int
+	toolCall        string
+	lastMsg         string
+	msgBuf          strings.Builder // accumulates assistant text for lastMsg
+}
+
+func (e *Engine) forwardSubAgentActivity(agentID, model string, ch <-chan agent.Event) {
 	toolLabels := map[string]string{}
+	st := &subAgentState{model: model}
+
 	for ev := range ch {
+		// Update structured state from the event.
+		st.updateFrom(ev, toolLabels)
+
 		activity := subAgentActivityText(ev, toolLabels)
-		if activity == "" {
+		if activity == "" && !st.hasUpdate(ev) {
 			continue
 		}
-		e.emitEvent(protocol.SubAgentActivityEvent{ID: agentID, Activity: activity})
+		e.emitEvent(protocol.SubAgentActivityEvent{
+			ID:               agentID,
+			Activity:         activity,
+			Model:            st.model,
+			InputTokens:      st.inputTokens,
+			OutputTokens:     st.outputTokens,
+			CacheReadTokens:  st.cacheReadTokens,
+			TurnCount:        st.turnCount,
+			ToolCall:         st.toolCall,
+			LastAssistantMsg: st.lastMsg,
+		})
+	}
+}
+
+// hasUpdate returns true for event types that carry structured data even if
+// the activity text is empty (e.g. StreamStarted carries model/tokens).
+func (st *subAgentState) hasUpdate(ev agent.Event) bool {
+	switch ev.(type) {
+	case agent.StreamStarted, agent.StreamCompleted:
+		return true
+	}
+	return false
+}
+
+func (st *subAgentState) updateFrom(ev agent.Event, toolLabels map[string]string) {
+	switch v := ev.(type) {
+	case agent.ModelRequestStarted:
+		st.turnCount++
+		st.msgBuf.Reset()
+		st.lastMsg = ""
+	case agent.StreamStarted:
+		if v.Model != "" {
+			st.model = v.Model
+		}
+		if v.InputTokens > 0 {
+			st.inputTokens = v.InputTokens
+		}
+		if v.CacheReadTokens > 0 {
+			st.cacheReadTokens = v.CacheReadTokens
+		}
+	case agent.StreamCompleted:
+		if v.InputTokens > 0 {
+			st.inputTokens = v.InputTokens
+		}
+		if v.OutputTokens > 0 {
+			st.outputTokens += v.OutputTokens
+		}
+		if v.CacheReadTokens > 0 {
+			st.cacheReadTokens = v.CacheReadTokens
+		}
+		// Finalize lastMsg from accumulated text.
+		text := strings.TrimSpace(st.msgBuf.String())
+		if text != "" {
+			// Take the first line as the snippet.
+			if idx := strings.IndexByte(text, '\n'); idx >= 0 {
+				text = text[:idx]
+			}
+			if len(text) > 120 {
+				text = text[:117] + "..."
+			}
+			st.lastMsg = text
+		}
+	case agent.AssistantDelta:
+		st.msgBuf.WriteString(v.Text)
+	case agent.ToolCallCompleted:
+		label := toolActivityLabel(v.Name, v.Input)
+		toolLabels[v.ID] = label
+		st.toolCall = label
+	case agent.ToolExecCompleted:
+		if !v.Result.IsError {
+			st.toolCall = v.Name + " done"
+		} else {
+			st.toolCall = v.Name + " failed"
+		}
 	}
 }
 
