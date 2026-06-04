@@ -305,11 +305,47 @@ func (h *Harness) LoadSession(id string) {
 // so reading state directly from the field initialised at construction
 // time would be stale. Always go through CurrentUI() in tests that
 // inspect post-Update state.
+//
+// IMPORTANT: methods on *ui.Model that read mutable component state
+// (textarea, viewport, etc.) race with the driver's Update goroutine.
+// Use Read() for those reads instead.
 func (h *Harness) CurrentUI() *ui.Model {
 	if m, ok := h.Drv.Model().(*ui.Model); ok {
 		return m
 	}
 	return h.UI
+}
+
+// Read invokes fn with the current *ui.Model while holding the driver's
+// lock, ensuring no concurrent Update mutates component state during
+// the read. Returns whatever fn returned.
+func (h *Harness) Read(fn func(*ui.Model)) {
+	h.Drv.WithModel(func(m tea.Model) {
+		if um, ok := m.(*ui.Model); ok {
+			fn(um)
+		}
+	})
+}
+
+// ReadString is a typed convenience for fn that returns a string.
+func (h *Harness) ReadString(fn func(*ui.Model) string) string {
+	var out string
+	h.Read(func(m *ui.Model) { out = fn(m) })
+	return out
+}
+
+// ReadBool is a typed convenience for fn that returns a bool.
+func (h *Harness) ReadBool(fn func(*ui.Model) bool) bool {
+	var out bool
+	h.Read(func(m *ui.Model) { out = fn(m) })
+	return out
+}
+
+// ReadStrings is a typed convenience for fn that returns a []string.
+func (h *Harness) ReadStrings(fn func(*ui.Model) []string) []string {
+	var out []string
+	h.Read(func(m *ui.Model) { out = fn(m) })
+	return out
 }
 
 // EventsSnapshot returns a copy of every event seen so far.
@@ -326,18 +362,22 @@ func (h *Harness) EventsSnapshot() []protocol.Event {
 // WaitForModal blocks until a modal of the given kind opens, or timeout.
 // Use kind values as documented on Model.ModalKindForTest.
 func (h *Harness) WaitForModal(kind string, timeout time.Duration) bool {
-	return h.Drv.WaitForModalKind(func() string { return h.CurrentUI().ModalKindForTest() }, kind, timeout)
+	return h.Drv.WaitForModalKind(func() string {
+		return h.ReadString(func(m *ui.Model) string { return m.ModalKindForTest() })
+	}, kind, timeout)
 }
 
 // WaitForBusy blocks until BusyForTest matches want, or timeout.
 func (h *Harness) WaitForBusy(want bool, timeout time.Duration) bool {
-	return h.Drv.WaitForBoolFn(func() bool { return h.CurrentUI().BusyForTest() }, want, timeout)
+	return h.Drv.WaitForBoolFn(func() bool {
+		return h.ReadBool(func(m *ui.Model) bool { return m.BusyForTest() })
+	}, want, timeout)
 }
 
 // WaitForReady blocks until status text becomes "Ready" (i.e. idle).
 func (h *Harness) WaitForReady(timeout time.Duration) bool {
 	return h.Drv.WaitForBoolFn(func() bool {
-		return h.CurrentUI().StatusForTest() == "Ready"
+		return h.ReadString(func(m *ui.Model) string { return m.StatusForTest() }) == "Ready"
 	}, true, timeout)
 }
 

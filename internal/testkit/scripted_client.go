@@ -38,6 +38,12 @@ type ScriptedTurn struct {
 	// when Text is used. Ignored when Events is set.
 	InputTokens  int
 	OutputTokens int
+
+	// Block is an optional gate. When non-nil, Stream() blocks until
+	// the channel receives a value or is closed before returning the
+	// (preconstructed) event stream. Tests use this to deterministically
+	// hold a turn open while exercising busy-state paths.
+	Block <-chan struct{}
 }
 
 // ScriptedClient is an agent.ModelClient that replays a list of
@@ -108,6 +114,9 @@ func (c *ScriptedClient) Stream(_ context.Context, messages []agent.Message, _ a
 	}
 	if turn.Err != nil {
 		return nil, turn.Err
+	}
+	if turn.Block != nil {
+		<-turn.Block
 	}
 
 	events := turn.Events

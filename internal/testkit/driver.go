@@ -42,14 +42,26 @@ func (d *Driver) Send(msg tea.Msg) {
 		return
 	}
 	d.mu.Lock()
-	closed := d.closed
-	d.mu.Unlock()
-	if closed {
+	if d.closed {
+		d.mu.Unlock()
 		return
 	}
+	// Hold the lock while sending so Close() cannot interleave.
+	defer d.mu.Unlock()
 	select {
 	case d.msgs <- msg:
 	case <-d.done:
+	default:
+		// Buffer full and not closed: spawn a goroutine to deliver
+		// without blocking under the lock. This should be rare (256
+		// slot buffer) and only happens when a cmd produces messages
+		// faster than the loop can consume them.
+		go func() {
+			select {
+			case d.msgs <- msg:
+			case <-d.done:
+			}
+		}()
 	}
 }
 
@@ -89,13 +101,27 @@ func (d *Driver) Model() tea.Model {
 	return d.model
 }
 
+// WithModel calls fn with the current model under the driver's lock,
+// preventing the loop from running an Update concurrently. Use this
+// when reading bubble component state (textarea, viewport) that may
+// be mutated mid-Update.
+func (d *Driver) WithModel(fn func(tea.Model)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	fn(d.model)
+}
+
 // Close stops the driver loop. Safe to call multiple times.
 func (d *Driver) Close() {
 	d.quitOnce.Do(func() {
 		d.mu.Lock()
+		if d.closed {
+			d.mu.Unlock()
+			return
+		}
 		d.closed = true
-		d.mu.Unlock()
 		close(d.msgs)
+		d.mu.Unlock()
 	})
 	// Wait for loop to exit, with a safety timeout so a stuck command
 	// goroutine never deadlocks the test runner.
@@ -110,7 +136,10 @@ func (d *Driver) Close() {
 func (d *Driver) loop() {
 	defer close(d.done)
 
-	d.runCmd(d.model.Init())
+	d.mu.Lock()
+	initCmd := d.model.Init()
+	d.mu.Unlock()
+	d.runCmd(initCmd)
 
 	for msg := range d.msgs {
 		if _, ok := msg.(tea.QuitMsg); ok {

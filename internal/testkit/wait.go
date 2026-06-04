@@ -2,6 +2,7 @@ package testkit
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -10,9 +11,16 @@ import (
 )
 
 // DefaultEventTimeout is the default ceiling for WaitForEvent /
-// WaitForCondition calls. Tests can override per-call via the timeout
-// argument when needed.
-const DefaultEventTimeout = 5 * time.Second
+// WaitForCondition calls. Override with the TESTKIT_TIMEOUT environment
+// variable (Go duration string, e.g. "30s") to slow CI runs.
+var DefaultEventTimeout = func() time.Duration {
+	if s := os.Getenv("TESTKIT_TIMEOUT"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil {
+			return d
+		}
+	}
+	return 5 * time.Second
+}()
 
 // WaitForEvent blocks until an event of type T satisfying pred has
 // been recorded by the harness, or until timeout elapses. It returns

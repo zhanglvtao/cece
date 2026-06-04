@@ -64,6 +64,13 @@ func CodeForKey(s string) rune {
 	case " ", "space":
 		return tea.KeySpace
 	}
+	// Modifier-prefixed single rune (e.g. "ctrl+c", "alt+x").
+	if i := strings.LastIndex(s, "+"); i >= 0 {
+		tail := s[i+1:]
+		if len([]rune(tail)) == 1 {
+			return []rune(tail)[0]
+		}
+	}
 	runes := []rune(s)
 	if len(runes) == 1 {
 		return runes[0]
