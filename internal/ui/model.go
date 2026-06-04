@@ -1280,7 +1280,7 @@ func (m *Model) agentBarHeight() int {
 	for _, a := range m.runningAgents {
 		h += 1 + len(a.Activities) // label + activity lines
 	}
-	h += len(m.runningAgents) - 1 // blank line between agents
+	h += (len(m.runningAgents) - 1) * 2 // blank line between agents
 	return h
 }
 
@@ -1291,9 +1291,9 @@ func (m *Model) agentBarView() string {
 	var b strings.Builder
 	for i, a := range m.runningAgents {
 		if i > 0 {
-			b.WriteByte('\n')
+			b.WriteString("\n\n")
 		}
-		label := m.styles.Agent.Label.Render(fmt.Sprintf("[Agent: %s]", a.Description))
+		label := m.styles.Agent.Label.Render("[Agent]") + " " + a.Description
 		b.WriteString(label)
 		b.WriteByte('\n')
 		for j, act := range a.Activities {

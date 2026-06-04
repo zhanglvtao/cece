@@ -447,7 +447,7 @@ func TestSubAgentRunBarTracksLifecycle(t *testing.T) {
 
 	m.applyEvent(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
 	view := stripAnsi(m.agentBarView())
-	if !strings.Contains(view, "[Agent: Exploring UI]\n■ running") {
+	if !strings.Contains(view, "[Agent] Exploring UI\n■ running") {
 		t.Fatalf("running sub-agent label/activity not rendered:\n%s", view)
 	}
 
