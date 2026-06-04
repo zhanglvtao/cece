@@ -44,6 +44,34 @@ type Eventer interface {
 	Events() <-chan protocol.Event
 }
 
+type layoutState struct {
+	modal      string
+	modalH     int
+	popup      string
+	popupH     int
+	filePopup  string
+	filePopupH int
+	taskBar    string
+	taskBarH   int
+	agentBar   string
+	agentBarH  int
+	queued     string
+	queuedH    int
+	headline   string
+	headlineH  int
+	inputH     int
+	statusH    int
+	viewportH  int
+	separatorH int
+}
+
+func renderedHeight(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
+}
+
 // Model is Cece's root Bubble Tea model. It intentionally keeps UI state small:
 // protocol events update the transcript, and protocol actions drive the runtime.
 type Model struct {
@@ -78,8 +106,8 @@ type Model struct {
 	sessions                session.Store
 	currentSessionID        string
 	currentSessionEphemeral bool
-	pendingQuit             bool // set on ctrl+c, quit after title generation completes
-	shouldQuit              bool // set by applyEvent when pendingQuit title is done
+	pendingQuit             bool      // set on ctrl+c, quit after title generation completes
+	shouldQuit              bool      // set by applyEvent when pendingQuit title is done
 	lastEmptyCtrlC          time.Time // timestamp of last ctrl+c when input was empty
 	skillStore              *skill.Store
 	queued                  []string
@@ -478,45 +506,38 @@ func eventPinsViewportToBottom(event protocol.Event) bool {
 func (m *Model) View() tea.View {
 	m.resize()
 	sep := m.styles.Status.Separator.Render(strings.Repeat("─", max(m.width, 0)))
+	ls := m.measureLayout()
 	sections := []string{m.viewport.View()}
-	modal := m.modalView()
-	if modal != "" {
+	if ls.modal != "" {
 		sections = append(sections, sep)
-		sections = append(sections, modal)
+		sections = append(sections, ls.modal)
 	}
-	// Task bar: show tasks above headline when active
-	taskBar := m.taskBarView()
-	agentBar := m.agentBarView()
-	headline := m.headlineView()
-	queued := m.queuedListView()
 	// Task bar: bordered block with label
-	if taskBar != "" {
+	if ls.taskBar != "" {
 		sections = append(sections, sep)
-		sections = append(sections, taskBar)
+		sections = append(sections, ls.taskBar)
 		sections = append(sections, sep)
-	} else if agentBar != "" || headline != "" || queued != "" {
-		sections = append(sections, sep)
-	}
-	if agentBar != "" {
-		sections = append(sections, agentBar)
+	} else if ls.agentBar != "" || ls.headline != "" || ls.queued != "" {
 		sections = append(sections, sep)
 	}
-	if queued != "" {
-		sections = append(sections, queued)
+	if ls.agentBar != "" {
+		sections = append(sections, ls.agentBar)
+		sections = append(sections, sep)
+	}
+	if ls.queued != "" {
+		sections = append(sections, ls.queued)
 		sections = append(sections, sep)
 	}
 	// headline (e.g. "Requesting") is always directly above input, no separator
-	if headline != "" {
-		sections = append(sections, headline)
+	if ls.headline != "" {
+		sections = append(sections, ls.headline)
 	}
 	// Popups must be directly above input box
-	popup := m.slashPopup.View(m.width)
-	if popup != "" {
-		sections = append(sections, popup)
+	if ls.popup != "" {
+		sections = append(sections, ls.popup)
 	}
-	filePopupView := m.filePopup.View(m.width)
-	if filePopupView != "" {
-		sections = append(sections, filePopupView)
+	if ls.filePopup != "" {
+		sections = append(sections, ls.filePopup)
 	}
 	sections = append(sections, m.inputView())
 	statusBarView := m.statusBar.Render(m.width)
@@ -532,43 +553,81 @@ func (m *Model) View() tea.View {
 	if m.modal.kind == modalQuestion && m.modal.textMode {
 		// Place cursor at the inline text input line inside the question modal.
 		cur := &tea.Cursor{}
-		// The input line is the last option line (before help line) in the modal.
-		// Modal layout: "Question X/Y\n{question}\n{options}\n{help}"
-		modalLines := strings.Count(modal, "\n") + 1
-		cur.Y = m.viewport.Height() + modalLines - 2      // -1 for 0-index, -1 for help line
+		cur.Y = m.viewport.Height() + ls.modalH - 1
 		cur.X = 6 + uniseg.StringWidth(m.modal.textInput) // "> [ ] " prefix (6 chars) + typed text display width
 		view.Cursor = cur
 	} else if cur := m.input.Cursor(); cur != nil {
-		rowsAboveInput := m.viewport.Height() // no header
-		if modal != "" {
-			rowsAboveInput += 1 + strings.Count(modal, "\n") + 1 // sep + modal
+		rowsAboveInput := m.viewport.Height()
+		if ls.modalH > 0 {
+			rowsAboveInput += 1 + ls.modalH
 		}
-		if popup != "" {
-			rowsAboveInput += strings.Count(popup, "\n") + 1
+		if ls.taskBarH > 0 {
+			rowsAboveInput += 1 + ls.taskBarH + 1
+		} else if ls.agentBarH > 0 || ls.headlineH > 0 || ls.queuedH > 0 {
+			rowsAboveInput++
 		}
-		if filePopupView != "" {
-			rowsAboveInput += strings.Count(filePopupView, "\n") + 1
+		if ls.agentBarH > 0 {
+			rowsAboveInput += ls.agentBarH + 1
 		}
-		if taskBar != "" {
-			rowsAboveInput += 1 + strings.Count(taskBar, "\n") + 1 + 1 // sep + taskBar + sep
-		} else if agentBar != "" || headline != "" || queued != "" {
-			rowsAboveInput++ // separator line
+		if ls.queuedH > 0 {
+			rowsAboveInput += ls.queuedH + 1
 		}
-		if agentBar != "" {
-			rowsAboveInput += strings.Count(agentBar, "\n") + 2 // agentBar + sep
+		if ls.headlineH > 0 {
+			rowsAboveInput += ls.headlineH
 		}
-		if headline != "" {
-			rowsAboveInput += strings.Count(headline, "\n") + 1 // headline, no sep
-		}
-		if queued != "" {
-			rowsAboveInput += strings.Count(queued, "\n") + 2 // queued + sep
-		}
+		rowsAboveInput += ls.popupH + ls.filePopupH
 		cur.Y += rowsAboveInput + m.styles.Input.Box.GetBorderTopSize() + m.styles.Input.Box.GetPaddingTop()
 		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft()
 		view.Cursor = cur
 	}
 
 	return view
+}
+
+func (m *Model) measureLayout() layoutState {
+	ls := layoutState{separatorH: 1}
+	ls.modal = m.modalView()
+	ls.modalH = renderedHeight(ls.modal)
+	ls.popup = m.slashPopup.View(m.width)
+	ls.popupH = renderedHeight(ls.popup)
+	ls.filePopup = m.filePopup.View(m.width)
+	ls.filePopupH = renderedHeight(ls.filePopup)
+	ls.taskBar = m.taskBarView()
+	ls.taskBarH = renderedHeight(ls.taskBar)
+	ls.agentBar = m.agentBarView()
+	ls.agentBarH = renderedHeight(ls.agentBar)
+	ls.queued = m.queuedListView()
+	ls.queuedH = renderedHeight(ls.queued)
+	ls.headline = m.headlineView()
+	ls.headlineH = renderedHeight(ls.headline)
+	ls.inputH = clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight) + m.styles.Input.Box.GetVerticalFrameSize()
+	ls.statusH = m.statusBar.Height()
+
+	chromeH := ls.inputH + ls.statusH
+	if ls.modalH > 0 {
+		chromeH += ls.separatorH + ls.modalH
+	}
+	if ls.taskBarH > 0 {
+		chromeH += ls.separatorH + ls.taskBarH + ls.separatorH
+	} else if ls.agentBarH > 0 || ls.headlineH > 0 || ls.queuedH > 0 {
+		chromeH += ls.separatorH
+	}
+	if ls.agentBarH > 0 {
+		chromeH += ls.agentBarH + ls.separatorH
+	}
+	if ls.queuedH > 0 {
+		chromeH += ls.queuedH + ls.separatorH
+	}
+	if ls.headlineH > 0 {
+		chromeH += ls.headlineH
+	}
+	chromeH += ls.popupH + ls.filePopupH
+
+	ls.viewportH = m.height - chromeH
+	if ls.viewportH < 3 {
+		ls.viewportH = 3
+	}
+	return ls
 }
 
 func (m *Model) resize() {
@@ -579,38 +638,19 @@ func (m *Model) resize() {
 	if m.height <= 0 {
 		m.height = 24
 	}
-	modalH := m.modalHeight()
-	popupH := 0
-	if m.slashPopup.Active() {
-		popupH = m.slashPopup.Height()
-	}
-	if m.filePopup.Active() {
-		popupH += m.filePopup.Height()
-	}
-	inputH := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
-	// Update scroll cell in statusbar before layout
 	if !m.viewport.AtBottom() {
 		m.statusBar.UpdateScroll(int(m.viewport.ScrollPercent() * 100))
 	} else {
 		m.statusBar.UpdateScroll(0)
 	}
-	statusH := m.statusBar.Height()
-	vFrame := m.styles.Input.Box.GetVerticalFrameSize()
+	ls := m.measureLayout()
+	viewportH := ls.viewportH
+	inputContentH := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
 	hFrame := m.styles.Input.Box.GetHorizontalFrameSize()
-	headlineH := 0
-	if m.status != "" {
-		headlineH = 2 // headline(1) + blank separator between viewport and headline(1)
-	}
-	taskBarH := m.taskBarHeight()
-	agentBarH := m.agentBarHeight()
-	viewportH := m.height - modalH - popupH - inputH - vFrame - statusH - headlineH - taskBarH - agentBarH
-	if viewportH < 3 {
-		viewportH = 3
-	}
 	m.viewport.SetWidth(m.width)
 	m.viewport.SetHeight(viewportH)
 	m.input.SetWidth(max(1, m.width-hFrame))
-	m.input.SetHeight(inputH)
+	m.input.SetHeight(inputContentH)
 	widthChanged := m.lastViewportWidth != m.width
 	if widthChanged || m.viewportDirty {
 		m.refreshViewport(wasAtBottom || m.viewportGotoBottom)
@@ -1223,15 +1263,15 @@ func gitBranch(dir string) string {
 // ── Running Agent tracking ──────────────────────────────────────────────────
 
 type runningAgent struct {
-	ID               string
-	Description      string
-	Model            string
-	InputTokens      int
-	OutputTokens     int
-	CacheReadTokens  int
-	TurnCount        int
-	ToolCall         string
-	LastMsg          string
+	ID              string
+	Description     string
+	Model           string
+	InputTokens     int
+	OutputTokens    int
+	CacheReadTokens int
+	TurnCount       int
+	ToolCall        string
+	LastMsg         string
 }
 
 func (m *Model) upsertRunningAgent(id, description string) {

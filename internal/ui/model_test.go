@@ -522,6 +522,63 @@ func TestInitOnlySubscribesEvents(t *testing.T) {
 	}
 }
 
+func viewLineCountForTest(m *Model) int {
+	content := stripAnsi(m.View().Content)
+	if content == "" {
+		return 0
+	}
+	return strings.Count(content, "\n") + 1
+}
+
+func TestViewLineCountStableWithQueuedInput(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 18})
+	m.queued = []string{"queued message"}
+
+	before := viewLineCountForTest(&m)
+	m.update(statusSpinnerTickMsg{})
+	after := viewLineCountForTest(&m)
+
+	if after != before {
+		t.Fatalf("view line count changed with queued input: before=%d after=%d", before, after)
+	}
+}
+
+func TestViewLineCountStableWithRunningAgent(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 18})
+	m.applyEvent(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
+
+	before := viewLineCountForTest(&m)
+	m.update(statusSpinnerTickMsg{})
+	after := viewLineCountForTest(&m)
+
+	if after != before {
+		t.Fatalf("view line count changed with running agent: before=%d after=%d", before, after)
+	}
+}
+
+func TestTaskBarHeightIncludesOverflowLine(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.tasks = []protocol.TodoItem{
+		{Content: "one", Status: "completed"},
+		{Content: "two", Status: "completed"},
+		{Content: "three", Status: "completed"},
+		{Content: "four", Status: "completed"},
+		{Content: "five", Status: "completed"},
+		{Content: "six", Status: "completed"},
+		{Content: "seven", Status: "pending"},
+	}
+
+	view := m.taskBarView()
+	got := m.taskBarHeight()
+	want := strings.Count(view, "\n") + 1
+	if got != want {
+		t.Fatalf("taskBarHeight() = %d, want rendered line count %d; view:\n%s", got, want, stripAnsi(view))
+	}
+}
+
 func keyMsg(s string) tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Text: textForKey(s), Code: codeForKey(s), Mod: modForKey(s)})
 }

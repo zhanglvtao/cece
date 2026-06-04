@@ -18,7 +18,7 @@ func (m *Model) taskBarHeight() int {
 	}
 	n := len(m.tasks)
 	if n > maxTaskBarLines {
-		n = maxTaskBarLines
+		return 1 + maxTaskBarLines + 1 // label + visible items + overflow
 	}
 	return 1 + n // label + items
 }
