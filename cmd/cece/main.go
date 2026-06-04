@@ -276,6 +276,12 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		return runtimeBundle{}, err
 	}
 
+	// Emit EngineReadyEvent so the TUI can sync contextWindow immediately.
+	bundle.Engine.EmitEvent(protocol.EngineReadyEvent{
+		Model:         cfg.Model,
+		ContextWindow: contextWindow,
+	})
+
 	return runtimeBundle{
 		mediator:      bundle.Mediator,
 		store:         bundle.Store,

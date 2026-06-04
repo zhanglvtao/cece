@@ -50,6 +50,7 @@ type Engine struct {
 	totalOutputTokens   int                                  // cumulative output tokens across turns
 	apiCalls            int                                  // cumulative API call count
 	toolCounts          map[string]int                       // cumulative tool execution counts
+	turnCount           int                                  // cumulative conversation turn count
 	cacheReadTokens     int                                  // cumulative cache read tokens
 	cacheCreationTokens int                                  // cumulative cache creation tokens
 	lastCompactTurn     int                                  // turn count at last compact/prune
@@ -819,6 +820,7 @@ func (e *Engine) statusBarSnapshotLocked() session.StatusBarSnapshot {
 		ToolCounts:          tc,
 		CacheReadTokens:     e.cacheReadTokens,
 		CacheCreationTokens: e.cacheCreationTokens,
+		TurnCount:           e.turnCount,
 	}
 }
 
@@ -837,6 +839,7 @@ func (e *Engine) SetStatusBarState(sb session.StatusBarSnapshot) {
 	}
 	e.cacheReadTokens = sb.CacheReadTokens
 	e.cacheCreationTokens = sb.CacheCreationTokens
+	e.turnCount = sb.TurnCount
 }
 
 // toolCountsSnapshot returns a copy of the tool counts map (thread-safe).
@@ -1168,6 +1171,9 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 			e.emitEvent(d)
 		}
 		sb := e.StatusBarSnapshot()
+		e.mu.Lock()
+		e.turnCount++
+		e.mu.Unlock()
 		e.emitEvent(protocol.TurnCompleted{
 			LastInputTokens:     e.lastInputTokens,
 			TotalInputTokens:    e.totalInputTokens,
@@ -1175,6 +1181,7 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 			CacheReadTokens:     sb.CacheReadTokens,
 			CacheCreationTokens: sb.CacheCreationTokens,
 			ContextWindow:       e.contextWindow,
+			TurnCount:           e.turnCount,
 		})
 	}()
 

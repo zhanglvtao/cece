@@ -56,6 +56,7 @@ var actionKinds = map[string]func() protocol.Action{
 }
 
 var eventKinds = map[string]func() protocol.Event{
+	"engine_ready":              func() protocol.Event { return &protocol.EngineReadyEvent{} },
 	"session_created":           func() protocol.Event { return &protocol.SessionCreated{} },
 	"user_message_added":        func() protocol.Event { return &protocol.UserMessageAdded{} },
 	"system_reminder_added":     func() protocol.Event { return &protocol.SystemReminderAdded{} },
@@ -254,6 +255,8 @@ func derefAction(a protocol.Action) protocol.Action {
 
 func derefEvent(ev protocol.Event) protocol.Event {
 	switch v := ev.(type) {
+	case *protocol.EngineReadyEvent:
+		return *v
 	case *protocol.SessionCreated:
 		return *v
 	case *protocol.UserMessageAdded:

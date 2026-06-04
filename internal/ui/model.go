@@ -278,6 +278,15 @@ func (m *Model) ApplyEventForTest(event protocol.Event) {
 func (m *Model) applyEvent(event protocol.Event) {
 	m.transcript.apply(event)
 	switch e := event.(type) {
+	case protocol.EngineReadyEvent:
+		if e.ContextWindow > 0 && e.ContextWindow != m.contextWindow {
+			logger.Info("UI: contextWindow synced from EngineReadyEvent", "old", m.contextWindow, "new", e.ContextWindow)
+			m.contextWindow = e.ContextWindow
+		}
+		if e.Model != "" {
+			m.modelName = e.Model
+			m.statusBar.UpdateModel(e.Model)
+		}
 	case protocol.SessionCreated:
 		m.currentSessionID = e.ID
 		m.currentSessionEphemeral = true
@@ -318,6 +327,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.busy = false
 		m.status = "Ready"
 		m.streamHeadline = ""
+		m.statusBar.IncrementTurnCount()
 		if e.ContextWindow > 0 && e.ContextWindow != m.contextWindow {
 			logger.Info("UI: contextWindow synced from TurnCompleted", "old", m.contextWindow, "new", e.ContextWindow)
 			m.contextWindow = e.ContextWindow

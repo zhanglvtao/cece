@@ -236,6 +236,7 @@ func (m *EngineMediator) loadSession(sessionID string) {
 		ToolCounts:          sb.ToolCounts,
 		CacheReadTokens:     sb.CacheReadTokens,
 		CacheCreationTokens: sb.CacheCreationTokens,
+		TurnCount:           sb.TurnCount,
 	})
 }
 

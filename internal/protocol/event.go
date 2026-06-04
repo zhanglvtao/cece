@@ -8,6 +8,15 @@ import (
 // Event is the sealed interface for all events emitted by the runtime.
 type Event interface{ isEvent() }
 
+// EngineReadyEvent is emitted once when the engine process starts,
+// carrying initial model info so the TUI can sync its state.
+type EngineReadyEvent struct {
+	Model         string
+	ContextWindow int
+}
+
+func (EngineReadyEvent) isEvent() {}
+
 // SessionCreated is emitted when a new session is auto-created on first input.
 type SessionCreated struct {
 	ID    string
@@ -112,10 +121,12 @@ func (StreamEventDetail) isEvent() {}
 
 // StreamCompleted is emitted when the SSE stream closes successfully.
 type StreamCompleted struct {
-	OutputTokens int
-	StopReason   string
-	Duration     time.Duration
-	ToolCalls    []string // tool names requested in this response
+	InputTokens     int
+	OutputTokens    int
+	CacheReadTokens int
+	StopReason      string
+	Duration        time.Duration
+	ToolCalls       []string // tool names requested in this response
 }
 
 func (StreamCompleted) isEvent() {}
