@@ -1126,7 +1126,8 @@ func (m *Model) queueInput(input string) {
 		actor.Do(protocol.QueueInputAction{Text: input})
 	}
 	m.queued = append(m.queued, input)
-	m.status = fmt.Sprintf("Queued (%d)", len(m.queued))
+	// Don't overwrite status — "Requesting"/"Streaming" must remain visible.
+	// The queued count is shown in the queued list view above the input.
 }
 
 // dequeueLast pops the last queued message back into the input for editing.
@@ -1136,11 +1137,6 @@ func (m *Model) dequeueLast() {
 	}
 	last := m.queued[len(m.queued)-1]
 	m.queued = m.queued[:len(m.queued)-1]
-	if len(m.queued) == 0 {
-		m.status = "Ready"
-	} else {
-		m.status = fmt.Sprintf("Queued (%d)", len(m.queued))
-	}
 	m.input.SetValue(last)
 	m.input.CursorEnd()
 	if actor, ok := m.sender.(Actor); ok {
