@@ -99,10 +99,14 @@ func serializeMessageExpanded(m agent.Message) []AidenMsg {
 			var msgs []AidenMsg
 			for _, cb := range m.ContentBlocks {
 				if tr, ok := cb.AsToolResult(); ok {
+					content := tr.Content
+					if content == "" {
+						content = " "
+					}
 					msgs = append(msgs, AidenMsg{
 						Role:       "tool",
 						ToolCallID: tr.ToolUseID,
-						Content:    tr.Content,
+						Content:    content,
 					})
 				}
 			}
@@ -212,6 +216,7 @@ func serializeMessage(m agent.Message) AidenMsg {
 	if content == "" {
 		content = m.TextContent()
 	}
+	// BUG: missing empty content protection
 	return AidenMsg{
 		Role:    string(m.Role),
 		Content: content,

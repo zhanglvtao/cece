@@ -295,6 +295,103 @@ func TestSerializeAssistantToolOnlyKeepsEmptyContent(t *testing.T) {
 	}
 }
 
+// TestSerializeEmptyUserContentPreservesField reproduces the bug where a user
+// message with empty Content and no text ContentBlocks would serialize without
+// a "content" field (due to omitempty), causing aiden API to return 400:
+// "The content field is a required field."
+func TestSerializeEmptyUserContentPreservesField(t *testing.T) {
+	msgs := []agent.Message{
+		{
+			Role: agent.UserRole,
+			// Content is empty, ContentBlocks has no text type — TextContent() returns ""
+			ContentBlocks: []agent.ApiContentBlock{
+				{
+					Type: agent.ApiToolResultContentType,
+					ToolResult: &agent.ApiToolResultBlock{
+						ToolUseID: "call_1",
+						Content:   "", // empty tool result
+					},
+				},
+			},
+		},
+	}
+
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+
+	// The key check: JSON must contain "content" field even when empty
+	data, err := json.Marshal(result[0])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if _, ok := parsed["content"]; !ok {
+		t.Fatalf("BUG REPRODUCED: 'content' field missing from JSON: %s", string(data))
+	}
+	content, ok := parsed["content"].(string)
+	if !ok {
+		t.Fatalf("expected content string, got %T", parsed["content"])
+	}
+	if content == "" {
+		t.Fatalf("BUG REPRODUCED: content is empty string, will be omitted by omitempty: %s", string(data))
+	}
+	t.Logf("content preserved as: %q (JSON: %s)", content, string(data))
+}
+
+// TestSerializeEmptyToolResultContentPreservesField reproduces the bug where
+// a tool message with empty Content would serialize without a "content" field.
+func TestSerializeEmptyToolResultContentPreservesField(t *testing.T) {
+	msgs := []agent.Message{
+		{
+			Role: agent.UserRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{
+					Type: agent.ApiToolResultContentType,
+					ToolResult: &agent.ApiToolResultBlock{
+						ToolUseID: "call_1",
+						Content:   "", // empty — triggers the bug
+					},
+				},
+			},
+		},
+	}
+
+	result := SerializeMessages(msgs, agent.SystemPrompt{})
+	// Tool result messages get expanded to role="tool"
+	if len(result) != 1 {
+		t.Fatalf("expected 1 tool message, got %d", len(result))
+	}
+	if result[0].Role != "tool" {
+		t.Fatalf("expected role 'tool', got %q", result[0].Role)
+	}
+
+	data, err := json.Marshal(result[0])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if _, ok := parsed["content"]; !ok {
+		t.Fatalf("BUG REPRODUCED: 'content' field missing from tool message JSON: %s", string(data))
+	}
+	content, _ := parsed["content"].(string)
+	if content == "" {
+		t.Fatalf("BUG REPRODUCED: tool content is empty string: %s", string(data))
+	}
+	t.Logf("tool message content preserved as: %q (JSON: %s)", content, string(data))
+}
+
 func TestSerializeJSONRoundTrip(t *testing.T) {
 	msgs := []agent.Message{
 		{Role: agent.UserRole, Content: "hi"},

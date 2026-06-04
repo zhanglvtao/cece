@@ -136,8 +136,12 @@ func (m *EngineMediator) Do(action protocol.Action) {
 
 func (m *EngineMediator) switchModel(a protocol.SwitchModelAction) {
 	client := m.createClientFn(a.Protocol, a.APIKey, a.Model, a.BaseURL, a.AuthMode, a.AuthHelper, a.ConfigName)
-	maxCw := a.MaxContextWindow
-	slog.Info("switchModel: received MaxContextWindow", "model", a.Model, "maxCw", maxCw)
+
+	// Query API for real context window, fall back to action value → config → default.
+	maxCw := discoverCtxFromClient(context.Background(), client, a.Model)
+	if maxCw <= 0 {
+		maxCw = a.MaxContextWindow
+	}
 	if maxCw <= 0 {
 		if m.ContextWindowFor != nil {
 			maxCw = m.ContextWindowFor(a.Model)
@@ -151,6 +155,29 @@ func (m *EngineMediator) switchModel(a protocol.SwitchModelAction) {
 	m.Engine.SetModelInfo(a.Model, maxCw)
 	m.Engine.ResetModelInfo(a.Model, maxCw, a.Protocol, a.ConfigName)
 	slog.Info("model switched", "model", a.Model, "max_context", maxCw)
+}
+
+// discoverCtxFromClient queries the model client for the real context window via API.
+func discoverCtxFromClient(ctx context.Context, client agent.ModelClient, model string) int {
+	if lister, ok := client.(interface {
+		GetModelInfo(context.Context) (agent.ModelInfo, error)
+	}); ok {
+		if info, err := lister.GetModelInfo(ctx); err == nil && info.MaxContextWindow > 0 {
+			return info.MaxContextWindow
+		}
+	}
+	if lister, ok := client.(interface {
+		ListModels(context.Context) ([]agent.ModelInfo, error)
+	}); ok {
+		if models, err := lister.ListModels(ctx); err == nil {
+			for _, m := range models {
+				if m.ID == model && m.MaxContextWindow > 0 {
+					return m.MaxContextWindow
+				}
+			}
+		}
+	}
+	return 0
 }
 
 func (m *EngineMediator) loadSession(sessionID string) {
