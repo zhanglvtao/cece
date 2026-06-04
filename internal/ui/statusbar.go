@@ -7,6 +7,7 @@ import (
 
 	"cece/internal/logger"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -182,7 +183,7 @@ func (sb *StatusBar) Render(width int) string {
 		}
 		sort.Strings(names)
 		for _, n := range names {
-			line2Parts = append(line2Parts, sb.styles.Status.Tool.Render(fmt.Sprintf("%s×%d", shortToolName(n), sb.toolCounts[n])))
+			line2Parts = append(line2Parts, toolStyle(n, sb.styles).Render(fmt.Sprintf("%s×%d", shortToolName(n), sb.toolCounts[n])))
 		}
 	}
 
@@ -198,26 +199,67 @@ func (sb *StatusBar) Render(width int) string {
 			l2 = ansi.Truncate(l2, width, "")
 		}
 		lines = append(lines, l2)
+	} else {
+		// Always emit a second line so Render output matches Height() = 2.
+		// This prevents frame-height changes that cause full-screen redraws.
+		lines = append(lines, "")
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-// Height returns the number of lines the status bar occupies (1 or 2).
+// Height returns the number of lines the status bar occupies.
+// Always returns 2 to avoid layout jumps between 1 and 2 lines
+// which causes full-screen redraws (flickering) in inline mode.
 func (sb *StatusBar) Height() int {
-	if sb.turnCount > 0 || sb.apiCalls > 0 || len(sb.toolCounts) > 0 {
-		return 2
-	}
-	return 1
+	return 2
 }
 
 // shortToolName returns a compact display name for the status bar.
 var toolShortNames = map[string]string{
-	"EnterPlanMode":  "Plan",
-	"ExitPlanMode":   "Unplan",
+	"EnterPlanMode":   "Plan",
+	"ExitPlanMode":    "Unplan",
 	"AskUserQuestion": "Ask",
-	"WebFetch":       "Web",
-	"Compact":        "Cmpct",
+	"WebFetch":        "Web",
+	"Compact":         "Cmpct",
+}
+
+// toolCategory classifies a tool name for color-coding.
+type toolCategory int
+
+const (
+	toolCatDefault toolCategory = iota
+	toolCatCtx     // context compression
+	toolCatAgent   // sub-agent
+	toolCatPlan    // plan/unplan
+)
+
+var toolCategories = map[string]toolCategory{
+	"Compact":           toolCatCtx,
+	"TruncateToolResults": toolCatCtx,
+	"PrunedEvent":       toolCatCtx,
+	"Agent":             toolCatAgent,
+	"EnterPlanMode":     toolCatPlan,
+	"ExitPlanMode":      toolCatPlan,
+}
+
+func toolStyle(name string, s Styles) lipgloss.Style {
+	cat := toolCatDefault
+	if c, ok := toolCategories[name]; ok {
+		cat = c
+	} else if strings.HasPrefix(name, "mcp_") {
+		// MCP tools keep default style
+	}
+	switch cat {
+	case toolCatCtx:
+		return s.Status.ToolCtx
+	case toolCatAgent:
+		return s.Status.ToolAgent
+	case toolCatPlan:
+		return s.Status.ToolPlan
+	default:
+		return s.Status.Tool
+	}
 }
 
 func shortToolName(name string) string {

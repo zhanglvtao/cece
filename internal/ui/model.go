@@ -85,6 +85,9 @@ type Model struct {
 	queued                  []string
 	history                 []string
 	historyIndex            int
+	viewportDirty           bool // true when transcript content changed, cleared after refresh
+	viewportGotoBottom      bool // when dirty, whether to pin viewport to bottom
+	lastViewportWidth       int  // track width changes for refresh
 }
 
 func NewModel(sender Sender, modelName string, projectDir string, contextWindow ...int) Model {
@@ -207,14 +210,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		m.styles = DefaultStyles()
 		invalidateMarkdownCache()
-		m.refreshViewport(false)
+		m.viewportDirty = true
 		return m, nil
 	case inputErrorMsg:
 		m.busy = false
 		errMsg := appendErrorContext(msg.err.Error())
 		m.status = msg.err.Error()
 		m.transcript.appendDone(blockError, "error", errMsg)
-		m.refreshViewport(true)
+		m.viewportDirty = true
 		return m, nil
 	case statusSpinnerTickMsg:
 		if !m.statusShowsSpinner() && !m.hasInProgressTask() && len(m.runningAgents) == 0 {
@@ -450,7 +453,8 @@ func (m *Model) applyEvent(event protocol.Event) {
 	}
 	m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
 	m.statusBar.UpdateCache(m.transcript.cacheReadTokens, m.transcript.cacheCreationTokens)
-	m.refreshViewport(eventPinsViewportToBottom(event))
+	m.refreshViewport(m.viewportGotoBottom || eventPinsViewportToBottom(event))
+	m.viewportGotoBottom = false
 }
 
 // errorStatus prefixes a status message with the current session ID.
@@ -604,7 +608,13 @@ func (m *Model) resize() {
 	m.viewport.SetHeight(viewportH)
 	m.input.SetWidth(max(1, m.width-hFrame))
 	m.input.SetHeight(inputH)
-	m.refreshViewport(wasAtBottom)
+	widthChanged := m.lastViewportWidth != m.width
+	if widthChanged || m.viewportDirty {
+		m.refreshViewport(wasAtBottom || m.viewportGotoBottom)
+		m.viewportDirty = false
+		m.viewportGotoBottom = false
+		m.lastViewportWidth = m.width
+	}
 }
 
 func (m *Model) refreshViewport(gotoBottom bool) {
@@ -634,7 +644,11 @@ func (m *Model) queuedListView() string {
 }
 
 func (m *Model) inputView() string {
-	return m.styles.Input.Box.Width(m.width).Render(m.input.View())
+	h := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
+	return m.styles.Input.Box.
+		Width(m.width).
+		Height(h + m.styles.Input.Box.GetVerticalFrameSize()).
+		Render(m.input.View())
 }
 
 // headlineView renders a one-line indicator above the input box.
