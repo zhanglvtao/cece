@@ -118,7 +118,7 @@ func runTUI(projectDir string) int {
 	}
 	defer client.Close()
 
-	model := ui.NewModel(client, meta.model, projectDir, meta.contextWindow)
+	model := ui.NewModel(client, meta.model, projectDir)
 	model.SetDefaultMode(meta.defaultMode)
 	model.SetSessions(session.NewFileStore(projectDir))
 	model.SetSkillStore(skill.NewStore(skill.DiscoverAll(projectDir)))
