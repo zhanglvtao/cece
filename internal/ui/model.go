@@ -1176,8 +1176,10 @@ func gitBranch(dir string) string {
 type runningAgent struct {
 	ID          string
 	Description string
-	Activity    string
+	Activities  []string
 }
+
+const maxAgentActivities = 5
 
 func (m *Model) upsertRunningAgent(id, description string) {
 	for i := range m.runningAgents {
@@ -1186,7 +1188,7 @@ func (m *Model) upsertRunningAgent(id, description string) {
 			return
 		}
 	}
-	m.runningAgents = append(m.runningAgents, runningAgent{ID: id, Description: description, Activity: "running"})
+	m.runningAgents = append(m.runningAgents, runningAgent{ID: id, Description: description, Activities: []string{"running"}})
 }
 
 func (m *Model) updateRunningAgentActivity(id, activity string) {
@@ -1196,7 +1198,16 @@ func (m *Model) updateRunningAgentActivity(id, activity string) {
 	}
 	for i := range m.runningAgents {
 		if m.runningAgents[i].ID == id {
-			m.runningAgents[i].Activity = activity
+			acts := m.runningAgents[i].Activities
+			// Skip if same as last activity (deduplicate consecutive)
+			if len(acts) > 0 && acts[len(acts)-1] == activity {
+				return
+			}
+			acts = append(acts, activity)
+			if len(acts) > maxAgentActivities {
+				acts = acts[len(acts)-maxAgentActivities:]
+			}
+			m.runningAgents[i].Activities = acts
 			return
 		}
 	}
@@ -1212,7 +1223,15 @@ func (m *Model) removeRunningAgent(id string) {
 }
 
 func (m *Model) agentBarHeight() int {
-	return len(m.runningAgents) * 2
+	if len(m.runningAgents) == 0 {
+		return 0
+	}
+	h := 0
+	for _, a := range m.runningAgents {
+		h += 1 + len(a.Activities) // label + activity lines
+	}
+	h += len(m.runningAgents) - 1 // blank line between agents
+	return h
 }
 
 func (m *Model) agentBarView() string {
@@ -1220,21 +1239,30 @@ func (m *Model) agentBarView() string {
 		return ""
 	}
 	var b strings.Builder
-	for _, a := range m.runningAgents {
-		icon := "■" // solid square, blinks via statusFrame
-		if m.statusFrame%4 >= 2 {
-			icon = "□" // hollow square for blink effect
+	for i, a := range m.runningAgents {
+		if i > 0 {
+			b.WriteByte('\n')
 		}
 		label := m.styles.Agent.Label.Render(fmt.Sprintf("[Agent: %s]", a.Description))
-		activity := a.Activity
-		if activity == "" {
-			activity = "running"
-		}
-		line := fmt.Sprintf("%s %s", icon, activity)
 		b.WriteString(label)
 		b.WriteByte('\n')
-		b.WriteString(m.styles.Agent.Running.Render(line))
-		b.WriteByte('\n')
+		for j, act := range a.Activities {
+			isLatest := j == len(a.Activities)-1
+			if isLatest {
+				icon := "■"
+				if m.statusFrame%4 >= 2 {
+					icon = "□"
+				}
+				line := fmt.Sprintf("%s %s", icon, act)
+				b.WriteString(m.styles.Agent.Running.Render(line))
+			} else {
+				line := fmt.Sprintf("· %s", act)
+				b.WriteString(m.styles.Agent.Done.Render(line))
+			}
+			if j < len(a.Activities)-1 {
+				b.WriteByte('\n')
+			}
+		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return b.String()
 }
