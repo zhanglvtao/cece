@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"sync"
@@ -57,25 +56,6 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 	}
 	return NewWithPipes(ctx, stdin, stdout, cmd.Wait), nil
 }
-
-// NewSocket connects to an engine listening on a Unix socket.
-// The engine must have been started with --socket <path>.
-func NewSocket(ctx context.Context, socketPath string) (*Client, error) {
-	d := net.Dialer{}
-	conn, err := d.DialContext(ctx, "unix", socketPath)
-	if err != nil {
-		return nil, fmt.Errorf("dial engine socket %s: %w", socketPath, err)
-	}
-	return NewWithPipes(ctx, &socketWriter{conn: conn}, conn, conn.Close), nil
-}
-
-// socketWriter wraps a net.Conn to satisfy io.WriteCloser.
-type socketWriter struct {
-	conn net.Conn
-}
-
-func (w *socketWriter) Write(p []byte) (int, error) { return w.conn.Write(p) }
-func (w *socketWriter) Close() error                { return w.conn.Close() }
 
 func NewWithPipes(ctx context.Context, stdin io.WriteCloser, stdout io.Reader, wait func() error) *Client {
 	c := &Client{stdin: stdin, events: make(chan protocol.Event, 4096), wait: wait}
