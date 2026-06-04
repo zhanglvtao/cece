@@ -54,7 +54,6 @@ type Engine struct {
 	cacheReadTokens     int                                  // cumulative cache read tokens
 	cacheCreationTokens int                                  // cumulative cache creation tokens
 	lastCompactTurn     int                                  // turn count at last compact/prune
-	lastNudgeTurn       int                                  // turn count at last nudge injection
 	inputQueue          *userInputQueue                      // queued user inputs while agent is busy
 	nextSubAgentID      int                                  // monotonic ID for sub-agent lifecycle events
 	questionAnswers     []tool.QuestionAnswer
@@ -225,7 +224,6 @@ func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int,
 	e.history = newHistory
 	sessionID := e.sessionID
 	e.lastCompactTurn = len(agent.TurnBoundaries(newHistory))
-	e.lastNudgeTurn = e.lastCompactTurn
 	e.mu.Unlock()
 
 	if sessionID != "" {
@@ -308,7 +306,6 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	e.history = newHistory
 	sessionID := e.sessionID
 	e.lastCompactTurn = len(agent.TurnBoundaries(newHistory))
-	e.lastNudgeTurn = e.lastCompactTurn
 	e.mu.Unlock()
 
 	if sessionID != "" {
@@ -657,26 +654,21 @@ func (e *Engine) SetTokenState(lastInput, totalInput, totalOutput int) {
 
 // ── Context Nudge ─────────────────────────────────────────────────────────
 
-const (
-	nudgeTurnThreshold       = 20 // turns since last compact before first nudge
-	nudgeTurnInterval        = 10 // turns between subsequent nudges
-	nudgeContextPctThreshold = 60 // minimum context % used to trigger nudge
-)
+const nudgeContextPctThreshold = 60 // minimum context % used to trigger nudge
 
 // shouldNudge checks whether a context-pressure nudge should be injected.
 // Returns (shouldNudge, turnsSinceCompact, contextPct, contextWindow).
+// Only contextPct >= nudgeContextPctThreshold triggers the nudge.
 func (e *Engine) shouldNudge() (bool, int, int, int) {
 	e.mu.Lock()
 	history := e.history
 	lastCompactTurn := e.lastCompactTurn
-	lastNudgeTurn := e.lastNudgeTurn
 	lastInputTokens := e.lastInputTokens
 	contextWindow := e.contextWindow
 	e.mu.Unlock()
 
 	totalTurns := len(agent.TurnBoundaries(history))
 	turnsSinceCompact := totalTurns - lastCompactTurn
-	turnsSinceNudge := totalTurns - lastNudgeTurn
 	contextPct := 0
 	if contextWindow > 0 {
 		contextPct = lastInputTokens * 100 / contextWindow
@@ -692,17 +684,6 @@ func (e *Engine) shouldNudge() (bool, int, int, int) {
 		return false, turnsSinceCompact, contextPct, contextWindow
 	}
 
-	// Both conditions must be met: enough turns since compact AND high context usage.
-	if turnsSinceCompact < nudgeTurnThreshold {
-		slog.Debug("nudge check: not enough turns since compact",
-			"turnsSinceCompact", turnsSinceCompact,
-			"threshold", nudgeTurnThreshold,
-			"contextPct", contextPct,
-			"lastInputTokens", lastInputTokens,
-			"contextWindow", contextWindow,
-		)
-		return false, turnsSinceCompact, contextPct, contextWindow
-	}
 	if contextPct < nudgeContextPctThreshold {
 		slog.Debug("nudge check: context usage too low",
 			"contextPct", contextPct,
@@ -713,21 +694,10 @@ func (e *Engine) shouldNudge() (bool, int, int, int) {
 		)
 		return false, turnsSinceCompact, contextPct, contextWindow
 	}
-	// Rate-limit: must accumulate enough turns since last nudge.
-	if turnsSinceNudge < nudgeTurnInterval {
-		slog.Debug("nudge check: rate limited",
-			"turnsSinceNudge", turnsSinceNudge,
-			"interval", nudgeTurnInterval,
-			"contextPct", contextPct,
-			"turnsSinceCompact", turnsSinceCompact,
-		)
-		return false, turnsSinceCompact, contextPct, contextWindow
-	}
 
 	slog.Info("nudge triggered",
 		"contextPct", contextPct,
 		"turnsSinceCompact", turnsSinceCompact,
-		"turnsSinceNudge", turnsSinceNudge,
 		"lastInputTokens", lastInputTokens,
 		"contextWindow", contextWindow,
 		"totalTurns", totalTurns,
@@ -746,10 +716,6 @@ func (e *Engine) injectNudge(snapshot []agent.Message, turnsSinceCompact, contex
 	)
 	slog.Info("injecting context nudge into snapshot", "contextPct", contextPct, "usedK", usedK, "windowK", windowK, "turnsSinceCompact", turnsSinceCompact)
 	snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: nudgeText})
-
-	e.mu.Lock()
-	e.lastNudgeTurn = len(agent.TurnBoundaries(e.history))
-	e.mu.Unlock()
 
 	return snapshot
 }
@@ -775,11 +741,6 @@ func (e *Engine) DrainNudgeReminder() string {
 		"<system-reminder>\nContext pressure: %d%% used (%dK/%dK), %d turns since last compact.\nConsider using Compact, TrimToolResults, or Prune to free context.\n</system-reminder>",
 		pct, usedK, windowK, turns,
 	)
-	// Update nudge tracking state.
-	e.mu.Lock()
-	e.lastNudgeTurn = len(agent.TurnBoundaries(e.history))
-	e.mu.Unlock()
-
 	slog.Info("injecting context nudge in agentic loop", "contextPct", pct, "usedK", usedK, "windowK", windowK, "turnsSinceCompact", turns)
 	return nudge
 }
@@ -1281,11 +1242,9 @@ func (q *userInputQueue) PopLast() (string, bool) {
 
 // SetNudgeStateForTest sets internal state to trigger context nudge.
 // For testing only.
-func (e *Engine) SetNudgeStateForTest(lastCompactTurn, lastNudgeTurn, lastInputTokens int) {
+func (e *Engine) SetNudgeStateForTest(lastInputTokens int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.lastCompactTurn = lastCompactTurn
-	e.lastNudgeTurn = lastNudgeTurn
 	e.lastInputTokens = lastInputTokens
 }
 
