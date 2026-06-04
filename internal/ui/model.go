@@ -1291,7 +1291,7 @@ func (m *Model) agentBarView() string {
 		if m.statusFrame%4 >= 2 {
 			dot = "○"
 		}
-		label := m.styles.Agent.Label.Render("["+dot+" Agent]") + " " + a.Description
+		label := dot + " " + m.styles.Agent.Label.Render("[Agent]") + " " + a.Description
 		b.WriteString(label)
 	}
 	return b.String()
