@@ -447,24 +447,24 @@ func TestSubAgentRunBarTracksLifecycle(t *testing.T) {
 
 	m.applyEvent(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
 	view := stripAnsi(m.agentBarView())
-	if !strings.Contains(view, "[Agent] Exploring UI\n■ running") {
-		t.Fatalf("running sub-agent label/activity not rendered:\n%s", view)
-	}
-
-	m.applyEvent(protocol.SubAgentActivityEvent{ID: "agent-1", Activity: "Read /tmp/file.go"})
-	view = stripAnsi(m.agentBarView())
-	if !strings.Contains(view, "· running\n■ Read /tmp/file.go") {
-		t.Fatalf("running sub-agent activity history not rendered:\n%s", view)
+	if !strings.Contains(view, "Agent] Exploring UI") {
+		t.Fatalf("running sub-agent label not rendered:\n%s", view)
 	}
 	if strings.Contains(m.status, "Exploring UI") {
 		t.Fatalf("sub-agent start/activity should not duplicate in status: %q", m.status)
 	}
 
-	// Third activity: should show 3 activity lines
+	// Activity updates: agent bar still just shows the label line
+	m.applyEvent(protocol.SubAgentActivityEvent{ID: "agent-1", Activity: "Read /tmp/file.go"})
+	view = stripAnsi(m.agentBarView())
+	if !strings.Contains(view, "Agent] Exploring UI") {
+		t.Fatalf("running sub-agent still rendered after activity:\n%s", view)
+	}
+
 	m.applyEvent(protocol.SubAgentActivityEvent{ID: "agent-1", Activity: "Edit /tmp/file.go"})
 	view = stripAnsi(m.agentBarView())
-	if !strings.Contains(view, "· running\n· Read /tmp/file.go\n■ Edit /tmp/file.go") {
-		t.Fatalf("running sub-agent full activity history not rendered:\n%s", view)
+	if !strings.Contains(view, "Agent] Exploring UI") {
+		t.Fatalf("running sub-agent still rendered after 2nd activity:\n%s", view)
 	}
 
 	m.applyEvent(protocol.SubAgentCompletedEvent{ID: "agent-1", Description: "Exploring UI"})

@@ -1272,10 +1272,7 @@ func (m *Model) agentBarHeight() int {
 	if len(m.runningAgents) == 0 {
 		return 0
 	}
-	h := 0
-	for _, a := range m.runningAgents {
-		h += 1 + len(a.Activities) // label + activity lines
-	}
+	h := len(m.runningAgents) // one line per agent
 	h += (len(m.runningAgents) - 1) * 2 // blank line between agents
 	return h
 }
@@ -1289,26 +1286,13 @@ func (m *Model) agentBarView() string {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
-		label := m.styles.Agent.Label.Render("[Agent]") + " " + a.Description
-		b.WriteString(label)
-		b.WriteByte('\n')
-		for j, act := range a.Activities {
-			isLatest := j == len(a.Activities)-1
-			if isLatest {
-				icon := "■"
-				if m.statusFrame%4 >= 2 {
-					icon = "□"
-				}
-				line := fmt.Sprintf("%s %s", icon, act)
-				b.WriteString(m.styles.Agent.Running.Render(line))
-			} else {
-				line := fmt.Sprintf("· %s", act)
-				b.WriteString(m.styles.Agent.Done.Render(line))
-			}
-			if j < len(a.Activities)-1 {
-				b.WriteByte('\n')
-			}
+		// Blinking spinner dot: ● / ○
+		dot := "●"
+		if m.statusFrame%4 >= 2 {
+			dot = "○"
 		}
+		label := m.styles.Agent.Label.Render("["+dot+" Agent]") + " " + a.Description
+		b.WriteString(label)
 	}
 	return b.String()
 }
