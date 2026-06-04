@@ -6,6 +6,7 @@ import (
 
 	"cece/internal/logger"
 	"cece/internal/protocol"
+	"cece/internal/ui/theme"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -29,6 +30,7 @@ type transcriptBlock struct {
 	text     string
 	done     bool
 	err      bool
+	quietOk  bool   // quiet tool completed successfully — render inline ✓
 	toolName string // set for blockTool, used for quiet-tool suppression
 }
 
@@ -228,7 +230,7 @@ func (t *transcript) apply(event protocol.Event) {
 				t.blocks[idx].text = "error: " + summarizeText(e.Result.Content, toolPreviewBytes, toolPreviewMaxLines)
 				t.blocks[idx].err = true
 			} else {
-				t.blocks[idx].text = "ok"
+				t.blocks[idx].quietOk = true
 			}
 			t.blocks[idx].done = true
 			break
@@ -335,7 +337,7 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 					name = toolNames[b.ToolResult.ToolUseID]
 				}
 				if isQuietTool(name) {
-					text := "ok"
+					text := ""
 					if b.ToolResult.IsError {
 						text = "error: " + summarizeText(b.ToolResult.Content, toolPreviewBytes, toolPreviewMaxLines)
 					}
@@ -343,6 +345,8 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 					t.blocks[blk].toolName = name
 					if b.ToolResult.IsError {
 						t.blocks[blk].err = true
+					} else {
+						t.blocks[blk].quietOk = true
 					}
 				} else {
 					t.appendDone(blockTool, "tool result", summarizeText(b.ToolResult.Content, toolPreviewBytes, diffAwareMaxLines(b.ToolResult.Content)))
@@ -436,6 +440,10 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	}
 	lbl := labelStyleForKind(block.kind, sty)
 	if text == "" {
+		if block.quietOk {
+			check := lipgloss.NewStyle().Foreground(theme.Green).Render("✓")
+			return lbl.Render("["+label+"]") + " " + check
+		}
 		return lbl.Render("[" + label + "]")
 	}
 	// Markdown-rendered blocks: plan and completed assistant messages.

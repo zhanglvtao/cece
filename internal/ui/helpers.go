@@ -43,7 +43,7 @@ func renderDiffText(s string) string {
 
 // isQuietTool returns true for tools whose output should not be displayed in the UI.
 func isQuietTool(name string) bool {
-	return name == "Read"
+	return name == "Read" || name == "Grep" || name == "Glob"
 }
 
 // isDiffTool returns true for tools whose output is unified diff format.
@@ -89,24 +89,30 @@ func formatJSONPreview(raw json.RawMessage) string {
 }
 
 // formatToolTitleKVs formats a tool call's input as a single-line KV string
-// for display in the block title, e.g. "tool: Edit path: /foo old_string: \"bar\"".
+// for display in the block title, e.g. "Edit path: /foo old_string: \"bar\"".
 func formatToolTitleKVs(name string, raw json.RawMessage) string {
 	if len(raw) == 0 {
-		return "tool: " + name
+		return name
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return "tool: " + name
+		return name
 	}
 	m, ok := v.(map[string]any)
 	if !ok {
-		return "tool: " + name
+		return name
+	}
+	// For Edit/Write, only show path — old_string/new_string are too long.
+	if name == "Edit" || name == "Write" {
+		if p, ok := m["path"].(string); ok {
+			return name + " " + p
+		}
 	}
 	var parts []string
 	for key, val := range m {
 		parts = append(parts, key+": "+formatToolTitleValue(val))
 	}
-	return "tool: " + name + " " + strings.Join(parts, " ")
+	return name + " " + strings.Join(parts, " ")
 }
 
 func formatToolTitleValue(val any) string {
