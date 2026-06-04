@@ -136,6 +136,13 @@ type AutoTitleSessionAction struct {
 
 func (AutoTitleSessionAction) isAction() {}
 
+// DeleteSessionAction requests deletion of a session (messages + metadata).
+type DeleteSessionAction struct {
+	SessionID string
+}
+
+func (DeleteSessionAction) isAction() {}
+
 // ListMCPAction requests listing all MCP server statuses.
 type ListMCPAction struct{}
 

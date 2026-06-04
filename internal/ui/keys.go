@@ -38,7 +38,7 @@ func DefaultKeyMap() KeyMap {
 
 	k.Quit = key.NewBinding(
 		key.WithKeys("ctrl+c"),
-		key.WithHelp("ctrl+c", "clear/quit"),
+		key.WithHelp("ctrl+c", "clear/quit (2x to force)"),
 	)
 	k.Help = key.NewBinding(
 		key.WithKeys("ctrl+g"),

@@ -117,6 +117,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		m.goBackground(func() { m.renameSession(a.SessionID, a.Title) })
 	case protocol.AutoTitleSessionAction:
 		m.goBackground(func() { m.autoTitleSession(a.SessionID) })
+	case protocol.DeleteSessionAction:
+		m.goBackground(func() { m.deleteSession(a.SessionID) })
 	case protocol.ListMCPAction:
 		m.goBackground(m.listMCPServers)
 	case protocol.ConnectMCPAction:
@@ -135,6 +137,7 @@ func (m *EngineMediator) Do(action protocol.Action) {
 func (m *EngineMediator) switchModel(a protocol.SwitchModelAction) {
 	client := m.createClientFn(a.Protocol, a.APIKey, a.Model, a.BaseURL, a.AuthMode, a.AuthHelper, a.ConfigName)
 	maxCw := a.MaxContextWindow
+	slog.Info("switchModel: received MaxContextWindow", "model", a.Model, "maxCw", maxCw)
 	if maxCw <= 0 {
 		if m.ContextWindowFor != nil {
 			maxCw = m.ContextWindowFor(a.Model)
@@ -363,6 +366,18 @@ func (m *EngineMediator) autoTitleSession(sessionID string) {
 		slog.Info("auto title: session renamed", "sessionID", sessionID, "title", generated)
 		m.Engine.EmitEvent(protocol.SessionTitleGeneratedEvent{SessionID: sessionID, Title: generated})
 	}
+}
+
+func (m *EngineMediator) deleteSession(sessionID string) {
+	if m.store == nil || sessionID == "" {
+		return
+	}
+	if err := m.store.Delete(context.Background(), sessionID); err != nil {
+		slog.Error("delete session failed", "sessionID", sessionID, "error", err)
+	} else {
+		slog.Info("session deleted", "sessionID", sessionID)
+	}
+	m.Engine.EmitEvent(protocol.SessionDeletedEvent{SessionID: sessionID})
 }
 
 func (m *EngineMediator) emitModeChanged(mode tool.PermissionMode) {

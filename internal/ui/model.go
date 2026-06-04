@@ -80,6 +80,7 @@ type Model struct {
 	currentSessionEphemeral bool
 	pendingQuit             bool // set on ctrl+c, quit after title generation completes
 	shouldQuit              bool // set by applyEvent when pendingQuit title is done
+	lastEmptyCtrlC          time.Time // timestamp of last ctrl+c when input was empty
 	skillStore              *skill.Store
 	queued                  []string
 	history                 []string
@@ -340,6 +341,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 				m.statusBar.UpdateModel(e.Model)
 			}
 			if e.ContextWindow > 0 {
+				logger.Info("UI: contextWindow changed by SessionLoadedEvent", "old", m.contextWindow, "new", e.ContextWindow)
 				m.contextWindow = e.ContextWindow
 			}
 			m.statusBar.Restore(e.APICalls, e.ToolCounts, e.CacheReadTokens, e.CacheCreationTokens)
@@ -407,6 +409,9 @@ func (m *Model) applyEvent(event protocol.Event) {
 	m.statusBar.UpdateMode(string(m.mode))
 	m.statusBar.UpdateStatus(m.status, m.busy)
 	m.statusBar.UpdateTokens(m.transcript.inputTokens, m.transcript.outputTokens)
+	if m.contextWindow != m.statusBar.contextWindow {
+		logger.Info("UI: contextWindow mismatch before UpdateContext sync", "model.cw", m.contextWindow, "statusBar.cw", m.statusBar.contextWindow)
+	}
 	m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
 	m.statusBar.UpdateCache(m.transcript.cacheReadTokens, m.transcript.cacheCreationTokens)
 	m.refreshViewport(eventPinsViewportToBottom(event))
@@ -686,9 +691,22 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.input.Reset()
 			m.slashPopup.Close()
 			m.filePopup.Close()
+			m.lastEmptyCtrlC = time.Time{} // reset double-ctrl+c timer
 			return m, nil
 		}
-		// Input is empty — request auto-title then quit after it completes.
+		// Input is empty — check for double ctrl+c to force quit without title.
+		now := time.Now()
+		if !m.lastEmptyCtrlC.IsZero() && now.Sub(m.lastEmptyCtrlC) < time.Second {
+			// Double ctrl+c: delete session and quit immediately.
+			if m.currentSessionID != "" {
+				if actor, ok := m.sender.(Actor); ok {
+					actor.Do(protocol.DeleteSessionAction{SessionID: m.currentSessionID})
+				}
+			}
+			return m, func() tea.Msg { return tea.Quit() }
+		}
+		m.lastEmptyCtrlC = now
+		// Single ctrl+c with empty input — request auto-title then quit.
 		if m.currentSessionID != "" {
 			if actor, ok := m.sender.(Actor); ok {
 				actor.Do(protocol.AutoTitleSessionAction{SessionID: m.currentSessionID})

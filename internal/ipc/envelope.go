@@ -48,6 +48,7 @@ var actionKinds = map[string]func() protocol.Action{
 	"truncate_tool_results": func() protocol.Action { return &protocol.TruncateToolResultsAction{} },
 	"rename_session":        func() protocol.Action { return &protocol.RenameSessionAction{} },
 	"auto_title_session":    func() protocol.Action { return &protocol.AutoTitleSessionAction{} },
+	"delete_session":        func() protocol.Action { return &protocol.DeleteSessionAction{} },
 	"list_mcp":              func() protocol.Action { return &protocol.ListMCPAction{} },
 	"connect_mcp":           func() protocol.Action { return &protocol.ConnectMCPAction{} },
 	"disconnect_mcp":        func() protocol.Action { return &protocol.DisconnectMCPAction{} },
@@ -88,6 +89,7 @@ var eventKinds = map[string]func() protocol.Event{
 	"context_nudged":            func() protocol.Event { return &protocol.ContextNudgedEvent{} },
 	"turn_completed":            func() protocol.Event { return &protocol.TurnCompleted{} },
 	"session_title_generated":   func() protocol.Event { return &protocol.SessionTitleGeneratedEvent{} },
+	"session_deleted":           func() protocol.Event { return &protocol.SessionDeletedEvent{} },
 	"models_loaded":             func() protocol.Event { return &protocol.ModelsLoadedEvent{} },
 	"mode_changed":              func() protocol.Event { return &protocol.ModeChangedEvent{} },
 	"mode":                      func() protocol.Event { return &protocol.ModeEvent{} },
@@ -235,6 +237,8 @@ func derefAction(a protocol.Action) protocol.Action {
 		return *v
 	case *protocol.AutoTitleSessionAction:
 		return *v
+	case *protocol.DeleteSessionAction:
+		return *v
 	case *protocol.ListMCPAction:
 		return *v
 	case *protocol.ConnectMCPAction:
@@ -313,6 +317,8 @@ func derefEvent(ev protocol.Event) protocol.Event {
 	case *protocol.TurnCompleted:
 		return *v
 	case *protocol.SessionTitleGeneratedEvent:
+		return *v
+	case *protocol.SessionDeletedEvent:
 		return *v
 	case *protocol.ModelsLoadedEvent:
 		return *v

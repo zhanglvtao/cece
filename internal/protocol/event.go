@@ -298,6 +298,13 @@ type SessionTitleGeneratedEvent struct {
 
 func (SessionTitleGeneratedEvent) isEvent() {}
 
+// SessionDeletedEvent is emitted after a session has been deleted.
+type SessionDeletedEvent struct {
+	SessionID string
+}
+
+func (SessionDeletedEvent) isEvent() {}
+
 // ── Async query response events ────────────────────────────────────────────
 
 // ModelsLoadedEvent is the response to ListModelsAction.
