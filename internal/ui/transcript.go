@@ -24,23 +24,24 @@ const (
 )
 
 type transcriptBlock struct {
-	kind  blockKind
-	title string
-	text  string
-	done  bool
-	err   bool
+	kind     blockKind
+	title    string
+	text     string
+	done     bool
+	err      bool
+	toolName string // set for blockTool, used for quiet-tool suppression
 }
 
 type transcript struct {
-	blocks           []transcriptBlock
-	currentAssistant int
-	currentThinking  int
-	toolByID         map[string]int
-	inputTokens      int
-	outputTokens     int
-	contextUsed      int
-	lastStopReason   string
-	cacheReadTokens  int
+	blocks              []transcriptBlock
+	currentAssistant    int
+	currentThinking     int
+	toolByID            map[string]int
+	inputTokens         int
+	outputTokens        int
+	contextUsed         int
+	lastStopReason      string
+	cacheReadTokens     int
 	cacheCreationTokens int
 }
 
@@ -173,6 +174,7 @@ func (t *transcript) apply(event protocol.Event) {
 		t.appendDone(blockInfo, "retry", fmt.Sprintf("output truncated, retrying with max_tokens %d -> %d", e.PrevMaxTokens, e.NewMaxTokens))
 	case protocol.ToolCallStarted:
 		idx := t.append(blockTool, "tool: "+e.Name, "")
+		t.blocks[idx].toolName = e.Name
 		t.toolByID[e.ID] = idx
 	case protocol.ToolCallDelta:
 		if idx, ok := t.toolByID[e.ID]; ok {
@@ -184,6 +186,7 @@ func (t *transcript) apply(event protocol.Event) {
 			idx = t.append(blockTool, "tool: "+e.Name, "")
 			t.toolByID[e.ID] = idx
 		}
+		t.blocks[idx].toolName = e.Name
 		t.blocks[idx].title = formatToolTitleKVs(e.Name, e.Input)
 		t.blocks[idx].text = formatToolPreview(e.Name, e.Input)
 	case protocol.ToolExecStarted:
@@ -192,7 +195,10 @@ func (t *transcript) apply(event protocol.Event) {
 			idx = t.append(blockTool, "tool: "+e.Name, "")
 			t.toolByID[e.ID] = idx
 		}
-		if t.blocks[idx].text == "" {
+		t.blocks[idx].toolName = e.Name
+		if isQuietTool(e.Name) {
+			// Quiet tools: no streaming output displayed
+		} else if t.blocks[idx].text == "" {
 			t.blocks[idx].text = "running..."
 		} else if !strings.Contains(t.blocks[idx].text, "\n---\n") {
 			t.blocks[idx].text += "\n---\nrunning..."
@@ -203,6 +209,9 @@ func (t *transcript) apply(event protocol.Event) {
 			idx = t.append(blockTool, "tool", "")
 			t.toolByID[e.ID] = idx
 		}
+		if isQuietTool(t.blocks[idx].toolName) {
+			break
+		}
 		if strings.HasSuffix(t.blocks[idx].text, "running...") {
 			t.blocks[idx].text = strings.TrimSuffix(t.blocks[idx].text, "running...")
 		}
@@ -212,6 +221,17 @@ func (t *transcript) apply(event protocol.Event) {
 		if !ok {
 			idx = t.append(blockTool, "tool: "+e.Name, "")
 			t.toolByID[e.ID] = idx
+		}
+		t.blocks[idx].toolName = e.Name
+		if isQuietTool(e.Name) {
+			if e.Result.IsError {
+				t.blocks[idx].text = "error: " + summarizeText(e.Result.Content, toolPreviewBytes, toolPreviewMaxLines)
+				t.blocks[idx].err = true
+			} else {
+				t.blocks[idx].text = "ok"
+			}
+			t.blocks[idx].done = true
+			break
 		}
 		maxLines := toolPreviewMaxLines
 		if isDiffTool(e.Name) {
@@ -250,9 +270,7 @@ func (t *transcript) apply(event protocol.Event) {
 			t.inputTokens = e.TotalInput
 			t.outputTokens = e.TotalOutput
 			t.contextUsed = e.LastInput
-			for _, msg := range e.History {
-				t.loadMessage(msg)
-			}
+			t.loadHistory(e.History)
 		}
 	case protocol.ContextNudgedEvent:
 		t.appendDone(blockInfo, "nudge", fmt.Sprintf("ctx %d%% used (%dK/%dK), %d turns since compact", e.ContextPct, (e.ContextUsed+999)/1000, (e.ContextWindow+999)/1000, e.TurnsSinceCompact))
@@ -281,12 +299,29 @@ func (t *transcript) apply(event protocol.Event) {
 }
 
 func (t *transcript) loadHistory(messages []protocol.Message) {
+	// Build tool_use_id -> name map from assistant messages so we can look up
+	// tool names when processing tool_result blocks in user messages.
+	toolNames := make(map[string]string)
 	for _, msg := range messages {
-		t.loadMessage(msg)
+		if msg.Role != "assistant" {
+			continue
+		}
+		for _, b := range msg.ContentBlocks {
+			if b.Type == protocol.ToolUseContentType && b.ToolUse != nil {
+				toolNames[b.ToolUse.ID] = b.ToolUse.Name
+			}
+		}
+	}
+	for _, msg := range messages {
+		t.loadMessageWithNames(msg, toolNames)
 	}
 }
 
 func (t *transcript) loadMessage(msg protocol.Message) {
+	t.loadMessageWithNames(msg, nil)
+}
+
+func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[string]string) {
 	switch msg.Role {
 	case "user":
 		if msg.Content != "" {
@@ -295,7 +330,23 @@ func (t *transcript) loadMessage(msg protocol.Message) {
 		}
 		for _, b := range msg.ContentBlocks {
 			if b.Type == protocol.ToolResultContentType && b.ToolResult != nil {
-				t.appendDone(blockTool, "tool result", summarizeText(b.ToolResult.Content, toolPreviewBytes, diffAwareMaxLines(b.ToolResult.Content)))
+				name := ""
+				if toolNames != nil {
+					name = toolNames[b.ToolResult.ToolUseID]
+				}
+				if isQuietTool(name) {
+					text := "ok"
+					if b.ToolResult.IsError {
+						text = "error: " + summarizeText(b.ToolResult.Content, toolPreviewBytes, toolPreviewMaxLines)
+					}
+					blk := t.appendDone(blockTool, "tool: "+name, text)
+					t.blocks[blk].toolName = name
+					if b.ToolResult.IsError {
+						t.blocks[blk].err = true
+					}
+				} else {
+					t.appendDone(blockTool, "tool result", summarizeText(b.ToolResult.Content, toolPreviewBytes, diffAwareMaxLines(b.ToolResult.Content)))
+				}
 			}
 		}
 	case "assistant":
@@ -517,5 +568,3 @@ func appendErrorContext(errMsg string) string {
 	}
 	return b.String()
 }
-
-

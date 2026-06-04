@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"cece/internal/logger"
 	"cece/internal/protocol"
 	"cece/internal/session"
 	"cece/internal/ui/picker"
@@ -433,6 +434,7 @@ func (m *Model) openModelPicker(models []protocol.ModelInfo) {
 		m.modelName = mi.ID
 		m.statusBar.UpdateModel(mi.ID)
 		if mi.MaxContextWindow > 0 {
+			logger.Info("UI: contextWindow changed by model picker", "old", m.contextWindow, "new", mi.MaxContextWindow, "model", mi.ID)
 			m.contextWindow = mi.MaxContextWindow
 			m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
 		}

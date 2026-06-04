@@ -41,6 +41,11 @@ func renderDiffText(s string) string {
 	return strings.Join(lines, "\n")
 }
 
+// isQuietTool returns true for tools whose output should not be displayed in the UI.
+func isQuietTool(name string) bool {
+	return name == "Read"
+}
+
 // isDiffTool returns true for tools whose output is unified diff format.
 func isDiffTool(name string) bool {
 	return name == "Edit" || name == "Write"

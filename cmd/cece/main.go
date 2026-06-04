@@ -18,15 +18,13 @@ import (
 	"cece/internal/config"
 	"cece/internal/engine"
 	"cece/internal/ipc"
-	"cece/internal/lint"
 	"cece/internal/logger"
 	"cece/internal/mcp"
-	"cece/internal/prompt"
 	"cece/internal/protocol"
 	"cece/internal/remote"
+	"cece/internal/runtime"
 	"cece/internal/session"
 	"cece/internal/skill"
-	"cece/internal/tool"
 	"cece/internal/ui"
 )
 
@@ -190,137 +188,31 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 	if err := logger.Init(logPath, cfg.Debug); err != nil {
 		return runtimeBundle{}, fmt.Errorf("logger init failed: %w", err)
 	}
-	cleanup := func() { logger.Sync() }
 
 	defaultProvider := cfg.Providers[0]
 	logger.Info("cece engine starting", "model", cfg.Model, "provider", defaultProvider.Name, "maxTokens", cfg.MaxTokens)
 
 	client := createClient(defaultProvider, cfg.Model, "")
-	planState := tool.NewPlanModeState()
-	planState.SetProjectDir(projectDir)
-	skillStore := skill.NewStore(skill.DiscoverAll(projectDir))
-	taskList := tool.NewTaskList()
-
-	registry := tool.NewRegistry(
-		tool.NewBash(),
-		tool.NewRead(),
-		tool.NewWrite(),
-		tool.NewGrep(),
-		tool.NewEdit(),
-		tool.NewGlob(),
-		tool.NewWebFetch(),
-		tool.NewEnterPlanMode(planState),
-		tool.NewExitPlanMode(planState),
-		tool.NewAskUserQuestion(),
-		tool.NewSkillTool(skillStore),
-		tool.NewTodo(taskList),
-	)
-
-	if len(cfg.Lint) > 0 {
-		registry.SetLinter(lint.NewRunner(cfg.Lint, projectDir))
-	}
 
 	ctx := context.Background()
+	contextWindow := discoverContextWindow(ctx, client, cfg)
 
 	mcpMgr := mcp.NewManager()
-	cleanup = func() {
-		mcpMgr.Close()
-		logger.Sync()
-	}
 	if len(cfg.MCP) > 0 {
 		mcpMgr.Initialize(ctx, cfg.MCP)
-		for _, t := range mcpMgr.Tools() {
-			registry.Register(t)
-		}
 	}
 
-	stablePrompt := prompt.FormatStableSystemPrompt(projectDir)
-	collector := prompt.NewDefaultSessionCollector(projectDir, registry)
-	collector.SetSkillProvider(skillStore)
-	assembler := prompt.NewContextAssembler(stablePrompt, registry, collector)
-
-	if _, err := assembler.RefreshSession(ctx); err != nil {
-		logger.Warn("initial session refresh failed", "error", err)
-	}
-
-	var contextWindow int
-	if lister, ok := client.(interface {
-		GetModelInfo(context.Context) (agent.ModelInfo, error)
-	}); ok {
-		if info, err := lister.GetModelInfo(ctx); err != nil {
-			logger.Warn("model info query failed, trying ListModels", "error", err)
-			contextWindow = cfg.ContextWindowFor(cfg.Model)
-		} else {
-			contextWindow = info.MaxContextWindow
-			logger.Info("model context window set from API", "max_context", contextWindow)
-		}
-	}
-	if contextWindow <= 0 {
-		if lister, ok := client.(interface {
-			ListModels(context.Context) ([]agent.ModelInfo, error)
-		}); ok {
-			if models, err := lister.ListModels(ctx); err != nil {
-				contextWindow = cfg.ContextWindowFor(cfg.Model)
-				logger.Warn("ListModels failed, using config/default", "error", err, "context_window", contextWindow)
-			} else {
-				for _, m := range models {
-					if m.ID == cfg.Model {
-						contextWindow = m.MaxContextWindow
-						break
-					}
-				}
-				if contextWindow <= 0 {
-					contextWindow = cfg.ContextWindowFor(cfg.Model)
-				}
-				logger.Info("model context window set from ListModels", "max_context", contextWindow)
-			}
-		} else {
-			contextWindow = cfg.ContextWindowFor(cfg.Model)
-			logger.Info("model context window from config", "max_context", contextWindow)
-		}
-	}
-	assembler.SetMaxContextTokens(contextWindow)
-
-	eng := engine.NewEngine(client, registry, cfg.Yolo, cfg.MaxTokens, assembler, projectDir)
-	eng.SetPlanModeState(planState)
-	eng.SetTaskList(taskList)
-	eng.SetModelInfo(cfg.Model, contextWindow)
-	registry.Register(tool.NewCompact(eng.CompactHandler()))
-	registry.Register(tool.NewTrimToolResults(eng.TrimToolResultsHandler()))
-	registry.Register(tool.NewPrune(eng.PruneHandler()))
-	registry.Register(tool.NewAgent(eng.AgentHandler()))
-	eng.ContextWindowFor = cfg.ContextWindowFor
-	eng.ModelClientFor = func(model string) agent.ModelClient {
-		// Find provider for this model and create a client.
-		for _, p := range cfg.Providers {
-			for _, m := range p.Models {
-				if m.ID == model || m.ConfigName == model {
-					return createClient(p, model, m.ConfigName)
-				}
-			}
-		}
-		// Fallback: try first provider with the model name.
-		if len(cfg.Providers) > 0 {
-			return createClient(cfg.Providers[0], model, "")
-		}
-		return nil
-	}
-
+	skillStore := skill.NewStore(skill.DiscoverAll(projectDir))
 	store := session.NewFileStore(projectDir)
-	eng.SetStore(store)
 
 	createClientFn := func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient {
 		pc := config.ProviderConfig{
-			Protocol:   protocol,
-			APIKey:     apiKey,
-			BaseURL:    baseURL,
-			AuthMode:   authMode,
-			AuthHelper: authHelper,
+			Protocol: protocol, APIKey: apiKey, BaseURL: baseURL,
+			AuthMode: authMode, AuthHelper: authHelper,
 		}
 		return createClient(pc, model, configName)
 	}
-
-	providerResolver := func(configName string) (apiKey, baseURL, authMode, authHelper, protocol string) {
+	providerResolver := func(configName string) (string, string, string, string, string) {
 		for _, p := range cfg.Providers {
 			if configName != "" {
 				for _, m := range p.Models {
@@ -339,12 +231,97 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		}
 		return "", "", "", "", ""
 	}
-
-	if cfg.DefaultMode != "" {
-		eng.Do(protocol.SetPermissionModeAction{Mode: protocol.PermissionMode(cfg.DefaultMode)})
+	listAllModelsFn := buildListAllModelsFn(cfg)
+	modelClientFor := func(model string) agent.ModelClient {
+		for _, p := range cfg.Providers {
+			for _, m := range p.Models {
+				if m.ID == model || m.ConfigName == model {
+					return createClient(p, model, m.ConfigName)
+				}
+			}
+		}
+		if len(cfg.Providers) > 0 {
+			return createClient(cfg.Providers[0], model, "")
+		}
+		return nil
+	}
+	var lightClientFn runtime.LightModelClientFn
+	if cfg.LightModel != "" {
+		lightModel := cfg.LightModel
+		lightClientFn = func() agent.ModelClient {
+			return modelClientFor(lightModel)
+		}
 	}
 
-	listAllModelsFn := func(ctx context.Context) ([]protocol.ModelInfo, error) {
+	bundle, err := runtime.Build(runtime.Options{
+		ProjectDir:       projectDir,
+		Model:            cfg.Model,
+		ContextWindow:    contextWindow,
+		MaxTokens:        cfg.MaxTokens,
+		Yolo:             cfg.Yolo,
+		DefaultMode:      cfg.DefaultMode,
+		LintConfig:       cfg.Lint,
+		ModelClient:      client,
+		Store:            store,
+		Skills:           skillStore,
+		MCPManager:       mcpMgr,
+		ProviderResolver: providerResolver,
+		CreateClientFn:   createClientFn,
+		ListAllModelsFn:  listAllModelsFn,
+		ContextWindowFor: cfg.ContextWindowFor,
+		ModelClientFor:   modelClientFor,
+		LightClientFn:    lightClientFn,
+	})
+	if err != nil {
+		return runtimeBundle{}, err
+	}
+
+	return runtimeBundle{
+		mediator:      bundle.Mediator,
+		store:         bundle.Store,
+		skillStore:    bundle.Skills,
+		model:         cfg.Model,
+		contextWindow: contextWindow,
+		defaultMode:   cfg.DefaultMode,
+		cleanup:       bundle.Cleanup,
+	}, nil
+}
+
+// discoverContextWindow queries the model client for its context window,
+// falling back to ListModels then config defaults.
+func discoverContextWindow(ctx context.Context, client agent.ModelClient, cfg config.Config) int {
+	if lister, ok := client.(interface {
+		GetModelInfo(context.Context) (agent.ModelInfo, error)
+	}); ok {
+		if info, err := lister.GetModelInfo(ctx); err == nil {
+			logger.Info("model context window set from API", "max_context", info.MaxContextWindow)
+			return info.MaxContextWindow
+		} else {
+			logger.Warn("model info query failed, trying ListModels", "error", err)
+		}
+	}
+	if lister, ok := client.(interface {
+		ListModels(context.Context) ([]agent.ModelInfo, error)
+	}); ok {
+		if models, err := lister.ListModels(ctx); err == nil {
+			for _, m := range models {
+				if m.ID == cfg.Model {
+					logger.Info("model context window set from ListModels", "max_context", m.MaxContextWindow)
+					return m.MaxContextWindow
+				}
+			}
+		} else {
+			logger.Warn("ListModels failed, using config/default", "error", err)
+		}
+	}
+	cw := cfg.ContextWindowFor(cfg.Model)
+	logger.Info("model context window from config", "max_context", cw)
+	return cw
+}
+
+// buildListAllModelsFn returns a closure that aggregates models across all providers.
+func buildListAllModelsFn(cfg config.Config) runtime.ListAllModelsFn {
+	return func(ctx context.Context) ([]protocol.ModelInfo, error) {
 		var allModels []protocol.ModelInfo
 		var mu sync.Mutex
 		var wg sync.WaitGroup
@@ -413,24 +390,5 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		}
 		return allModels, nil
 	}
-
-	var lightModelClientFn func() agent.ModelClient
-	if cfg.LightModel != "" {
-		lightModel := cfg.LightModel
-		lightModelClientFn = func() agent.ModelClient {
-			return eng.ModelClientFor(lightModel)
-		}
-	}
-
-	mediator := engine.NewEngineMediator(eng, store, providerResolver, createClientFn, listAllModelsFn, mcpMgr, lightModelClientFn)
-	return runtimeBundle{
-		mediator:      mediator,
-		store:         store,
-		skillStore:    skillStore,
-		model:         cfg.Model,
-		contextWindow: contextWindow,
-		defaultMode:   cfg.DefaultMode,
-		cleanup:       cleanup,
-	}, nil
 }
 

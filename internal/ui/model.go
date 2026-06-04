@@ -186,7 +186,16 @@ func statusSpinnerTickCmd() tea.Cmd {
 	})
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return m.update(msg) }
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cwBefore := m.contextWindow
+	result, cmd := m.update(msg)
+	if resultModel, ok := result.(*Model); ok {
+		if resultModel.contextWindow != cwBefore {
+			logger.Info("Update: contextWindow changed", "old", cwBefore, "new", resultModel.contextWindow, "msgType", fmt.Sprintf("%T", msg))
+		}
+	}
+	return result, cmd
+}
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
