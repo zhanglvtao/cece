@@ -797,15 +797,20 @@ func (e *Engine) shouldNudge() (bool, int, int, int) {
 	return true, turnsSinceCompact, contextPct, contextWindow
 }
 
+// buildContextNudgeReminder returns the reminder used when context pressure is high.
+func buildContextNudgeReminder(contextPct, usedK, windowK, turnsSinceCompact int) string {
+	return fmt.Sprintf(
+		"<system-reminder>\nContext pressure: %d%% used (%dK/%dK), %d turns since last context management.\nManage context as needed. Use Compact, TrimToolResults, or Prune based on what best fits the current state.\n</system-reminder>",
+		contextPct, usedK, windowK, turnsSinceCompact,
+	)
+}
+
 // injectNudge appends a context-pressure system-reminder to the snapshot
-// and updates nudge tracking state. Returns the modified snapshot.
+// to nudge the LLM toward context management. Returns the modified snapshot.
 func (e *Engine) injectNudge(snapshot []agent.Message, turnsSinceCompact, contextPct, contextWindow int) []agent.Message {
 	usedK := (e.lastInputTokens + 999) / 1000
 	windowK := (contextWindow + 999) / 1000
-	nudgeText := fmt.Sprintf(
-		"<system-reminder>\nContext pressure: %d%% used (%dK/%dK), %d turns since last compact.\nConsider using Compact, TrimToolResults, or Prune to free context.\n</system-reminder>",
-		contextPct, usedK, windowK, turnsSinceCompact,
-	)
+	nudgeText := buildContextNudgeReminder(contextPct, usedK, windowK, turnsSinceCompact)
 	slog.Info("injecting context nudge into snapshot", "contextPct", contextPct, "usedK", usedK, "windowK", windowK, "turnsSinceCompact", turnsSinceCompact)
 	snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: nudgeText})
 
@@ -829,10 +834,7 @@ func (e *Engine) DrainNudgeReminder() string {
 	}
 	usedK := (e.lastInputTokens + 999) / 1000
 	windowK := (cw + 999) / 1000
-	nudge := fmt.Sprintf(
-		"<system-reminder>\nContext pressure: %d%% used (%dK/%dK), %d turns since last compact.\nConsider using Compact, TrimToolResults, or Prune to free context.\n</system-reminder>",
-		pct, usedK, windowK, turns,
-	)
+	nudge := buildContextNudgeReminder(pct, usedK, windowK, turns)
 	slog.Info("injecting context nudge in agentic loop", "contextPct", pct, "usedK", usedK, "windowK", windowK, "turnsSinceCompact", turns)
 	return nudge
 }

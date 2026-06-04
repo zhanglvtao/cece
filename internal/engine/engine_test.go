@@ -425,3 +425,19 @@ func TestEngineInterruptRollsBackHistory(t *testing.T) {
 		t.Fatalf("HistoryLen after cancel = %d, want 2; history = %+v", eng.HistoryLen(), history)
 	}
 }
+
+func TestBuildContextNudgeReminderFramesAsContextManagement(t *testing.T) {
+	reminder := buildContextNudgeReminder(80, 8, 10, 3)
+
+	checks := []string{
+		"Context pressure: 80% used (8K/10K), 3 turns since last context management.",
+		"Manage context as needed.",
+		"Compact, TrimToolResults, or Prune",
+		"based on what best fits the current state",
+	}
+	for _, check := range checks {
+		if !strings.Contains(reminder, check) {
+			t.Fatalf("reminder missing %q: %s", check, reminder)
+		}
+	}
+}
