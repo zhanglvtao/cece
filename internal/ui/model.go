@@ -499,12 +499,15 @@ func (m *Model) View() tea.View {
 	}
 	if agentBar != "" {
 		sections = append(sections, agentBar)
+		sections = append(sections, sep)
 	}
 	if headline != "" {
 		sections = append(sections, headline)
+		sections = append(sections, sep)
 	}
 	if queued != "" {
 		sections = append(sections, queued)
+		sections = append(sections, sep)
 	}
 	// Popups must be directly above input box
 	popup := m.slashPopup.View(m.width)
@@ -552,13 +555,13 @@ func (m *Model) View() tea.View {
 			rowsAboveInput++ // separator line
 		}
 		if agentBar != "" {
-			rowsAboveInput += strings.Count(agentBar, "\n") + 1
+			rowsAboveInput += strings.Count(agentBar, "\n") + 2 // agentBar + sep
 		}
 		if headline != "" {
-			rowsAboveInput += strings.Count(headline, "\n") + 1
+			rowsAboveInput += strings.Count(headline, "\n") + 2 // headline + sep
 		}
 		if queued != "" {
-			rowsAboveInput += strings.Count(queued, "\n") + 1
+			rowsAboveInput += strings.Count(queued, "\n") + 2 // queued + sep
 		}
 		cur.Y += rowsAboveInput + m.styles.Input.Box.GetBorderTopSize() + m.styles.Input.Box.GetPaddingTop()
 		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft()
@@ -1291,7 +1294,7 @@ func (m *Model) agentBarView() string {
 		if m.statusFrame%4 >= 2 {
 			dot = "○"
 		}
-		label := dot + " " + m.styles.Agent.Label.Render("[Agent]") + " " + a.Description
+		label := m.styles.Agent.Label.Render(dot) + " " + m.styles.Agent.Label.Render("[Agent]") + " " + a.Description
 		b.WriteString(label)
 	}
 	return b.String()
