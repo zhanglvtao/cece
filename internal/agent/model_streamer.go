@@ -265,10 +265,12 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				callNames = append(callNames, tc.Name)
 			}
 			emitModelEvent(ch, StreamCompleted{
-				OutputTokens: resp.outputTokens,
-				StopReason:   resp.stopReason,
-				Duration:     time.Since(start),
-				ToolCalls:    callNames,
+				InputTokens:     resp.inputTokens,
+				OutputTokens:    resp.outputTokens,
+				CacheReadTokens: resp.cacheReadTokens,
+				StopReason:      resp.stopReason,
+				Duration:        time.Since(start),
+				ToolCalls:       callNames,
 			})
 			return resp, nil
 		}

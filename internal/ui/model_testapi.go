@@ -102,3 +102,6 @@ func (m *Model) InputValueForTest() string { return m.input.Value() }
 
 // PendingQuitForTest reports whether a quit-after-title is pending.
 func (m *Model) PendingQuitForTest() bool { return m.pendingQuit }
+
+// OpenSessionsDialogForTest opens the session picker modal directly. For testing only.
+func (m *Model) OpenSessionsDialogForTest() { m.openSessionsDialog() }

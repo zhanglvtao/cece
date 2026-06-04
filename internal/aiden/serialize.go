@@ -216,7 +216,9 @@ func serializeMessage(m agent.Message) AidenMsg {
 	if content == "" {
 		content = m.TextContent()
 	}
-	// BUG: missing empty content protection
+	if content == "" {
+		content = " "
+	}
 	return AidenMsg{
 		Role:    string(m.Role),
 		Content: content,

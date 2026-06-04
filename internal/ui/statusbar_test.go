@@ -181,6 +181,85 @@ func TestStatusBarBusy(t *testing.T) {
 	}
 }
 
+func TestStatusBarToolCategories(t *testing.T) {
+	sb := NewStatusBar()
+	sb.IncrementTool("Read")          // file
+	sb.IncrementTool("Bash")          // file
+	sb.IncrementTool("WebFetch")      // web
+	sb.IncrementTool("AskUserQuestion") // ask
+	sb.IncrementTool("Compact")       // ctx
+	sb.IncrementTool("Agent")         // agent
+	sb.IncrementTool("EnterPlanMode") // plan
+	sb.IncrementTool("Unknown")       // default
+
+	got := sb.Render(120)
+	lines := strings.Split(got, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+
+	plain := stripAnsi(got)
+	// Verify all tool names appear
+	for _, name := range []string{"Read×1", "Bash×1", "Web×1", "Ask×1", "Cmpct×1", "Agent×1", "Plan×1", "Unknown×1"} {
+		if !strings.Contains(plain, name) {
+			t.Fatalf("missing %q in statusbar: %q", name, plain)
+		}
+	}
+
+	// Verify different categories render with different ANSI color codes.
+	// Compare the raw ANSI strings of line2 to ensure color differentiation.
+	line2 := lines[1]
+
+	// Extract the ANSI-escaped segment for each tool and compare leading escape sequences
+	ansiFor := func(label string) string {
+		idx := strings.Index(line2, label)
+		if idx < 0 {
+			t.Fatalf("label %q not found in line2", label)
+		}
+		// Walk backwards to find the nearest ESC[ sequence before the label
+		seq := ""
+		for i := idx - 1; i >= 0; i-- {
+			if line2[i] == 'm' {
+				// find the ESC[
+				j := i - 1
+				for j >= 0 && line2[j] != '\x1b' {
+					j--
+				}
+				if j >= 0 {
+					seq = line2[j : i+1]
+				}
+				break
+			}
+		}
+		return seq
+	}
+
+	// File tools (Read, Bash) share color
+	readANSI := ansiFor("Read×1")
+	bashANSI := ansiFor("Bash×1")
+	if readANSI != bashANSI {
+		t.Fatalf("Read and Bash should share color, got Read=%q Bash=%q", readANSI, bashANSI)
+	}
+
+	// Web differs from file
+	webANSI := ansiFor("Web×1")
+	if webANSI == readANSI {
+		t.Fatalf("WebFetch should differ from Read color, both=%q", readANSI)
+	}
+
+	// Ask differs from file and web
+	askANSI := ansiFor("Ask×1")
+	if askANSI == readANSI || askANSI == webANSI {
+		t.Fatalf("Ask should differ from Read(%q) and Web(%q), got=%q", readANSI, webANSI, askANSI)
+	}
+
+	// Default differs from all categorized
+	defaultANSI := ansiFor("Unknown×1")
+	if defaultANSI == readANSI || defaultANSI == webANSI || defaultANSI == askANSI {
+		t.Fatalf("Unknown should differ from categorized colors, got=%q", defaultANSI)
+	}
+}
+
 func TestFormatTokenK(t *testing.T) {
 	tests := []struct {
 		in   int

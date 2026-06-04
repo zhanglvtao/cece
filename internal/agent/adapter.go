@@ -71,10 +71,12 @@ func ToDTO(e Event) protocol.Event {
 
 	case StreamCompleted:
 		return protocol.StreamCompleted{
-			OutputTokens: v.OutputTokens,
-			StopReason:   v.StopReason,
-			Duration:     v.Duration,
-			ToolCalls:    v.ToolCalls,
+			InputTokens:     v.InputTokens,
+			OutputTokens:    v.OutputTokens,
+			CacheReadTokens: v.CacheReadTokens,
+			StopReason:      v.StopReason,
+			Duration:        v.Duration,
+			ToolCalls:       v.ToolCalls,
 		}
 
 	case TruncationRetry:

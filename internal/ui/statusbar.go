@@ -229,28 +229,50 @@ type toolCategory int
 
 const (
 	toolCatDefault toolCategory = iota
+	toolCatFile    // file read/write/search/shell
+	toolCatWeb     // web fetch/search
+	toolCatAsk     // user interaction
 	toolCatCtx     // context compression
 	toolCatAgent   // sub-agent
 	toolCatPlan    // plan/unplan
 )
 
 var toolCategories = map[string]toolCategory{
-	"Compact":           toolCatCtx,
+	// File operations
+	"Read":    toolCatFile,
+	"Write":   toolCatFile,
+	"Edit":    toolCatFile,
+	"Glob":    toolCatFile,
+	"Grep":    toolCatFile,
+	"Bash":    toolCatFile,
+	// Web operations
+	"WebFetch":  toolCatWeb,
+	"WebSearch": toolCatWeb,
+	// User interaction
+	"AskUserQuestion": toolCatAsk,
+	// Context compression
+	"Compact":             toolCatCtx,
 	"TruncateToolResults": toolCatCtx,
-	"PrunedEvent":       toolCatCtx,
-	"Agent":             toolCatAgent,
-	"EnterPlanMode":     toolCatPlan,
-	"ExitPlanMode":      toolCatPlan,
+	"PrunedEvent":         toolCatCtx,
+	// Sub-agent
+	"Agent": toolCatAgent,
+	// Plan mode
+	"EnterPlanMode": toolCatPlan,
+	"ExitPlanMode":  toolCatPlan,
 }
 
 func toolStyle(name string, s Styles) lipgloss.Style {
 	cat := toolCatDefault
 	if c, ok := toolCategories[name]; ok {
 		cat = c
-	} else if strings.HasPrefix(name, "mcp_") {
-		// MCP tools keep default style
 	}
 	switch cat {
+	case toolCatFile:
+		return s.Status.ToolFile
+	case toolCatWeb:
+		return s.Status.ToolWeb
+	case toolCatAsk:
+		return s.Status.ToolAsk
 	case toolCatCtx:
 		return s.Status.ToolCtx
 	case toolCatAgent:

@@ -50,7 +50,10 @@ type Styles struct {
 		Context   lipgloss.Style
 		Tokens    lipgloss.Style
 		Calls     lipgloss.Style
-		Tool      lipgloss.Style // default / basic tools
+		Tool      lipgloss.Style // default / unclassified tools + MCP
+		ToolFile  lipgloss.Style // file ops: Read, Write, Edit, Glob, Grep, Bash
+		ToolWeb   lipgloss.Style // web ops: WebFetch, WebSearch
+		ToolAsk   lipgloss.Style // user interaction: AskUserQuestion
 		ToolCtx   lipgloss.Style // context compression: Compact, Trim, Prune
 		ToolAgent lipgloss.Style // Agent sub-agent
 		ToolPlan  lipgloss.Style // EnterPlanMode, ExitPlanMode
@@ -131,7 +134,10 @@ func DefaultStyles() Styles {
 	s.Status.Tokens = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.Green)
 	s.Status.Tool = lipgloss.NewStyle().Foreground(theme.Yellow)
-	s.Status.ToolCtx = lipgloss.NewStyle().Foreground(theme.Blue)    // context compression
+	s.Status.ToolFile = lipgloss.NewStyle().Foreground(theme.Green)     // file ops
+	s.Status.ToolWeb = lipgloss.NewStyle().Foreground(theme.Magenta)   // web ops
+	s.Status.ToolAsk = lipgloss.NewStyle().Foreground(theme.Blue)      // user interaction
+	s.Status.ToolCtx = lipgloss.NewStyle().Foreground(theme.Blue)      // context compression
 	s.Status.ToolAgent = lipgloss.NewStyle().Foreground(theme.Magenta) // Agent sub-agent
 	s.Status.ToolPlan = lipgloss.NewStyle().Foreground(theme.Primary)  // plan/unplan
 	s.Status.Scroll = lipgloss.NewStyle().Foreground(theme.FgMuted)

@@ -381,3 +381,35 @@ func (t *fakeWebFetchTool) Run(_ context.Context, input json.RawMessage, _ tool.
 	}
 	return tool.Result{Content: fmt.Sprintf("fake webfetch: no response for %s", p.URI), IsError: true}
 }
+
+// ── MCP ────────────────────────────────────────────────────────────────────
+
+// NewFakeMCPTool creates a fake MCP tool with the given name (should start
+// with "mcp_" prefix) and canned result.
+func NewFakeMCPTool(name, result string) tool.Tool {
+	return &fakeMCPTool{name: name, result: result}
+}
+
+type fakeMCPTool struct {
+	name   string
+	result string
+}
+
+func (f *fakeMCPTool) Info() tool.Definition {
+	return tool.Definition{
+		Name:        f.name,
+		Description: "fake MCP tool for testing",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"input": map[string]any{"type": "string"},
+			},
+		},
+	}
+}
+
+func (f *fakeMCPTool) Effect() tool.Effect { return tool.EffectRead }
+
+func (f *fakeMCPTool) Run(_ context.Context, _ json.RawMessage, _ tool.Emitter) tool.Result {
+	return tool.Result{Content: f.result}
+}

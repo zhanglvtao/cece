@@ -172,6 +172,17 @@ func NewHarness(t *testing.T, llm *ScriptedClient, opts ...HarnessOption) *Harne
 		lightFn = func() agent.ModelClient { return client }
 	}
 
+	if cfg.createClientFn == nil {
+		cfg.createClientFn = func(string, string, string, string, string, string, string) agent.ModelClient {
+			return llm
+		}
+	}
+
+	createClientFn := cfg.createClientFn
+	modelClientFor := func(model string) agent.ModelClient {
+		return createClientFn("", "", model, "", "", "", "")
+	}
+
 	bundle, err := runtime.Build(runtime.Options{
 		ProjectDir:       cfg.projectDir,
 		Model:            cfg.model,
@@ -187,6 +198,7 @@ func NewHarness(t *testing.T, llm *ScriptedClient, opts ...HarnessOption) *Harne
 		MCPManager:       cfg.mcpManager,
 		ProviderResolver: cfg.providerResolver,
 		CreateClientFn:   cfg.createClientFn,
+		ModelClientFor:   modelClientFor,
 		ListAllModelsFn:  cfg.listAllModelsFn,
 		LightClientFn:    lightFn,
 	})
@@ -284,6 +296,14 @@ func (h *Harness) QuitOnce() { h.Drv.Press("ctrl+c") }
 // QuitTwice sends two ctrl+c presses (used for force-delete-and-quit).
 func (h *Harness) QuitTwice() {
 	h.Drv.Press("ctrl+c")
+	h.Drv.Press("ctrl+c")
+}
+
+// QuitTwiceWithDelay sends two ctrl+c presses with the given delay between
+// them. Useful for testing the double-ctrl+c detection window (< 1s).
+func (h *Harness) QuitTwiceWithDelay(delay time.Duration) {
+	h.Drv.Press("ctrl+c")
+	time.Sleep(delay)
 	h.Drv.Press("ctrl+c")
 }
 

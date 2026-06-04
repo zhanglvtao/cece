@@ -104,10 +104,12 @@ func (StreamEventDetail) isEvent() {}
 
 // StreamCompleted is emitted when the SSE stream closes successfully.
 type StreamCompleted struct {
-	OutputTokens int
-	StopReason   string
-	Duration     time.Duration
-	ToolCalls    []string // tool names requested in this response
+	InputTokens     int
+	OutputTokens    int
+	CacheReadTokens int
+	StopReason      string
+	Duration        time.Duration
+	ToolCalls       []string // tool names requested in this response
 }
 
 func (StreamCompleted) isEvent() {}
