@@ -30,8 +30,9 @@ type transcriptBlock struct {
 	text     string
 	done     bool
 	err      bool
-	quietOk  bool   // quiet tool completed successfully — render inline ✓
-	toolName string // set for blockTool, used for quiet-tool suppression
+	quietOk   bool   // quiet tool completed successfully — render inline ✓
+	toolName  string // set for blockTool, used for quiet-tool suppression
+	toolParams string // set for blockTool, parameter text rendered after [Name] without highlight
 }
 
 type transcript struct {
@@ -188,8 +189,10 @@ func (t *transcript) apply(event protocol.Event) {
 			idx = t.append(blockTool, "tool: "+e.Name, "")
 			t.toolByID[e.ID] = idx
 		}
+		name, params := formatToolTitleKVs(e.Name, e.Input)
 		t.blocks[idx].toolName = e.Name
-		t.blocks[idx].title = formatToolTitleKVs(e.Name, e.Input)
+		t.blocks[idx].title = name
+		t.blocks[idx].toolParams = params
 		t.blocks[idx].text = formatToolPreview(e.Name, e.Input)
 	case protocol.ToolExecStarted:
 		idx, ok := t.toolByID[e.ID]
@@ -366,7 +369,10 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 				t.appendDone(blockAssistant, "cece", b.Text)
 			case protocol.ToolUseContentType:
 				if b.ToolUse != nil {
-					t.appendDone(blockTool, formatToolTitleKVs(b.ToolUse.Name, b.ToolUse.Input), formatToolPreview(b.ToolUse.Name, b.ToolUse.Input))
+					name, params := formatToolTitleKVs(b.ToolUse.Name, b.ToolUse.Input)
+					blk := t.appendDone(blockTool, name, formatToolPreview(b.ToolUse.Name, b.ToolUse.Input))
+					t.blocks[blk].toolName = b.ToolUse.Name
+					t.blocks[blk].toolParams = params
 				}
 			}
 		}
@@ -433,18 +439,35 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		if len(label) > maxLabel {
 			label = label[:maxLabel-3] + "..."
 		}
+		// Also truncate params so the full line fits within width.
+		if block.toolParams != "" {
+			maxParams := width - len(label) - 4 // "[" + label + "]" + " "
+			if maxParams < 10 {
+				maxParams = 10
+			}
+			if len(block.toolParams) > maxParams {
+				block.toolParams = block.toolParams[:maxParams-3] + "..."
+			}
+		}
 	}
 	text := strings.TrimRight(block.text, "\n")
 	if block.kind == blockThinking {
 		text = renderThinkingPreview(text)
 	}
 	lbl := labelStyleForKind(block.kind, sty)
+	// For tool blocks, render [Name] highlighted and params plain.
+	renderLabel := func() string {
+		if block.kind == blockTool && block.toolParams != "" {
+			return lbl.Render("["+label+"]") + " " + block.toolParams
+		}
+		return lbl.Render("[" + label + "]")
+	}
 	if text == "" {
 		if block.quietOk {
 			check := lipgloss.NewStyle().Foreground(theme.Green).Render("✓")
-			return lbl.Render("["+label+"]") + " " + check
+			return renderLabel() + " " + check
 		}
-		return lbl.Render("[" + label + "]")
+		return renderLabel()
 	}
 	// Markdown-rendered blocks: plan and completed assistant messages.
 	if block.kind == blockPlan || (block.kind == blockAssistant && block.done) {
@@ -461,7 +484,7 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		dimmed := sty.Chat.LabelThinking
 		return lbl.Render("["+label+"]") + "\n" + indent(dimmed.Render(text), "  ")
 	}
-	return lbl.Render("["+label+"]") + "\n" + indent(text, "  ")
+	return renderLabel() + "\n" + indent(text, "  ")
 }
 
 func renderThinkingPreview(text string) string {

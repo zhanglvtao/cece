@@ -89,30 +89,31 @@ func formatJSONPreview(raw json.RawMessage) string {
 }
 
 // formatToolTitleKVs formats a tool call's input as a single-line KV string
-// for display in the block title, e.g. "Edit path: /foo old_string: \"bar\"".
-func formatToolTitleKVs(name string, raw json.RawMessage) string {
+// for display in the block title. Returns (name, params) separately so the
+// renderer can color them differently — name gets highlighted, params do not.
+func formatToolTitleKVs(name string, raw json.RawMessage) (string, string) {
 	if len(raw) == 0 {
-		return name
+		return name, ""
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return name
+		return name, ""
 	}
 	m, ok := v.(map[string]any)
 	if !ok {
-		return name
+		return name, ""
 	}
 	// For Edit/Write, only show path — old_string/new_string are too long.
 	if name == "Edit" || name == "Write" {
 		if p, ok := m["path"].(string); ok {
-			return name + " " + p
+			return name, p
 		}
 	}
 	var parts []string
 	for key, val := range m {
 		parts = append(parts, key+": "+formatToolTitleValue(val))
 	}
-	return name + " " + strings.Join(parts, " ")
+	return name, strings.Join(parts, " ")
 }
 
 func formatToolTitleValue(val any) string {
