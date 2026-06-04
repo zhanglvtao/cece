@@ -8,6 +8,7 @@ type StatusBarSnapshot struct {
 	ToolCounts          map[string]int `json:"tool_counts,omitempty"`
 	CacheReadTokens     int            `json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int            `json:"cache_creation_tokens,omitempty"`
+	TurnCount           int            `json:"turn_count,omitempty"`
 }
 
 // Session holds metadata about a conversation session.

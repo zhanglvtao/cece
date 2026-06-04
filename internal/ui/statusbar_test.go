@@ -77,8 +77,8 @@ func TestStatusBarRender(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("expected 2 lines, got %d", len(lines))
 	}
-	if !strings.Contains(lines[1], "api:1") {
-		t.Fatalf("missing api:1 in line 2: %q", lines[1])
+	if !strings.Contains(lines[1], "api×1") {
+		t.Fatalf("missing api×1 in line 2: %q", lines[1])
 	}
 	if !strings.Contains(lines[1], "Grep×2") {
 		t.Fatalf("missing Grep×2 in line 2: %q", lines[1])

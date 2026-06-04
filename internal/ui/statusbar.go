@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"cece/internal/logger"
+
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -21,6 +23,7 @@ type StatusBar struct {
 	statusFrame         int
 	apiCalls            int
 	toolCounts          map[string]int
+	turnCount           int
 	inputTokens         int
 	outputTokens        int
 	contextUsed         int
@@ -77,6 +80,9 @@ func (sb *StatusBar) UpdateCache(read, creation int) {
 
 // UpdateContext updates the context gauge.
 func (sb *StatusBar) UpdateContext(used, window int) {
+	if sb.contextWindow != window && window > 0 {
+		logger.Info("StatusBar: contextWindow changed", "old", sb.contextWindow, "new", window)
+	}
 	sb.contextUsed = used
 	sb.contextWindow = window
 }
@@ -95,6 +101,12 @@ func (sb *StatusBar) ResetToolCounts() {
 // SetAPICalls sets the API call counter to the given value.
 func (sb *StatusBar) SetAPICalls(n int) { sb.apiCalls = n }
 
+// SetTurnCount sets the cumulative turn count.
+func (sb *StatusBar) SetTurnCount(n int) { sb.turnCount = n }
+
+// IncrementTurnCount increments the cumulative turn count.
+func (sb *StatusBar) IncrementTurnCount() { sb.turnCount++ }
+
 // SetToolCounts replaces the tool counts map with the given one.
 func (sb *StatusBar) SetToolCounts(m map[string]int) {
 	if m == nil {
@@ -104,7 +116,7 @@ func (sb *StatusBar) SetToolCounts(m map[string]int) {
 }
 
 // Restore restores all persistent status bar data from a snapshot.
-func (sb *StatusBar) Restore(apiCalls int, toolCounts map[string]int, cacheRead, cacheCreation int) {
+func (sb *StatusBar) Restore(apiCalls int, toolCounts map[string]int, cacheRead, cacheCreation int, turnCount int) {
 	sb.apiCalls = apiCalls
 	if toolCounts == nil {
 		toolCounts = make(map[string]int)
@@ -112,6 +124,7 @@ func (sb *StatusBar) Restore(apiCalls int, toolCounts map[string]int, cacheRead,
 	sb.toolCounts = toolCounts
 	sb.cacheReadTokens = cacheRead
 	sb.cacheCreationTokens = cacheCreation
+	sb.turnCount = turnCount
 }
 
 // Render returns the status bar as one or two lines with ANSI-colored elements.
@@ -156,8 +169,11 @@ func (sb *StatusBar) Render(width int) string {
 
 	// --- Line 2 (compact tool info) ---
 	var line2Parts []string
+	if sb.turnCount > 0 {
+		line2Parts = append(line2Parts, sb.styles.Status.Calls.Render(fmt.Sprintf("turn×%d", sb.turnCount)))
+	}
 	if sb.apiCalls > 0 {
-		line2Parts = append(line2Parts, sb.styles.Status.Calls.Render(fmt.Sprintf("api:%d", sb.apiCalls)))
+		line2Parts = append(line2Parts, sb.styles.Status.Calls.Render(fmt.Sprintf("api×%d", sb.apiCalls)))
 	}
 	if len(sb.toolCounts) > 0 {
 		names := make([]string, 0, len(sb.toolCounts))
@@ -189,7 +205,7 @@ func (sb *StatusBar) Render(width int) string {
 
 // Height returns the number of lines the status bar occupies (1 or 2).
 func (sb *StatusBar) Height() int {
-	if sb.apiCalls > 0 || len(sb.toolCounts) > 0 {
+	if sb.turnCount > 0 || sb.apiCalls > 0 || len(sb.toolCounts) > 0 {
 		return 2
 	}
 	return 1

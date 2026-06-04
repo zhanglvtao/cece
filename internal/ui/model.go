@@ -220,7 +220,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case globalEventMsg:
 		for _, ev := range msg.events {
+			cwBefore := m.contextWindow
 			m.applyEvent(ev)
+			if m.contextWindow != cwBefore {
+				logger.Info("UI: contextWindow changed during applyEvent", "old", cwBefore, "new", m.contextWindow, "eventType", fmt.Sprintf("%T", ev))
+			}
 		}
 		if m.shouldQuit {
 			m.shouldQuit = false
@@ -344,7 +348,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 				logger.Info("UI: contextWindow changed by SessionLoadedEvent", "old", m.contextWindow, "new", e.ContextWindow)
 				m.contextWindow = e.ContextWindow
 			}
-			m.statusBar.Restore(e.APICalls, e.ToolCounts, e.CacheReadTokens, e.CacheCreationTokens)
+			m.statusBar.Restore(e.APICalls, e.ToolCounts, e.CacheReadTokens, e.CacheCreationTokens, e.TurnCount)
 			m.status = "Session loaded"
 		}
 	case protocol.HistoryClearedEvent:

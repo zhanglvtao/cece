@@ -285,6 +285,7 @@ type TurnCompleted struct {
 	TotalOutputTokens   int // cumulative output tokens across all API calls in this turn
 	CacheReadTokens     int // cumulative cache read tokens across this session
 	CacheCreationTokens int // cumulative cache creation tokens across this session
+	TurnCount           int // cumulative conversation turn count
 }
 
 func (TurnCompleted) isEvent() {}
@@ -350,6 +351,7 @@ type SessionLoadedEvent struct {
 	ToolCounts          map[string]int
 	CacheReadTokens     int
 	CacheCreationTokens int
+	TurnCount           int
 	Err                 string
 }
 
