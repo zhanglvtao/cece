@@ -130,24 +130,42 @@ func SelfUpdate(ctx context.Context, info Info) (string, error) {
 		return "", fmt.Errorf("cannot find current executable: %w", err)
 	}
 
-	// Write new binary to temp file, then rename.
-	tmp := exe + ".new"
-	if err := os.WriteFile(tmp, bin, 0o755); err != nil {
-		return "", fmt.Errorf("write new binary failed: %w", err)
+	// Write new binary to a temp file in the same directory.
+	// Using the same directory avoids cross-device rename issues.
+	dir := filepath.Dir(exe)
+	tmp, err := os.CreateTemp(dir, "cece-*.new")
+	if err != nil {
+		// Likely a permission error; try user temp dir instead.
+		tmp, err = os.CreateTemp("", "cece-*.new")
+		if err != nil {
+			return "", fmt.Errorf("create temp file failed: %w", err)
+		}
 	}
+	tmpName := tmp.Name()
+	if err := os.Chmod(tmpName, 0o755); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return "", fmt.Errorf("chmod temp file failed: %w", err)
+	}
+	if _, err := tmp.Write(bin); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return "", fmt.Errorf("write temp file failed: %w", err)
+	}
+	tmp.Close()
 
 	// Rename old binary out of the way (inode stays alive until process exits).
 	backup := exe + ".old"
 	if err := os.Rename(exe, backup); err != nil {
-		os.Remove(tmp)
-		return "", fmt.Errorf("backup old binary failed: %w", err)
+		os.Remove(tmpName)
+		return "", fmt.Errorf("permission denied, try: sudo cece update")
 	}
 
 	// Rename new binary into place.
-	if err := os.Rename(tmp, exe); err != nil {
+	if err := os.Rename(tmpName, exe); err != nil {
 		// Try to restore backup.
 		os.Rename(backup, exe)
-		os.Remove(tmp)
+		os.Remove(tmpName)
 		return "", fmt.Errorf("install new binary failed: %w", err)
 	}
 
