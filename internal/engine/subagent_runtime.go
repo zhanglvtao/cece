@@ -368,11 +368,67 @@ func (rt *AgentRuntime) resultFromMessage(msg AgentMessage) tool.AgentSubAgentRe
 }
 
 func formatAgentMessage(msg AgentMessage) string {
+	switch msg.Kind {
+	case AgentMessageProgress:
+		snap, ok := msg.Payload.(AgentRuntimeSnapshot)
+		if ok {
+			return fmt.Sprintf("Agent %s is %s", msg.AgentID, snap.LastActivity)
+		}
+		return fmt.Sprintf("Agent %s is running", msg.AgentID)
+	case AgentMessageQuestion:
+		return formatQuestionPayload(msg)
+	case AgentMessageConfirmRequest:
+		return formatConfirmPayload(msg)
+	case AgentMessageResult:
+		if res, ok := msg.Payload.(tool.AgentSubAgentResult); ok {
+			return res.Content
+		}
+	case AgentMessageError:
+		if p, ok := msg.Payload.(map[string]any); ok {
+			if errStr, ok := p["error"].(string); ok {
+				return fmt.Sprintf("Agent %s failed: %s", msg.AgentID, errStr)
+			}
+		}
+	}
+	// Fallback to JSON
 	b, err := json.MarshalIndent(msg, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("agent %s status: %s", msg.AgentID, msg.Status)
 	}
 	return string(b)
+}
+
+func formatQuestionPayload(msg AgentMessage) string {
+	p, ok := msg.Payload.(map[string]any)
+	if !ok {
+		return fmt.Sprintf("Agent %s has a question", msg.AgentID)
+	}
+	qid, _ := p["question_id"].(string)
+	questions, _ := p["questions"].([]protocol.Question)
+	var b strings.Builder
+	fmt.Fprintf(&b, "Agent %s is waiting for answer (id: %s):\n", msg.AgentID, qid)
+	for i, q := range questions {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, q.Question)
+	}
+	return b.String()
+}
+
+func formatConfirmPayload(msg AgentMessage) string {
+	p, ok := msg.Payload.(map[string]any)
+	if !ok {
+		return fmt.Sprintf("Agent %s is waiting for confirmation", msg.AgentID)
+	}
+	kind, _ := p["kind"].(string)
+	if kind == "plan" {
+		planFile, _ := p["plan_file"].(string)
+		return fmt.Sprintf("Agent %s is waiting for plan approval: %s", msg.AgentID, planFile)
+	}
+	calls, _ := p["tool_calls"].([]protocol.ToolUseBlock)
+	var names []string
+	for _, c := range calls {
+		names = append(names, c.Name)
+	}
+	return fmt.Sprintf("Agent %s is waiting for tool confirmation: %v", msg.AgentID, names)
 }
 
 func shortID(id string) string {

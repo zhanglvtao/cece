@@ -190,6 +190,21 @@ func Build(opts Options) (*Bundle, error) {
 
 	mediator := engine.NewEngineMediator(eng, opts.Store, resolveFn, createFn, listFn, opts.MCPManager, opts.LightClientFn)
 
+	// Inject sub-agent runtime factory with full Mediator wiring.
+	eng.SetSubAgentFactory(&subAgentFactory{
+		store:            opts.Store,
+		createClientFn:   createFn,
+		providerResolver: resolveFn,
+		listAllModelsFn:  listFn,
+		mcpManager:       opts.MCPManager,
+		lightClientFn:    opts.LightClientFn,
+		contextWindowFor: opts.ContextWindowFor,
+		modelClientFor:   opts.ModelClientFor,
+		maxTokens:        maxTokens,
+		projectDir:       opts.ProjectDir,
+		parentEng:        eng,
+	})
+
 	return &Bundle{
 		Engine:    eng,
 		Mediator:  mediator,
@@ -201,4 +216,85 @@ func Build(opts Options) (*Bundle, error) {
 		Assembler: assembler,
 		Cleanup:   cleanup,
 	}, nil
+}
+
+// subAgentFactory implements engine.SubAgentRuntimeFactory.
+// It builds a full AgentRuntime with its own Engine + EngineMediator.
+type subAgentFactory struct {
+	store            session.Store
+	createClientFn   CreateClientFn
+	providerResolver ProviderResolverFn
+	listAllModelsFn  ListAllModelsFn
+	mcpManager       *mcp.Manager
+	lightClientFn    LightModelClientFn
+	contextWindowFor ContextWindowFn
+	modelClientFor   func(model string) agent.ModelClient
+	maxTokens        int
+	projectDir       string
+	parentEng        *engine.Engine
+}
+
+func (f *subAgentFactory) NewSubAgentRuntime(ctx context.Context, cfg engine.SubAgentBuildConfig) (*engine.AgentRuntime, error) {
+	// Resolve model
+	subModel := cfg.Model
+	if subModel == "" {
+		subModel = f.parentEng.SessionMetaModel()
+	}
+
+	var client agent.ModelClient
+	if f.modelClientFor != nil && subModel != "" {
+		if c := f.modelClientFor(subModel); c != nil {
+			client = c
+		}
+	}
+	if client == nil {
+		client = f.parentEng.Client()
+	}
+
+	// Build sub registry excluding Agent tool and engine-bound tools
+	subRegistry := f.parentEng.BuildSubRegistry(cfg.Tools)
+
+	// Build sub assembler
+	contextWindow := 200000
+	if f.contextWindowFor != nil {
+		if cw := f.contextWindowFor(subModel); cw > 0 {
+			contextWindow = cw
+		}
+	}
+	stablePrompt := prompt.FormatSubAgentSystemPrompt(f.projectDir, cfg.SystemPromptExtra)
+	collector := prompt.NewDefaultSessionCollector(f.projectDir, subRegistry)
+	subAssembler := prompt.NewContextAssembler(stablePrompt, subRegistry, collector)
+	subAssembler.SetMaxContextTokens(contextWindow)
+
+	maxTokens := cfg.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = f.maxTokens
+	}
+
+	// Build sub Engine
+	subEng := engine.NewEngine(client, subRegistry, false, maxTokens, subAssembler, f.projectDir)
+	subEng.SetStore(f.store)
+	subEng.SetPlanModeState(tool.NewPlanModeState())
+	subEng.SetTaskList(tool.NewTaskList())
+	if f.modelClientFor != nil {
+		subEng.ModelClientFor = f.modelClientFor
+	}
+	if f.contextWindowFor != nil {
+		subEng.ContextWindowFor = f.contextWindowFor
+	}
+	subEng.SetModelInfo(subModel, contextWindow)
+
+	// Register sub-engine-bound context management tools
+	subRegistry.Register(tool.NewCompact(subEng.CompactHandler()))
+	subRegistry.Register(tool.NewTrimToolResults(subEng.TrimToolResultsHandler()))
+	subRegistry.Register(tool.NewPrune(subEng.PruneHandler()))
+
+	// Build sub Mediator for switch_model support
+	subMediator := engine.NewEngineMediator(subEng, f.store, f.providerResolver, f.createClientFn, f.listAllModelsFn, f.mcpManager, f.lightClientFn)
+
+	// Create runtime with cancellable context
+	subCtx, cancel := context.WithCancel(ctx)
+	rt := engine.NewAgentRuntime(cfg.AgentID, cfg.Description, subModel, cfg.ParentSessionID, subEng, subMediator, subCtx, cancel)
+
+	return rt, nil
 }

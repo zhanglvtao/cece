@@ -22,6 +22,25 @@ import (
 //
 // Engine implements agent.TurnEngine (for TurnBootstrap) and satisfies the
 // ui.Sender / ui.Actor / ui.Eventer interfaces consumed by the BubbleTea UI.
+// SubAgentRuntimeFactory builds a complete AgentRuntime for a sub-agent.
+// This is injected by runtime.Build so the Engine doesn't need to know
+// about provider resolvers, MCP managers, etc.
+type SubAgentRuntimeFactory interface {
+	NewSubAgentRuntime(ctx context.Context, cfg SubAgentBuildConfig) (*AgentRuntime, error)
+}
+
+// SubAgentBuildConfig carries the parameters for building a sub-agent runtime.
+type SubAgentBuildConfig struct {
+	AgentID           string
+	Description       string
+	Model             string
+	ProjectDir        string
+	MaxTokens         int
+	ParentSessionID   string
+	SystemPromptExtra string
+	Tools             []string // explicit tool names; empty = all except Agent
+}
+
 type Engine struct {
 	mu         sync.Mutex
 	client     agent.ModelClient
@@ -58,6 +77,7 @@ type Engine struct {
 	inputQueue          *userInputQueue                      // queued user inputs while agent is busy
 	nextSubAgentID      int                                  // monotonic ID for sub-agent lifecycle events
 	subAgents          map[string]*AgentRuntime              // live sub-agent runtimes by ID
+	subAgentFactory    SubAgentRuntimeFactory                // optional factory for building sub-agent runtimes with Mediator
 	questionAnswers     []tool.QuestionAnswer
 	eventCh             chan protocol.Event // global event channel for async responses
 }
@@ -360,6 +380,8 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 		return e.rejectSubAgent(cfg)
 	case "cancel":
 		return e.cancelSubAgent(cfg)
+	case "switch_model":
+		return e.switchSubAgentModel(cfg)
 	default:
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("unknown operation: %s", operation), Err: "unknown_operation"}, nil
 	}
@@ -367,14 +389,79 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 
 func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
 	e.mu.Lock()
+	parentSessionID := e.sessionID
+	parentModel := e.modelName
+	e.mu.Unlock()
+
+	// Allocate agent ID
+	e.mu.Lock()
+	e.nextSubAgentID++
+	agentID := fmt.Sprintf("agent-%d", e.nextSubAgentID)
+	e.mu.Unlock()
+
+	// Try factory first (production path with full Mediator wiring)
+	if e.subAgentFactory != nil {
+		rt, err := e.subAgentFactory.NewSubAgentRuntime(ctx, SubAgentBuildConfig{
+			AgentID:           agentID,
+			Description:       cfg.Description,
+			Model:             cfg.Model,
+			ParentSessionID:   parentSessionID,
+			SystemPromptExtra: cfg.SystemPromptExtra,
+			Tools:             cfg.Tools,
+		})
+		if err != nil {
+			e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
+			return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("sub-agent factory failed: %v", err), Err: err.Error()}, err
+		}
+		// Set model from config or fallback to parent
+		if cfg.Model == "" {
+			rt.mu.Lock()
+			rt.Model = parentModel
+			rt.mu.Unlock()
+		}
+
+		// Register in supervisor
+		e.mu.Lock()
+		e.subAgents[agentID] = rt
+		e.mu.Unlock()
+
+		// Start bridge goroutine
+		go e.bridgeSubRuntimeEvents(rt, e.store, parentSessionID)
+
+		// Emit start event
+		e.emitEvent(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description})
+
+		// Start child Engine
+		if err := rt.Engine.Input(rt.Context, cfg.Prompt); err != nil {
+			rt.CancelFunc()
+			e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
+			e.mu.Lock()
+			delete(e.subAgents, agentID)
+			e.mu.Unlock()
+			return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("sub-agent start failed: %v", err), Err: err.Error()}, err
+		}
+
+		// Bounded wait
+		msg := rt.WaitInitial(3 * time.Second)
+		result := rt.resultFromMessage(msg)
+		e.accumulateSubAgentTokens(result)
+		return result, nil
+	}
+
+	// Fallback: build bare Engine without Mediator (test / simple path)
+	return e.startSubAgentBare(ctx, cfg, agentID, parentSessionID, parentModel)
+}
+
+// startSubAgentBare builds a sub-agent Engine without Mediator.
+// Used when SubAgentRuntimeFactory is not injected (e.g. tests).
+func (e *Engine) startSubAgentBare(ctx context.Context, cfg tool.AgentSubAgentConfig, agentID, parentSessionID, parentModel string) (tool.AgentSubAgentResult, error) {
+	e.mu.Lock()
 	client := e.client
 	projectDir := e.projectDir
 	maxTokens := e.maxTokens
 	modelClientFor := e.ModelClientFor
 	contextWindowFor := e.ContextWindowFor
 	store := e.store
-	parentSessionID := e.sessionID
-	parentModel := e.modelName
 	parentContextWindow := e.contextWindow
 	e.mu.Unlock()
 
@@ -387,14 +474,8 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 		}
 	}
 
-	// Allocate agent ID
-	e.mu.Lock()
-	e.nextSubAgentID++
-	agentID := fmt.Sprintf("agent-%d", e.nextSubAgentID)
-	e.mu.Unlock()
-
 	// Build sub registry excluding Agent tool and engine-bound tools
-	subRegistry := e.buildSubRegistry(cfg.Tools)
+	subRegistry := e.BuildSubRegistry(cfg.Tools)
 
 	// Build sub assembler with independent context window
 	contextWindow := parentContextWindow
@@ -409,8 +490,6 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 	subAssembler.SetMaxContextTokens(contextWindow)
 
 	// Build sub Engine — full Engine instance
-	// Sub-agent uses yolo=false so AskUserQuestion/PlanApproval work correctly.
-	// The A2A bridge handles confirm/answer routing.
 	subEng := NewEngine(client, subRegistry, false, maxTokens, subAssembler, projectDir)
 	subEng.SetStore(store)
 	subEng.SetPlanModeState(tool.NewPlanModeState())
@@ -425,7 +504,6 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 	subRegistry.Register(tool.NewPrune(subEng.PruneHandler()))
 
 	// Create runtime with cancellable context
-	// Derive from parent ctx so cancellation propagates, but with separate cancel for explicit termination
 	subCtx, cancel := context.WithCancel(ctx)
 	rt := NewAgentRuntime(agentID, cfg.Description, subModel, parentSessionID, subEng, nil, subCtx, cancel)
 
@@ -438,30 +516,27 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 	go e.bridgeSubRuntimeEvents(rt, store, parentSessionID)
 
 	// Emit start event
-	e.emitEvent(protocol.SubAgentStartedEvent{
-		ID:          agentID,
-		Description: cfg.Description,
-	})
+	e.emitEvent(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description})
 
-	// Start child Engine with initial prompt
+	// Start child Engine
 	if err := subEng.Input(subCtx, cfg.Prompt); err != nil {
 		cancel()
-		e.emitEvent(protocol.SubAgentFailedEvent{
-			ID:          agentID,
-			Description: cfg.Description,
-			Error:       err.Error(),
-		})
+		e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
 		e.mu.Lock()
 		delete(e.subAgents, agentID)
 		e.mu.Unlock()
 		return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("sub-agent start failed: %v", err), Err: err.Error()}, err
 	}
 
-	// Bounded wait: wait up to 3 seconds for an interesting status
+	// Bounded wait
 	msg := rt.WaitInitial(3 * time.Second)
 	result := rt.resultFromMessage(msg)
+	e.accumulateSubAgentTokens(result)
+	return result, nil
+}
 
-	// Accumulate tokens to parent session if completed
+// accumulateSubAgentTokens adds completed sub-agent token counts to the parent session.
+func (e *Engine) accumulateSubAgentTokens(result tool.AgentSubAgentResult) {
 	if result.Status == string(AgentStatusCompleted) || result.Status == string(AgentStatusFailed) || result.Status == string(AgentStatusCancelled) {
 		e.mu.Lock()
 		e.totalInputTokens += result.InputTokens
@@ -469,8 +544,6 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 		e.apiCalls += result.TurnsUsed + 1
 		e.mu.Unlock()
 	}
-
-	return result, nil
 }
 
 func (e *Engine) statusSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
@@ -578,16 +651,40 @@ func (e *Engine) cancelSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgen
 	}, nil
 }
 
+func (e *Engine) switchSubAgentModel(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
+	rt := e.getSubAgent(cfg.AgentID)
+	if rt == nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
+	}
+	if cfg.Model == "" {
+		return tool.AgentSubAgentResult{Content: "model is required for switch_model operation", Err: "missing_model"}, nil
+	}
+	if rt.Mediator == nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s has no mediator (switch_model not available)", rt.ID), Err: "no_mediator"}, nil
+	}
+
+	// Delegate to child Mediator's switchModel.
+	// The Mediator's providerResolver will fill in APIKey/BaseURL/etc.
+	rt.Mediator.Do(protocol.SwitchModelAction{Model: cfg.Model})
+	snap := rt.Snapshot()
+	return tool.AgentSubAgentResult{
+		AgentID:   rt.ID,
+		SessionID: snap.SessionID,
+		Status:    string(snap.Status),
+		Content:   fmt.Sprintf("agent %s switched to model %s", rt.ID, cfg.Model),
+	}, nil
+}
+
 func (e *Engine) getSubAgent(agentID string) *AgentRuntime {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.subAgents[agentID]
 }
 
-// buildSubRegistry builds a tool registry for the sub-agent.
+// BuildSubRegistry builds a tool registry for a sub-agent.
 // It excludes the Agent tool to prevent nesting, and also excludes
 // Compact/TrimToolResults/Prune since those must be bound to the sub-Engine.
-func (e *Engine) buildSubRegistry(tools []string) *tool.Registry {
+func (e *Engine) BuildSubRegistry(tools []string) *tool.Registry {
 	subRegistry := tool.NewRegistry()
 	excluded := map[string]struct{}{
 		"Agent":           {},
@@ -803,6 +900,12 @@ func (e *Engine) SetStore(store session.Store) {
 	e.store = store
 }
 
+// SetSubAgentFactory injects the factory for building sub-agent runtimes.
+// Without this, startSubAgent falls back to building a bare Engine (no Mediator).
+func (e *Engine) SetSubAgentFactory(factory SubAgentRuntimeFactory) {
+	e.subAgentFactory = factory
+}
+
 // SetClient replaces the underlying ModelClient. Used by the mediator
 // when switching models across protocols.
 func (e *Engine) SetClient(client agent.ModelClient) {
@@ -828,6 +931,13 @@ func (e *Engine) SessionMeta() (model string, contextWindow, lastInput, totalInp
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.modelName, e.contextWindow, e.lastInputTokens, e.totalInputTokens, e.totalOutputTokens, e.protocol, e.configName
+}
+
+// SessionMetaModel returns just the model name from session meta.
+func (e *Engine) SessionMetaModel() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.modelName
 }
 
 // ResetModelInfo sets the model tracking fields. Used by the mediator
