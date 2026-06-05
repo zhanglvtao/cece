@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// DiscoverAll discovers skills from builtin + project .cece/skills/.
+// DiscoverAll discovers skills from builtin + project .agents/skills/.
 // Project skills override builtin skills with the same name.
 func DiscoverAll(projectDir string) []*Skill {
 	all := DiscoverBuiltin()

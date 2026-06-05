@@ -134,6 +134,13 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 
 		// Check for queued user inputs between tool calls.
 		if inputs := r.deps.DrainQueuedInputs(); len(inputs) > 0 {
+			// Insert a standalone reminder before the first queued input
+			// so the LLM can decide whether to interrupt its current task.
+			if reason == "tool_result" {
+				reminder := Message{Role: UserRole, Content: QueuedInputReminder}
+				r.deps.AppendMessage(reminder)
+				r.deps.PersistMessage(ctx, reminder)
+			}
 			for _, input := range inputs {
 				user := Message{Role: UserRole, Content: input}
 				r.deps.AppendMessage(user)
