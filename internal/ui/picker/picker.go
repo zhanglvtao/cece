@@ -265,6 +265,11 @@ func (p *Picker) Selected() any {
 	return items[p.selectedI]
 }
 
+// SelectedIdx returns the index of the selected item among visible items.
+func (p *Picker) SelectedIdx() int {
+	return p.selectedI
+}
+
 // HandleKey processes a key event and returns a Result and an optional tea.Cmd.
 // The caller should check ResultClose to close the picker, and forward the
 // tea.Cmd if non-nil.

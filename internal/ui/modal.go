@@ -6,9 +6,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"cece/internal/config"
 	"cece/internal/logger"
 	"cece/internal/protocol"
 	"cece/internal/session"
+	"cece/internal/skill"
 	"cece/internal/ui/picker"
 	"cece/internal/ui/theme"
 	tea "charm.land/bubbletea/v2"
@@ -37,21 +39,23 @@ const (
 	modalModelPicker
 	modalSessionPicker
 	modalMCPPicker
+	modalSkillPicker
 	modalRenameSession
 )
 
 type modalState struct {
-	kind      modalKind
-	calls     []protocol.ToolUseBlock
-	questions []protocol.Question
-	qIndex    int
-	cursors   []int
-	selected  map[int][]int
-	custom    map[int]string
-	textMode  bool
-	textInput string
-	picker    *picker.Picker
-	planFile  string
+	kind          modalKind
+	calls         []protocol.ToolUseBlock
+	questions     []protocol.Question
+	qIndex        int
+	cursors       []int
+	selected      map[int][]int
+	custom        map[int]string
+	textMode      bool
+	textInput     string
+	picker        *picker.Picker
+	planFile      string
+	skillEnabled  map[string]bool // skill name -> enabled state in picker
 }
 
 func (m modalState) active() bool { return m.kind != modalNone }
@@ -60,7 +64,7 @@ func (m *Model) modalHeight() int {
 	if !m.modal.active() {
 		return 0
 	}
-	if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker || m.modal.kind == modalMCPPicker {
+	if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker || m.modal.kind == modalMCPPicker || m.modal.kind == modalSkillPicker {
 		if m.modal.picker != nil {
 			return m.modal.picker.Height() + 1 // +1 for separator line
 		}
@@ -82,7 +86,7 @@ func (m *Model) modalView() string {
 		body = m.styles.Modal.Title.Render("Approve plan "+m.modal.planFile+"?") + "\n" + m.styles.Modal.Help.Render("[y/enter] approve  [shift+tab] auto-accept  [n/esc] reject")
 	case modalQuestion:
 		body = m.questionView()
-	case modalModelPicker, modalSessionPicker, modalMCPPicker:
+	case modalModelPicker, modalSessionPicker, modalMCPPicker, modalSkillPicker:
 		if m.modal.picker != nil {
 			body = m.modal.picker.View()
 		}
@@ -102,6 +106,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleQuestionKey(msg)
 	case modalModelPicker, modalSessionPicker, modalMCPPicker:
 		return m.handlePickerKey(msg)
+	case modalSkillPicker:
+		return m.handleSkillPickerKey(msg)
 	case modalRenameSession:
 		return m.handleRenameSessionKey(msg)
 	}
@@ -630,6 +636,145 @@ func (m *Model) openMCPPicker(servers []protocol.MCPServerInfo) {
 		return nil
 	})
 	m.modal = modalState{kind: modalMCPPicker, picker: p}
+}
+
+func (m *Model) openSkillPicker() {
+	if m.skillStore == nil {
+		return
+	}
+	allSkills := m.skillStore.All()
+	if len(allSkills) == 0 {
+		m.transcript.appendDone(blockInfo, "skills", "No skills found.")
+		return
+	}
+
+	// Build enabled map from current store state
+	skillEnabled := make(map[string]bool, len(allSkills))
+	for _, s := range allSkills {
+		skillEnabled[s.Name] = m.skillStore.IsEnabled(s.Name)
+	}
+
+	items := make([]any, len(allSkills))
+	for i, s := range allSkills {
+		items[i] = s
+	}
+
+	p := picker.New("Skills", items, modalMaxHeight, func(item any, selected bool) string {
+		sk := item.(*skill.Skill)
+		mark := "[ ]"
+		if skillEnabled[sk.Name] {
+			mark = "[x]"
+		}
+		source := sk.Source
+		text := fmt.Sprintf("%s %s  %s  %s", mark, sk.Name, source, sk.Description)
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, text, selected)
+	})
+	p.SetHelpText("[up/down] move  [space] toggle  [enter/esc] close")
+	p.SetFilterFn(func(item any, q string) bool {
+		sk := item.(*skill.Skill)
+		return containsFold(sk.Name+" "+sk.Description, q)
+	})
+
+	m.modal = modalState{
+		kind:         modalSkillPicker,
+		picker:       p,
+		skillEnabled: skillEnabled,
+	}
+}
+
+func (m *Model) handleSkillPickerKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.modal.picker == nil {
+		return nil
+	}
+
+	switch msg.String() {
+	case "space":
+		// Toggle the currently selected skill
+		item := m.modal.picker.Selected()
+		if item == nil {
+			return nil
+		}
+		sk, ok := item.(*skill.Skill)
+		if !ok {
+			return nil
+		}
+		m.modal.skillEnabled[sk.Name] = !m.modal.skillEnabled[sk.Name]
+		// Rebuild picker to update checkboxes
+		m.rebuildSkillPicker()
+		return nil
+	case "enter", "esc":
+		// Persist and close
+		m.closeSkillPicker()
+		return nil
+	default:
+		// Delegate to picker for navigation and filtering
+		result, cmd := m.modal.picker.HandleKey(msg)
+		if result == picker.ResultClose {
+			m.closeSkillPicker()
+		}
+		return cmd
+	}
+}
+
+// rebuildSkillPicker rebuilds the picker with updated checkbox states.
+func (m *Model) rebuildSkillPicker() {
+	allSkills := m.skillStore.All()
+	items := make([]any, len(allSkills))
+	for i, s := range allSkills {
+		items[i] = s
+	}
+	skillEnabled := m.modal.skillEnabled
+	selectedIdx := m.modal.picker.SelectedIdx()
+
+	p := picker.New("Skills", items, modalMaxHeight, func(item any, selected bool) string {
+		sk := item.(*skill.Skill)
+		mark := "[ ]"
+		if skillEnabled[sk.Name] {
+			mark = "[x]"
+		}
+		text := fmt.Sprintf("%s %s  %s  %s", mark, sk.Name, sk.Source, sk.Description)
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, text, selected)
+	})
+	p.SetHelpText("[up/down] move  [space] toggle  [enter/esc] close")
+	p.SetFilterFn(func(item any, q string) bool {
+		sk := item.(*skill.Skill)
+		return containsFold(sk.Name+" "+sk.Description, q)
+	})
+
+	// Restore selection position
+	for i := 0; i < selectedIdx && i < len(items); i++ {
+		p.Down()
+	}
+
+	m.modal.picker = p
+}
+
+// closeSkillPicker persists the enabled state and closes the modal.
+func (m *Model) closeSkillPicker() {
+	// Compute final enabled list
+	var enabledNames []string
+	for _, sk := range m.skillStore.All() {
+		if m.modal.skillEnabled[sk.Name] {
+			enabledNames = append(enabledNames, sk.Name)
+		}
+	}
+
+	// Update store
+	m.skillStore.SetEnabled(enabledNames)
+
+	// Persist to settings.json
+	if m.projectDir != "" {
+		if err := config.SaveEnabledSkills(m.projectDir, enabledNames); err != nil {
+			m.status = "Failed to save skills: " + err.Error()
+		} else {
+			m.status = "Skills saved"
+		}
+	}
+
+	// Refresh slash popup
+	m.slashPopup.SetSkills(m.skillStore.Enabled())
+
+	m.modal = modalState{}
 }
 
 func (m *Model) showToolList(tools []protocol.ToolInfo) {

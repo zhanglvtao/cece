@@ -183,7 +183,7 @@ func (m *Model) SetDefaultMode(mode string) {
 func (m *Model) SetSkillStore(store *skill.Store) {
 	m.skillStore = store
 	if store != nil {
-		m.slashPopup.SetSkills(store.All())
+		m.slashPopup.SetSkills(store.Enabled())
 	}
 }
 
@@ -1147,10 +1147,7 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 		}
 		return nil
 	case "/skills":
-		if m.skillStore != nil {
-			m.transcript.appendDone(blockInfo, "skills", skill.FormatSkillList(m.skillStore.All()))
-			m.status = "Skills listed"
-		}
+		m.openSkillPicker()
 		return nil
 	case "/mcp":
 		if actor, ok := m.sender.(Actor); ok {
@@ -1173,7 +1170,7 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 	}
 	name := strings.TrimPrefix(spec.Command, "/")
 	if m.skillStore != nil {
-		if sk, ok := m.skillStore.Get(name); ok {
+		if sk, ok := m.skillStore.Get(name); ok && m.skillStore.IsEnabled(name) {
 			content := skill.FormatInvocation(sk, spec.Args)
 			if m.busy {
 				m.queueInput(content)

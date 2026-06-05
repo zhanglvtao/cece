@@ -69,6 +69,7 @@ type Config struct {
 	Providers           []ProviderConfig
 	MCP                 MCPs
 	Lint                LintConfig
+	EnabledSkills       []string         // skill names to enable; empty = all enabled
 }
 
 type settingsFile struct {
@@ -90,6 +91,9 @@ type settingsFile struct {
 	} `json:"yolo"`
 	MCP MCPs `json:"mcp"`
 	Lint LintConfig `json:"lint"`
+	Skills struct {
+		Enabled []string `json:"enabled"`
+	} `json:"skills"`
 }
 
 func Load(projectDir string) (Config, error) {
@@ -107,6 +111,7 @@ func Load(projectDir string) (Config, error) {
 	cfg.Yolo = sf.Yolo.Enabled
 	cfg.MCP = sf.MCP
 	cfg.Lint = sf.Lint
+	cfg.EnabledSkills = sf.Skills.Enabled
 
 	if v := os.Getenv("ZLAUDE_YOLO"); v == "1" || v == "true" {
 		cfg.Yolo = true
@@ -262,4 +267,29 @@ func (c Config) ContextWindowFor(model string) int {
 		}
 	}
 	return defaultContextWindow
+}
+
+// SaveEnabledSkills writes the skills.enabled list to the project-level settings.json.
+// It preserves all other fields in the file.
+func SaveEnabledSkills(projectDir string, names []string) error {
+	path := filepath.Join(projectDir, settingsRelPath)
+
+	var sf settingsFile
+	data, err := os.ReadFile(path)
+	if err == nil {
+		_ = json.Unmarshal(data, &sf)
+	}
+
+	sf.Skills.Enabled = names
+
+	out, err := json.MarshalIndent(sf, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create settings dir: %w", err)
+	}
+
+	return os.WriteFile(path, append(out, '\n'), 0o644)
 }

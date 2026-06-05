@@ -12,7 +12,7 @@ import (
 func DiscoverAll(projectDir string) []*Skill {
 	all := DiscoverBuiltin()
 
-	skillsDir := filepath.Join(projectDir, ".cece", "skills")
+	skillsDir := filepath.Join(projectDir, ".agents", "skills")
 	projectSkills := discoverFromDir(skillsDir, "project")
 	all = append(all, projectSkills...)
 

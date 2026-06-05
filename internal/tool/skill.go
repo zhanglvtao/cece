@@ -65,5 +65,12 @@ func (t skillTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		}
 	}
 
+	if !t.store.IsEnabled(p.Name) {
+		return Result{
+			Content: fmt.Sprintf("Skill %s is disabled. Enable it with /skills.", p.Name),
+			IsError: true,
+		}
+	}
+
 	return Result{Content: skill.FormatToolResult(s, p.Args)}
 }
