@@ -26,6 +26,8 @@ import (
 	"cece/internal/session"
 	"cece/internal/skill"
 	"cece/internal/ui"
+	"cece/internal/update"
+	"cece/internal/version"
 )
 
 type runtimeBundle struct {
@@ -83,6 +85,11 @@ func main() {
 		switch os.Args[1] {
 		case "engine":
 			os.Exit(runEngineStdio(projectDir, os.Args[2:]))
+		case "version", "--version", "-v":
+			fmt.Println("cece", version.Version)
+			os.Exit(0)
+		case "update":
+			os.Exit(runUpdate())
 		case "help", "--help", "-h":
 			printHelp()
 			os.Exit(0)
@@ -97,10 +104,44 @@ func printHelp() {
 Usage:
   cece              Start interactive TUI
   cece engine       Run engine process (internal)
+  cece update       Check for updates and install the latest version
+  cece version      Print version
 
 Commands:
   help              Show this help
+  version           Print version and exit
+  update            Self-update to the latest release
 `)
+}
+
+func runUpdate() int {
+	ctx := context.Background()
+	current := version.Version
+
+	fmt.Printf("cece %s — checking for updates...\n", current)
+
+	info, err := update.Check(ctx, current)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "update check failed: %v\n", err)
+		return 1
+	}
+
+	if !info.Available() {
+		fmt.Printf("Already up to date (v%s).\n", info.Current)
+		return 0
+	}
+
+	fmt.Printf("New version available: v%s → v%s\n", info.Current, info.Latest)
+	fmt.Printf("Downloading...\n")
+
+	newVersion, err := update.SelfUpdate(ctx, info)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "self-update failed: %v\n", err)
+		return 1
+	}
+
+	fmt.Printf("Updated to v%s. Restart cece to use the new version.\n", newVersion)
+	return 0
 }
 
 func runTUI(projectDir string) int {

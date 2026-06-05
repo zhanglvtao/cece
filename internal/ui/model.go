@@ -14,6 +14,8 @@ import (
 	"cece/internal/protocol"
 	"cece/internal/session"
 	"cece/internal/skill"
+	"cece/internal/update"
+	"cece/internal/version"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -28,6 +30,10 @@ const (
 type globalEventMsg struct{ events []protocol.Event }
 type inputErrorMsg struct{ err error }
 type statusSpinnerTickMsg struct{}
+type updateAvailableMsg struct {
+	current string
+	latest  string
+}
 
 // Sender submits user input to the runtime.
 type Sender interface {
@@ -186,7 +192,22 @@ func (m Model) Init() tea.Cmd {
 	if eventer, ok := m.sender.(Eventer); ok {
 		cmds = append(cmds, consumeGlobalEventsCmd(eventer.Events()))
 	}
+	cmds = append(cmds, checkUpdateCmd())
 	return tea.Batch(cmds...)
+}
+
+func checkUpdateCmd() tea.Cmd {
+	return func() tea.Msg {
+		// Avoid blocking startup; use a short timeout.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		info, err := update.Check(ctx, version.Version)
+		if err != nil || !info.Available() {
+			return nil
+		}
+		return updateAvailableMsg{current: info.Current, latest: info.Latest}
+	}
 }
 
 func consumeGlobalEventsCmd(ch <-chan protocol.Event) tea.Cmd {
@@ -291,6 +312,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
+	case updateAvailableMsg:
+		m.status = fmt.Sprintf("Update: v%s → v%s (cece update)", msg.current, msg.latest)
+		return m, nil
 	}
 
 	if !m.modal.active() {

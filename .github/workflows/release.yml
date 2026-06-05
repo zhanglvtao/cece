@@ -29,7 +29,7 @@ jobs:
                 SUFFIX="cece-${GOOS}-${GOARCH}"
               fi
               echo "Building $SUFFIX..."
-              go build -ldflags="-s -w" -o "$SUFFIX" ./cmd/cece
+              go build -ldflags="-s -w -X cece/internal/version.Version=${GITHUB_REF_NAME#v}" -o "$SUFFIX" ./cmd/cece
               tar czf "${SUFFIX}.tar.gz" "$SUFFIX"
             done
           done
