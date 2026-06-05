@@ -7,11 +7,20 @@ import (
 	"strings"
 )
 
-// DiscoverAll discovers skills from builtin + project .agents/skills/.
-// Project skills override builtin skills with the same name.
+// DiscoverAll discovers skills from builtin + user ~/.agents/skills/ + project .agents/skills/.
+// Project skills override user skills; user skills override builtin with the same name.
 func DiscoverAll(projectDir string) []*Skill {
 	all := DiscoverBuiltin()
 
+	// User-level skills from ~/.agents/skills/
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		userSkillsDir := filepath.Join(home, ".agents", "skills")
+		userSkills := discoverFromDir(userSkillsDir, "user")
+		all = append(all, userSkills...)
+	}
+
+	// Project-level skills from .agents/skills/
 	skillsDir := filepath.Join(projectDir, ".agents", "skills")
 	projectSkills := discoverFromDir(skillsDir, "project")
 	all = append(all, projectSkills...)

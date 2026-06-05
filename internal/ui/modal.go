@@ -663,7 +663,7 @@ func (m *Model) openSkillPicker() {
 		sk := item.(*skill.Skill)
 		mark := "[ ]"
 		if skillEnabled[sk.Name] {
-			mark = "[x]"
+			mark = "[✓]"
 		}
 		source := sk.Source
 		text := fmt.Sprintf("%s %s  %s  %s", mark, sk.Name, source, sk.Description)
@@ -730,7 +730,7 @@ func (m *Model) rebuildSkillPicker() {
 		sk := item.(*skill.Skill)
 		mark := "[ ]"
 		if skillEnabled[sk.Name] {
-			mark = "[x]"
+			mark = "[✓]"
 		}
 		text := fmt.Sprintf("%s %s  %s  %s", mark, sk.Name, sk.Source, sk.Description)
 		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, text, selected)
