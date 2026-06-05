@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"cece/internal/protocol"
@@ -32,14 +33,20 @@ func (m *Model) taskBarView() string {
 }
 
 func renderTaskBar(tasks []protocol.TodoItem, width int, frame int, styles Styles) string {
+	sorted := make([]protocol.TodoItem, len(tasks))
+	copy(sorted, tasks)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return taskStatusOrder(sorted[i].Status) < taskStatusOrder(sorted[j].Status)
+	})
+
 	var b strings.Builder
 	b.WriteString(styles.Task.Label.Render("[Todo List]"))
 	b.WriteByte('\n')
-	show := tasks
+	show := sorted
 	overflow := 0
-	if len(tasks) > maxTaskBarLines {
-		show = tasks[:maxTaskBarLines]
-		overflow = len(tasks) - maxTaskBarLines
+	if len(sorted) > maxTaskBarLines {
+		show = sorted[:maxTaskBarLines]
+		overflow = len(sorted) - maxTaskBarLines
 	}
 	for _, t := range show {
 		icon := taskStatusIcon(t.Status, frame)
@@ -59,6 +66,17 @@ func renderTaskBar(tasks []protocol.TodoItem, width int, frame int, styles Style
 		b.WriteString(fmt.Sprintf("  ... +%d more", overflow))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func taskStatusOrder(status string) int {
+	switch status {
+	case "in_progress":
+		return 0
+	case "pending":
+		return 1
+	default: // completed etc.
+		return 2
+	}
 }
 
 func taskStyleFromStatus(status string, s Styles) lipgloss.Style {
