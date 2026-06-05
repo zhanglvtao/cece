@@ -158,7 +158,8 @@ func SelfUpdate(ctx context.Context, info Info) (string, error) {
 	backup := exe + ".old"
 	if err := os.Rename(exe, backup); err != nil {
 		os.Remove(tmpName)
-		return "", fmt.Errorf("permission denied, try: sudo cece update")
+		// Fallback to go install if no write permission.
+		return goInstallSelf(ctx)
 	}
 
 	// Rename new binary into place.
@@ -330,4 +331,15 @@ func githubToken() string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// goInstallSelf updates cece via `go install` as a fallback when the
+// current binary directory is not writable (e.g. /usr/local/bin).
+func goInstallSelf(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "go", "install", "github.com/zhanglvtao/cece@latest")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("go install failed: %w\n%s", err, string(output))
+	}
+	return "latest (via go install)", nil
 }
