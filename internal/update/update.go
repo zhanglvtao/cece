@@ -243,6 +243,9 @@ func (c *github) Latest(ctx context.Context) (*Release, error) {
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := hc.Do(req)
 	if err != nil {
