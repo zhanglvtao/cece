@@ -11,16 +11,17 @@ import (
 const AgentToolName = "Agent"
 
 // AgentHandler provides the callback for the Agent tool to run sub-agents.
-// Using function fields avoids circular imports between tool and agent packages.
 type AgentHandler struct {
-	// RunSubAgent creates and runs a sub-agent with the given config.
-	// Returns the result text, input tokens, output tokens, turns used, whether max turns was hit, and error.
 	RunSubAgent func(ctx context.Context, config AgentSubAgentConfig, emitter Emitter) (AgentSubAgentResult, error)
 }
 
 // AgentSubAgentConfig is the config passed from the Agent tool to the engine.
 type AgentSubAgentConfig struct {
+	Operation         string
+	AgentID           string
 	Prompt            string
+	Input             string
+	Answers           []QuestionAnswer
 	Description       string
 	SubAgentType      string
 	Model             string
@@ -31,6 +32,9 @@ type AgentSubAgentConfig struct {
 
 // AgentSubAgentResult is the result of a sub-agent run.
 type AgentSubAgentResult struct {
+	AgentID      string
+	SessionID    string
+	Status       string
 	Content      string
 	InputTokens  int
 	OutputTokens int
@@ -56,37 +60,60 @@ func (agentTool) Info() Definition {
 		Name:        AgentToolName,
 		Description: "Launch a sub-agent to handle a complex, multi-step task autonomously. Multiple Agent calls in a single response will run in parallel. The sub-agent has its own conversation history and tool set, but shares the project directory. It cannot spawn further sub-agents.",
 		InputSchema: map[string]any{
-			"type":     "object",
-			"required": []string{"prompt"},
+			"type": "object",
 			"properties": map[string]any{
+				"operation": map[string]any{
+					"type":        "string",
+					"description": "Operation: start (default), status, send, answer, confirm, reject, switch_model, or cancel.",
+				},
+				"agent_id": map[string]any{
+					"type":        "string",
+					"description": "Target agent ID for non-start operations.",
+				},
+				"input": map[string]any{
+					"type":        "string",
+					"description": "Additional semantic input for send operation.",
+				},
+				"answers": map[string]any{
+					"type":        "array",
+					"description": "Answers for answer operation.",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"question": map[string]any{"type": "string"},
+							"selected": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+							"custom":   map[string]any{"type": "string"},
+						},
+					},
+				},
 				"prompt": map[string]any{
 					"type":        "string",
-					"description": "The task for the sub-agent to perform. Brief it like a smart colleague who just walked into the room — it hasn't seen this conversation, doesn't know what you've tried. Provide enough context for it to work autonomously.",
+					"description": "The task for the sub-agent to perform.",
 				},
 				"description": map[string]any{
 					"type":        "string",
-					"description": "3-5 word summary of what this agent will do, for UI display.",
+					"description": "3-5 word summary for UI display.",
 				},
 				"subagent_type": map[string]any{
 					"type":        "string",
-					"description": "Predefined agent type (e.g. 'explore', 'coder'). Determines default tools and system prompt. Defaults to 'general'.",
+					"description": "Predefined agent type.",
 				},
 				"model": map[string]any{
 					"type":        "string",
-					"description": "Model to use for this sub-agent. Defaults to the same model as the parent agent.",
+					"description": "Model for this sub-agent.",
 				},
 				"tools": map[string]any{
 					"type":        "array",
 					"items":       map[string]any{"type": "string"},
-					"description": "Override the tool list for this sub-agent. By default, all parent tools are available except Agent (prevents nesting). Available tools: Bash, Read, Write, Edit, Grep, Glob, WebFetch, Compact, Skill, Todo, EnterPlanMode, ExitPlanMode, AskUserQuestion.",
+					"description": "Override tool list.",
 				},
 				"system_prompt": map[string]any{
 					"type":        "string",
-					"description": "Additional context appended to the sub-agent's system prompt. Use this to pass project-specific instructions, coding conventions, or constraints.",
+					"description": "Additional system prompt context.",
 				},
 				"max_turns": map[string]any{
 					"type":        "integer",
-					"description": "Maximum number of agentic iterations. The sub-agent stops naturally when finished. Only set this to limit resource usage. Default: no limit.",
+					"description": "Max agentic iterations.",
 				},
 			},
 		},
@@ -94,13 +121,17 @@ func (agentTool) Info() Definition {
 }
 
 type agentParams struct {
-	Prompt       string   `json:"prompt"`
-	Description  string   `json:"description,omitempty"`
-	SubAgentType string   `json:"subagent_type,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	Tools        []string `json:"tools,omitempty"`
-	SystemPrompt string   `json:"system_prompt,omitempty"`
-	MaxTurns     int      `json:"max_turns,omitempty"`
+	Operation    string           `json:"operation,omitempty"`
+	AgentID      string           `json:"agent_id,omitempty"`
+	Prompt       string           `json:"prompt,omitempty"`
+	Input        string           `json:"input,omitempty"`
+	Answers      []QuestionAnswer `json:"answers,omitempty"`
+	Description  string           `json:"description,omitempty"`
+	SubAgentType string           `json:"subagent_type,omitempty"`
+	Model        string           `json:"model,omitempty"`
+	Tools        []string         `json:"tools,omitempty"`
+	SystemPrompt string           `json:"system_prompt,omitempty"`
+	MaxTurns     int              `json:"max_turns,omitempty"`
 }
 
 func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
@@ -113,8 +144,16 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		return Result{Content: fmt.Sprintf("invalid params: %v", err), IsError: true}
 	}
 
-	if p.Prompt == "" {
-		return Result{Content: "prompt is required", IsError: true}
+	operation := strings.TrimSpace(p.Operation)
+	if operation == "" {
+		operation = "start"
+	}
+
+	if operation == "start" && p.Prompt == "" {
+		return Result{Content: "prompt is required for start operation", IsError: true}
+	}
+	if operation != "start" && p.AgentID == "" {
+		return Result{Content: "agent_id is required for non-start operations", IsError: true}
 	}
 
 	description := p.Description
@@ -122,10 +161,16 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		description = "Agent task"
 	}
 
-	emitter.Emit(fmt.Sprintf("Launching sub-agent: %s\n", description))
+	if operation == "start" {
+		emitter.Emit(fmt.Sprintf("Launching sub-agent: %s\n", description))
+	}
 
 	result, err := t.handler.RunSubAgent(ctx, AgentSubAgentConfig{
+		Operation:         operation,
+		AgentID:           p.AgentID,
 		Prompt:            p.Prompt,
+		Input:             p.Input,
+		Answers:           p.Answers,
 		Description:       description,
 		SubAgentType:      p.SubAgentType,
 		Model:             p.Model,
@@ -142,7 +187,10 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		return Result{Content: result.Content, IsError: true}
 	}
 
-	// Build result with metadata
+	if result.Status != "" && result.Status != "completed" {
+		return Result{Content: result.Content}
+	}
+
 	var b strings.Builder
 	b.WriteString(result.Content)
 
@@ -150,6 +198,12 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		b.WriteString("\n\n[Sub-agent hit max turns limit]")
 	}
 
+	if result.AgentID != "" {
+		b.WriteString(fmt.Sprintf("\n\nAgent: %s", result.AgentID))
+		if result.SessionID != "" {
+			b.WriteString(fmt.Sprintf(" | Session: %s", result.SessionID))
+		}
+	}
 	b.WriteString(fmt.Sprintf("\n\n---\nTokens: %dK in / %dK out | Turns: %d",
 		(result.InputTokens+999)/1000,
 		(result.OutputTokens+999)/1000,

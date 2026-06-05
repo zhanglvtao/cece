@@ -423,15 +423,17 @@ func (SubAgentStartedEvent) isEvent() {}
 
 // SubAgentActivityEvent is emitted when a running sub-agent reports current activity.
 type SubAgentActivityEvent struct {
-	ID       string
-	Activity string
+	ID        string
+	SessionID string
+	Activity  string
+	Status    string
 	// Structured fields for the agent bar view — filled by forwardSubAgentActivity.
-	Model           string // model name from StreamStarted
-	InputTokens     int    // cumulative input tokens
-	OutputTokens    int    // cumulative output tokens
-	CacheReadTokens int    // cumulative cache read tokens
-	TurnCount       int    // number of LLM turns completed so far
-	ToolCall        string // formatted current tool call, e.g. "Bash command: \"find...\""
+	Model            string // model name from StreamStarted
+	InputTokens      int    // cumulative input tokens
+	OutputTokens     int    // cumulative output tokens
+	CacheReadTokens  int    // cumulative cache read tokens
+	TurnCount        int    // number of LLM turns completed so far
+	ToolCall         string // formatted current tool call, e.g. "Bash command: \"find...\""
 	LastAssistantMsg string // most recent assistant text snippet (first line)
 }
 
@@ -441,6 +443,7 @@ func (SubAgentActivityEvent) isEvent() {}
 type SubAgentCompletedEvent struct {
 	ID           string
 	Description  string
+	SessionID    string
 	InputTokens  int
 	OutputTokens int
 	TurnsUsed    int
@@ -453,6 +456,7 @@ func (SubAgentCompletedEvent) isEvent() {}
 type SubAgentFailedEvent struct {
 	ID          string
 	Description string
+	SessionID   string
 	Error       string
 }
 

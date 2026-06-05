@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/zhanglvtao/cece/internal/agent"
 	"github.com/zhanglvtao/cece/internal/logger"
@@ -22,19 +23,19 @@ import (
 // Engine implements agent.TurnEngine (for TurnBootstrap) and satisfies the
 // ui.Sender / ui.Actor / ui.Eventer interfaces consumed by the BubbleTea UI.
 type Engine struct {
-	mu               sync.Mutex
-	client           agent.ModelClient
-	registry         *tool.Registry
-	assembler        *prompt.ContextAssembler
-	projectDir       string
-	planState        *tool.PlanModeState
-	taskList         *tool.TaskList
-	history          []agent.Message
-	cancel           context.CancelFunc
-	confirmCh        chan struct{} // set per Input call, cleared on completion
-	rejectCh         chan struct{} // set per Input call, signals user rejection without cancel
-	yolo             bool          // auto-approve tool execution without UI confirmation
-	maxTokens        int           // configurable max output tokens
+	mu         sync.Mutex
+	client     agent.ModelClient
+	registry   *tool.Registry
+	assembler  *prompt.ContextAssembler
+	projectDir string
+	planState  *tool.PlanModeState
+	taskList   *tool.TaskList
+	history    []agent.Message
+	cancel     context.CancelFunc
+	confirmCh  chan struct{} // set per Input call, cleared on completion
+	rejectCh   chan struct{} // set per Input call, signals user rejection without cancel
+	yolo       bool          // auto-approve tool execution without UI confirmation
+	maxTokens  int           // configurable max output tokens
 
 	ContextWindowFor    func(model string) int               // returns context window for a model ID
 	ModelClientFor      func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client
@@ -56,6 +57,7 @@ type Engine struct {
 	lastCompactTurn     int                                  // turn count at last compact/prune
 	inputQueue          *userInputQueue                      // queued user inputs while agent is busy
 	nextSubAgentID      int                                  // monotonic ID for sub-agent lifecycle events
+	subAgents          map[string]*AgentRuntime              // live sub-agent runtimes by ID
 	questionAnswers     []tool.QuestionAnswer
 	eventCh             chan protocol.Event // global event channel for async responses
 }
@@ -72,6 +74,7 @@ func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, max
 		maxTokens:  maxTokens,
 		inputQueue: &userInputQueue{},
 		toolCounts: make(map[string]int),
+		subAgents:  make(map[string]*AgentRuntime),
 		eventCh:    make(chan protocol.Event, 4096),
 	}
 }
@@ -186,7 +189,10 @@ func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int,
 		return "", 0, 0, fmt.Errorf("turn %d is beyond the last turn (%d)", keepTurn, totalTurns-1)
 	}
 
-	splitIdx := boundaries[keepTurn]
+	splitIdx, ok := agent.SafeContextBoundaryBeforeTurn(snapshot, keepTurn)
+	if !ok {
+		return "", 0, 0, fmt.Errorf("turn %d has no safe user boundary", keepTurn)
+	}
 	summarize := snapshot[:splitIdx]
 	keep := snapshot[splitIdx:]
 
@@ -280,11 +286,14 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	boundaries := agent.TurnBoundaries(snapshot)
 	tokensBefore := agent.EstimateMessagesTokens(snapshot)
 
-	if turn <= 0 || turn > len(boundaries) {
+	if turn <= 0 || turn >= len(boundaries) {
 		return tokensBefore, tokensBefore
 	}
 
-	startIdx := boundaries[turn-1]
+	startIdx, ok := agent.SafeContextBoundaryBeforeTurn(snapshot, turn)
+	if !ok {
+		return tokensBefore, tokensBefore
+	}
 
 	boundary := agent.Message{
 		Role: agent.UserRole,
@@ -331,15 +340,46 @@ func (e *Engine) AgentHandler() *tool.AgentHandler {
 }
 
 func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, emitter tool.Emitter) (tool.AgentSubAgentResult, error) {
+	operation := cfg.Operation
+	if operation == "" {
+		operation = "start"
+	}
+
+	switch operation {
+	case "start":
+		return e.startSubAgent(ctx, cfg)
+	case "status":
+		return e.statusSubAgent(cfg)
+	case "send":
+		return e.sendToSubAgent(cfg)
+	case "answer":
+		return e.answerSubAgent(cfg)
+	case "confirm":
+		return e.confirmSubAgent(cfg)
+	case "reject":
+		return e.rejectSubAgent(cfg)
+	case "cancel":
+		return e.cancelSubAgent(cfg)
+	default:
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("unknown operation: %s", operation), Err: "unknown_operation"}, nil
+	}
+}
+
+func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
 	e.mu.Lock()
 	client := e.client
 	projectDir := e.projectDir
 	maxTokens := e.maxTokens
 	modelClientFor := e.ModelClientFor
+	contextWindowFor := e.ContextWindowFor
+	store := e.store
+	parentSessionID := e.sessionID
+	parentModel := e.modelName
+	parentContextWindow := e.contextWindow
 	e.mu.Unlock()
 
-	// If a different model is requested, route to the corresponding client.
-	subModel := e.modelName // default: same as parent
+	// Resolve model client
+	subModel := parentModel
 	if cfg.Model != "" && modelClientFor != nil {
 		if subClient := modelClientFor(cfg.Model); subClient != nil {
 			client = subClient
@@ -347,16 +387,218 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 		}
 	}
 
-	// Build tool registry for the sub-agent.
-	// Default: all tools except Agent (prevent nesting).
-	// If LLM specifies tools, use that list (still excluding Agent).
-	subRegistry := tool.NewRegistry()
-	agentExcluded := map[string]struct{}{"Agent": {}}
+	// Allocate agent ID
+	e.mu.Lock()
+	e.nextSubAgentID++
+	agentID := fmt.Sprintf("agent-%d", e.nextSubAgentID)
+	e.mu.Unlock()
 
-	if len(cfg.Tools) > 0 {
-		// LLM-specified tool list
-		for _, name := range cfg.Tools {
-			if _, skip := agentExcluded[name]; skip {
+	// Build sub registry excluding Agent tool and engine-bound tools
+	subRegistry := e.buildSubRegistry(cfg.Tools)
+
+	// Build sub assembler with independent context window
+	contextWindow := parentContextWindow
+	if contextWindowFor != nil {
+		if cw := contextWindowFor(subModel); cw > 0 {
+			contextWindow = cw
+		}
+	}
+	stablePrompt := prompt.FormatSubAgentSystemPrompt(projectDir, cfg.SystemPromptExtra)
+	collector := prompt.NewDefaultSessionCollector(projectDir, subRegistry)
+	subAssembler := prompt.NewContextAssembler(stablePrompt, subRegistry, collector)
+	subAssembler.SetMaxContextTokens(contextWindow)
+
+	// Build sub Engine — full Engine instance
+	// Sub-agent uses yolo=false so AskUserQuestion/PlanApproval work correctly.
+	// The A2A bridge handles confirm/answer routing.
+	subEng := NewEngine(client, subRegistry, false, maxTokens, subAssembler, projectDir)
+	subEng.SetStore(store)
+	subEng.SetPlanModeState(tool.NewPlanModeState())
+	subEng.SetTaskList(tool.NewTaskList())
+	subEng.ModelClientFor = modelClientFor
+	subEng.ContextWindowFor = contextWindowFor
+	subEng.SetModelInfo(subModel, contextWindow)
+
+	// Register sub-engine-bound context management tools
+	subRegistry.Register(tool.NewCompact(subEng.CompactHandler()))
+	subRegistry.Register(tool.NewTrimToolResults(subEng.TrimToolResultsHandler()))
+	subRegistry.Register(tool.NewPrune(subEng.PruneHandler()))
+
+	// Create runtime with cancellable context
+	// Derive from parent ctx so cancellation propagates, but with separate cancel for explicit termination
+	subCtx, cancel := context.WithCancel(ctx)
+	rt := NewAgentRuntime(agentID, cfg.Description, subModel, parentSessionID, subEng, nil, subCtx, cancel)
+
+	// Register in supervisor
+	e.mu.Lock()
+	e.subAgents[agentID] = rt
+	e.mu.Unlock()
+
+	// Start bridge goroutine
+	go e.bridgeSubRuntimeEvents(rt, store, parentSessionID)
+
+	// Emit start event
+	e.emitEvent(protocol.SubAgentStartedEvent{
+		ID:          agentID,
+		Description: cfg.Description,
+	})
+
+	// Start child Engine with initial prompt
+	if err := subEng.Input(subCtx, cfg.Prompt); err != nil {
+		cancel()
+		e.emitEvent(protocol.SubAgentFailedEvent{
+			ID:          agentID,
+			Description: cfg.Description,
+			Error:       err.Error(),
+		})
+		e.mu.Lock()
+		delete(e.subAgents, agentID)
+		e.mu.Unlock()
+		return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("sub-agent start failed: %v", err), Err: err.Error()}, err
+	}
+
+	// Bounded wait: wait up to 3 seconds for an interesting status
+	msg := rt.WaitInitial(3 * time.Second)
+	result := rt.resultFromMessage(msg)
+
+	// Accumulate tokens to parent session if completed
+	if result.Status == string(AgentStatusCompleted) || result.Status == string(AgentStatusFailed) || result.Status == string(AgentStatusCancelled) {
+		e.mu.Lock()
+		e.totalInputTokens += result.InputTokens
+		e.totalOutputTokens += result.OutputTokens
+		e.apiCalls += result.TurnsUsed + 1
+		e.mu.Unlock()
+	}
+
+	return result, nil
+}
+
+func (e *Engine) statusSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
+	rt := e.getSubAgent(cfg.AgentID)
+	if rt == nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
+	}
+	snap := rt.Snapshot()
+	msg := rt.LastAgentMessage()
+	return tool.AgentSubAgentResult{
+		AgentID:   rt.ID,
+		SessionID: snap.SessionID,
+		Status:    string(snap.Status),
+		Content:   formatAgentMessage(msg),
+	}, nil
+}
+
+func (e *Engine) sendToSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
+	rt := e.getSubAgent(cfg.AgentID)
+	if rt == nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
+	}
+	if cfg.Input == "" {
+		return tool.AgentSubAgentResult{Content: "input is required for send operation", Err: "missing_input"}, nil
+	}
+	rt.Engine.QueueInput(cfg.Input)
+	snap := rt.Snapshot()
+	return tool.AgentSubAgentResult{
+		AgentID:   rt.ID,
+		SessionID: snap.SessionID,
+		Status:    string(snap.Status),
+		Content:   fmt.Sprintf("input queued for agent %s", rt.ID),
+	}, nil
+}
+
+func (e *Engine) answerSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
+	rt := e.getSubAgent(cfg.AgentID)
+	if rt == nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
+	}
+	if len(cfg.Answers) == 0 {
+		return tool.AgentSubAgentResult{Content: "answers are required for answer operation", Err: "missing_answers"}, nil
+	}
+	protoAnswers := make([]protocol.QuestionAnswer, len(cfg.Answers))
+	for i, a := range cfg.Answers {
+		protoAnswers[i] = protocol.QuestionAnswer{
+			Question: a.Question,
+			Selected: a.Selected,
+			Custom:   a.Custom,
+		}
+	}
+	rt.Engine.AnswerQuestion(protoAnswers)
+	snap := rt.Snapshot()
+	return tool.AgentSubAgentResult{
+		AgentID:   rt.ID,
+		SessionID: snap.SessionID,
+		Status:    string(snap.Status),
+		Content:   fmt.Sprintf("answers delivered to agent %s", rt.ID),
+	}, nil
+}
+
+func (e *Engine) confirmSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
+	rt := e.getSubAgent(cfg.AgentID)
+	if rt == nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
+	}
+	rt.Engine.Confirm()
+	snap := rt.Snapshot()
+	return tool.AgentSubAgentResult{
+		AgentID:   rt.ID,
+		SessionID: snap.SessionID,
+		Status:    string(snap.Status),
+		Content:   fmt.Sprintf("confirm sent to agent %s", rt.ID),
+	}, nil
+}
+
+func (e *Engine) rejectSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
+	rt := e.getSubAgent(cfg.AgentID)
+	if rt == nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
+	}
+	rt.Engine.RejectToolCalls()
+	snap := rt.Snapshot()
+	return tool.AgentSubAgentResult{
+		AgentID:   rt.ID,
+		SessionID: snap.SessionID,
+		Status:    string(snap.Status),
+		Content:   fmt.Sprintf("reject sent to agent %s", rt.ID),
+	}, nil
+}
+
+func (e *Engine) cancelSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
+	rt := e.getSubAgent(cfg.AgentID)
+	if rt == nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
+	}
+	rt.Cancel()
+	snap := rt.Snapshot()
+	return tool.AgentSubAgentResult{
+		AgentID:   rt.ID,
+		SessionID: snap.SessionID,
+		Status:    string(AgentStatusCancelled),
+		Content:   fmt.Sprintf("agent %s cancelled", rt.ID),
+		Cancelled: true,
+	}, nil
+}
+
+func (e *Engine) getSubAgent(agentID string) *AgentRuntime {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.subAgents[agentID]
+}
+
+// buildSubRegistry builds a tool registry for the sub-agent.
+// It excludes the Agent tool to prevent nesting, and also excludes
+// Compact/TrimToolResults/Prune since those must be bound to the sub-Engine.
+func (e *Engine) buildSubRegistry(tools []string) *tool.Registry {
+	subRegistry := tool.NewRegistry()
+	excluded := map[string]struct{}{
+		"Agent":           {},
+		"Compact":         {},
+		"TrimToolResults": {},
+		"Prune":           {},
+	}
+
+	if len(tools) > 0 {
+		for _, name := range tools {
+			if _, skip := excluded[name]; skip {
 				continue
 			}
 			t, ok := e.registry.Get(name)
@@ -366,9 +608,8 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 			subRegistry.Register(t)
 		}
 	} else {
-		// Default: all parent tools except Agent
 		for _, def := range e.registry.Definitions() {
-			if _, skip := agentExcluded[def.Name]; skip {
+			if _, skip := excluded[def.Name]; skip {
 				continue
 			}
 			t, ok := e.registry.Get(def.Name)
@@ -378,225 +619,91 @@ func (e *Engine) runSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig, 
 			subRegistry.Register(t)
 		}
 	}
-
-	// Allocate lifecycle ID before building sub-agent config so internal activity can be routed.
-	e.mu.Lock()
-	e.nextSubAgentID++
-	agentID := fmt.Sprintf("agent-%d", e.nextSubAgentID)
-	e.mu.Unlock()
-	activityCh := make(chan agent.Event, 64)
-	go e.forwardSubAgentActivity(agentID, subModel, activityCh)
-
-	subAgentConfig := agent.SubAgentConfig{
-		Prompt:            cfg.Prompt,
-		Description:       cfg.Description,
-		SystemPromptExtra: cfg.SystemPromptExtra,
-		ProjectDir:        projectDir,
-		MaxTokens:         maxTokens,
-		MaxTurns:          cfg.MaxTurns,
-		Events:            activityCh,
-	}
-
-	subAgent := agent.NewSubAgent(client, subRegistry, subAgentConfig)
-
-	// Emit start event
-	e.emitEvent(protocol.SubAgentStartedEvent{
-		ID:          agentID,
-		Description: cfg.Description,
-	})
-
-	result := subAgent.Run(ctx)
-	close(activityCh)
-
-	if result.Cancelled || result.Err != "" {
-		errText := result.Err
-		if errText == "" {
-			errText = result.Content
-		}
-		e.emitEvent(protocol.SubAgentFailedEvent{
-			ID:          agentID,
-			Description: cfg.Description,
-			Error:       errText,
-		})
-	} else {
-		e.emitEvent(protocol.SubAgentCompletedEvent{
-			ID:           agentID,
-			Description:  cfg.Description,
-			InputTokens:  result.InputTokens,
-			OutputTokens: result.OutputTokens,
-			TurnsUsed:    result.TurnsUsed,
-			HitMaxTurns:  result.HitMaxTurns,
-		})
-	}
-
-	// Accumulate tokens to parent session
-	e.mu.Lock()
-	e.totalInputTokens += result.InputTokens
-	e.totalOutputTokens += result.OutputTokens
-	e.apiCalls += result.TurnsUsed + 1
-	e.mu.Unlock()
-
-	return tool.AgentSubAgentResult{
-		Content:      result.Content,
-		InputTokens:  result.InputTokens,
-		OutputTokens: result.OutputTokens,
-		TurnsUsed:    result.TurnsUsed,
-		HitMaxTurns:  result.HitMaxTurns,
-		Cancelled:    result.Cancelled,
-		Err:          result.Err,
-	}, nil
+	return subRegistry
 }
 
-// subAgentState tracks per-agent info for the agent bar view.
-type subAgentState struct {
-	model           string
-	inputTokens     int
-	outputTokens    int
-	cacheReadTokens int
-	turnCount       int
-	toolCall        string
-	lastMsg         string
-	msgBuf          strings.Builder // accumulates assistant text for lastMsg
-}
-
-func (e *Engine) forwardSubAgentActivity(agentID, model string, ch <-chan agent.Event) {
-	toolLabels := map[string]string{}
-	st := &subAgentState{model: model}
-
-	for ev := range ch {
-		// Update structured state from the event.
-		st.updateFrom(ev, toolLabels)
-
-		activity := subAgentActivityText(ev, toolLabels)
-		if activity == "" && !st.hasUpdate(ev) {
+// bridgeSubRuntimeEvents consumes child Engine events, translates them via
+// the Mini A2A bridge, and emits SubAgentActivityEvents to the main Engine.
+func (e *Engine) bridgeSubRuntimeEvents(rt *AgentRuntime, store session.Store, parentSessionID string) {
+	for ev := range rt.Engine.Events() {
+		msg, handled := rt.handleEvent(ev)
+		if !handled {
 			continue
 		}
+		rt.record(msg)
+
+		// Update session relation on SessionCreated
+		if _, ok := ev.(protocol.SessionCreated); ok {
+			updateSubAgentRelation(context.Background(), store, rt.SessionID, parentSessionID, rt.ID)
+		}
+
+		// Emit UI activity event
+		snap := rt.Snapshot()
+		activity := snap.LastActivity
+		if activity == "" {
+			switch msg.Kind {
+			case AgentMessageQuestion:
+				activity = "waiting for answer"
+			case AgentMessageConfirmRequest:
+				activity = "waiting for confirmation"
+			case AgentMessageResult:
+				activity = "completed"
+			case AgentMessageError:
+				activity = "failed"
+			default:
+				activity = "running"
+			}
+		}
 		e.emitEvent(protocol.SubAgentActivityEvent{
-			ID:               agentID,
+			ID:               rt.ID,
+			SessionID:        snap.SessionID,
 			Activity:         activity,
-			Model:            st.model,
-			InputTokens:      st.inputTokens,
-			OutputTokens:     st.outputTokens,
-			CacheReadTokens:  st.cacheReadTokens,
-			TurnCount:        st.turnCount,
-			ToolCall:         st.toolCall,
-			LastAssistantMsg: st.lastMsg,
+			Status:           string(snap.Status),
+			Model:            snap.Model,
+			InputTokens:      snap.InputTokens,
+			OutputTokens:     snap.OutputTokens,
+			CacheReadTokens:  snap.CacheReadTokens,
+			TurnCount:        snap.TurnCount,
+			ToolCall:         snap.LastTool,
+			LastAssistantMsg: snap.LastMessage,
 		})
-	}
-}
 
-// hasUpdate returns true for event types that carry structured data even if
-// the activity text is empty (e.g. StreamStarted carries model/tokens).
-func (st *subAgentState) hasUpdate(ev agent.Event) bool {
-	switch ev.(type) {
-	case agent.StreamStarted, agent.StreamCompleted:
-		return true
-	}
-	return false
-}
-
-func (st *subAgentState) updateFrom(ev agent.Event, toolLabels map[string]string) {
-	switch v := ev.(type) {
-	case agent.ModelRequestStarted:
-		st.turnCount++
-		st.msgBuf.Reset()
-		st.lastMsg = ""
-	case agent.StreamStarted:
-		if v.Model != "" {
-			st.model = v.Model
-		}
-		if v.InputTokens > 0 {
-			st.inputTokens = v.InputTokens
-		}
-		if v.CacheReadTokens > 0 {
-			st.cacheReadTokens = v.CacheReadTokens
-		}
-	case agent.StreamCompleted:
-		if v.InputTokens > 0 {
-			st.inputTokens = v.InputTokens
-		}
-		if v.OutputTokens > 0 {
-			st.outputTokens += v.OutputTokens
-		}
-		if v.CacheReadTokens > 0 {
-			st.cacheReadTokens = v.CacheReadTokens
-		}
-		// Finalize lastMsg from accumulated text.
-		text := strings.TrimSpace(st.msgBuf.String())
-		if text != "" {
-			// Take the first line as the snippet.
-			if idx := strings.IndexByte(text, '\n'); idx >= 0 {
-				text = text[:idx]
+		// Emit lifecycle events on terminal status
+		switch msg.Status {
+		case AgentStatusCompleted:
+			e.emitEvent(protocol.SubAgentCompletedEvent{
+				ID:           rt.ID,
+				Description:  rt.Description,
+				SessionID:    snap.SessionID,
+				InputTokens:  snap.InputTokens,
+				OutputTokens: snap.OutputTokens,
+				TurnsUsed:    snap.TurnCount,
+			})
+			e.mu.Lock()
+			e.totalInputTokens += snap.InputTokens
+			e.totalOutputTokens += snap.OutputTokens
+			e.apiCalls += snap.TurnCount + 1
+			e.mu.Unlock()
+		case AgentStatusFailed:
+			errText := ""
+			if p, ok := msg.Payload.(map[string]any); ok {
+				if errStr, ok := p["error"].(string); ok {
+					errText = errStr
+				}
 			}
-			if len(text) > 120 {
-				text = text[:117] + "..."
-			}
-			st.lastMsg = text
-		}
-	case agent.AssistantDelta:
-		st.msgBuf.WriteString(v.Text)
-	case agent.ToolCallCompleted:
-		label := toolActivityLabel(v.Name, v.Input)
-		toolLabels[v.ID] = label
-		st.toolCall = label
-	case agent.ToolExecCompleted:
-		if !v.Result.IsError {
-			st.toolCall = v.Name + " done"
-		} else {
-			st.toolCall = v.Name + " failed"
+			e.emitEvent(protocol.SubAgentFailedEvent{
+				ID:          rt.ID,
+				Description: rt.Description,
+				SessionID:   snap.SessionID,
+				Error:       errText,
+			})
 		}
 	}
-}
 
-func subAgentActivityText(ev agent.Event, toolLabels map[string]string) string {
-	switch v := ev.(type) {
-	case agent.ModelRequestStarted:
-		if v.Reason == "tool_result" && len(v.ToolResults) > 0 {
-			return "thinking after " + strings.Join(v.ToolResults, ", ")
-		}
-		return "thinking"
-	case agent.ToolCallStarted:
-		return "preparing " + v.Name
-	case agent.ToolCallCompleted:
-		label := toolActivityLabel(v.Name, v.Input)
-		toolLabels[v.ID] = label
-		return label
-	case agent.ToolExecStarted:
-		if label := toolLabels[v.ID]; label != "" {
-			return label
-		}
-		return v.Name
-	case agent.ToolExecDelta:
-		text := strings.TrimSpace(v.Text)
-		if text == "" {
-			return "running tool"
-		}
-		lines := strings.Split(text, "\n")
-		return lines[len(lines)-1]
-	case agent.ToolExecCompleted:
-		if v.Result.IsError {
-			return v.Name + " failed"
-		}
-		return v.Name + " done"
-	case agent.AssistantDelta:
-		text := strings.TrimSpace(v.Text)
-		if text != "" {
-			return "writing: " + text
-		}
-	}
-	return ""
-}
-
-func toolActivityLabel(name string, input []byte) string {
-	s := strings.TrimSpace(string(input))
-	if s == "" || s == "{}" {
-		return name
-	}
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) > 80 {
-		s = s[:77] + "..."
-	}
-	return name + " " + s
+	// Clean up from supervisor when event channel closes
+	e.mu.Lock()
+	delete(e.subAgents, rt.ID)
+	e.mu.Unlock()
 }
 
 func (e *Engine) SetLastInputTokens(tokens int) {
