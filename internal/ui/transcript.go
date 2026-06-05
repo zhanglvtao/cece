@@ -234,6 +234,7 @@ func (t *transcript) apply(event protocol.Event) {
 				t.blocks[idx].err = true
 			} else {
 				t.blocks[idx].quietOk = true
+				t.blocks[idx].text = ""
 			}
 			t.blocks[idx].done = true
 			break
@@ -386,14 +387,30 @@ func (t *transcript) render(width int, sty Styles) string {
 	if width <= 0 {
 		width = 80
 	}
+	// Render blocks in order, but float any active (not-done) thinking block
+	// to the end so the user always sees what the LLM is currently thinking.
+	var activeThinking *transcriptBlock
+	var rest []transcriptBlock
+	for i := range t.blocks {
+		if t.blocks[i].kind == blockThinking && !t.blocks[i].done {
+			activeThinking = &t.blocks[i]
+		} else {
+			rest = append(rest, t.blocks[i])
+		}
+	}
+	renderOrder := rest
+	if activeThinking != nil {
+		renderOrder = append(renderOrder, *activeThinking)
+	}
+
 	var b strings.Builder
-	for i, block := range t.blocks {
+	for i, block := range renderOrder {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
 		b.WriteString(renderBlock(block, width, sty))
 	}
-	if len(t.blocks) == 0 {
+	if len(renderOrder) == 0 {
 		b.WriteString("Cece ready. Type a message and press Enter.")
 	}
 	return b.String()
