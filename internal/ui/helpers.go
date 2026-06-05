@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -103,15 +105,34 @@ func formatToolTitleKVs(name string, raw json.RawMessage) (string, string) {
 	if !ok {
 		return name, ""
 	}
-	// For Edit/Write, only show path — old_string/new_string are too long.
-	if name == "Edit" || name == "Write" {
-		if p, ok := m["path"].(string); ok {
-			return name, p
-		}
+	// All tools show full KV params for maximum clarity in one line.
+	// Sort keys for deterministic output; put important keys first.
+	priorityKeys := []string{"path", "pattern", "command", "query", "url", "prompt"}
+	keyOrder := make(map[string]int)
+	for i, k := range priorityKeys {
+		keyOrder[k] = i
 	}
+	sortedKeys := make([]string, 0, len(m))
+	for k := range m {
+		sortedKeys = append(sortedKeys, k)
+	}
+	slices.SortFunc(sortedKeys, func(a, b string) int {
+		ai, aOk := keyOrder[a]
+		bi, bOk := keyOrder[b]
+		switch {
+		case aOk && bOk:
+			return cmp.Compare(ai, bi)
+		case aOk:
+			return -1
+		case bOk:
+			return 1
+		default:
+			return cmp.Compare(a, b)
+		}
+	})
 	var parts []string
-	for key, val := range m {
-		parts = append(parts, key+": "+formatToolTitleValue(val))
+	for _, key := range sortedKeys {
+		parts = append(parts, key+": "+formatToolTitleValue(m[key]))
 	}
 	return name, strings.Join(parts, " ")
 }
@@ -119,10 +140,10 @@ func formatToolTitleKVs(name string, raw json.RawMessage) (string, string) {
 func formatToolTitleValue(val any) string {
 	switch v := val.(type) {
 	case string:
-		// Truncate long strings
+		// Truncate long strings to keep the title line compact.
 		s := v
-		if len(s) > 100 {
-			s = s[:50] + "..."
+		if len(s) > 60 {
+			s = s[:30] + "..."
 		}
 		// Quote if contains spaces or special characters
 		if strings.ContainsAny(s, " \t\n\"'{}[]") {
@@ -139,8 +160,8 @@ func formatToolTitleValue(val any) string {
 			return fmt.Sprint(v)
 		}
 		s := string(compact)
-		if len(s) > 100 {
-			s = s[:50] + "..."
+		if len(s) > 60 {
+			s = s[:30] + "..."
 		}
 		return s
 	}
