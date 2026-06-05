@@ -136,11 +136,12 @@ if [ -f ~/.cece/settings.json ]; then
 else
     echo ""
     warn "No config found at ~/.cece/settings.json"
-    info "Create one with your API key before first use:"
-    echo ""
-    echo "    mkdir -p ~/.cece"
-    echo "    cp docs/settings.example.json ~/.cece/settings.json"
-    echo "    # Then edit apiKey in ~/.cece/settings.json"
+    info "Downloading example config..."
+    mkdir -p ~/.cece
+    curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/docs/settings.example.json" \
+        -o ~/.cece/settings.json
+    info "Config written to ~/.cece/settings.json"
+    warn "Edit apiKey in ~/.cece/settings.json before first use"
 fi
 
 echo ""
