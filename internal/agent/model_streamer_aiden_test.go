@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"cece/internal/agent"
-	"cece/internal/aiden"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/aiden"
 )
 
 func TestModelStreamerCompletesAidenChatCompletionAfterTerminalFinishReasonWithoutDone(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // mockStreamClient implements ModelClient for testing.

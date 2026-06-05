@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"sync"
 
-	"cece/internal/ipc"
-	"cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/ipc"
+	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
 type CommandFunc func(context.Context, string, ...string) *exec.Cmd

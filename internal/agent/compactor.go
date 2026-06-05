@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/prompt"
 )
 
 const defaultKeepRecentTurns = 2

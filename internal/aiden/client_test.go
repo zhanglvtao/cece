@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"cece/internal/agent"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 func TestStreamSendsCorrectPayload(t *testing.T) {

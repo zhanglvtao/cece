@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"cece/internal/config"
+	"github.com/zhanglvtao/cece/internal/config"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )

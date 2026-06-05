@@ -9,8 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"cece/internal/agent"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // ScriptedTurn describes the SSE events that the fake LLM should emit

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"cece/internal/logger"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // modelResponse holds the result of a single model stream invocation.

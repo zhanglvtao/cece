@@ -8,12 +8,12 @@ import (
 	"strings"
 	"sync"
 
-	"cece/internal/agent"
-	"cece/internal/logger"
-	"cece/internal/prompt"
-	"cece/internal/protocol"
-	"cece/internal/session"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // Engine is the core agent engine. It manages conversation state, dispatches

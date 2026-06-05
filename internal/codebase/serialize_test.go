@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"cece/internal/agent"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 func TestSerializePlainTextUserMessage(t *testing.T) {

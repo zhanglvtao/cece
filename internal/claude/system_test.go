@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/agent"
 )
 
 func TestStreamSendsSystemPrompt(t *testing.T) {

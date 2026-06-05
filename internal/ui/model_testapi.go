@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
 // This file exposes read-only accessors that testkit and other tests

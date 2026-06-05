@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/agent"
 )
 
 // helper: build SSE body from lines

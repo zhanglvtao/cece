@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"cece/internal/logger"
-	"cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/session"
 )
 
 type SessionCoordinator struct {

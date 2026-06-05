@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"cece/internal/skill"
+	"github.com/zhanglvtao/cece/internal/skill"
 )
 
 const SkillToolName = "Skill"

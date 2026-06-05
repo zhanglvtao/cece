@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"cece/internal/ui/theme"
+	"github.com/zhanglvtao/cece/internal/ui/theme"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/agent"
 )
 
 func TestStreamE2E(t *testing.T) {

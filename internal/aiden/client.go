@@ -10,11 +10,11 @@ import (
 	"net/http"
 	"strings"
 
-	"cece/internal/auth"
-	"cece/internal/agent"
-	"cece/internal/httpretry"
-	"cece/internal/logger"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/auth"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/httpretry"
+	"github.com/zhanglvtao/cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 const ceceUserAgent = "cece-agent"

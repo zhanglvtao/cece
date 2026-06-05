@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // InteractionGate handles user-facing interruptions before tool execution.

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"cece/internal/protocol"
-	"cece/internal/session"
-	"cece/internal/skill"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/skill"
 	tea "charm.land/bubbletea/v2"
 )
 

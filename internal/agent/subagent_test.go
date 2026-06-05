@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 func TestSubAgentRunReportsCancelledContext(t *testing.T) {

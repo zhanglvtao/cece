@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // ToolListProvider abstracts tool definition retrieval.

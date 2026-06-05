@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"cece/internal/agent"
-	"cece/internal/protocol"
-	"cece/internal/testkit"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/testkit"
 )
 
 // TestE2E_TypeAndEnter_RunsTurn drives the UI just like a user would:

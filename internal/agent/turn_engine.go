@@ -3,9 +3,9 @@ package agent
 import (
 	"context"
 
-	"cece/internal/prompt"
-	"cece/internal/session"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // TurnEngine is the interface that TurnBootstrap needs from the agent engine.

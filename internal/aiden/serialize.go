@@ -3,7 +3,7 @@ package aiden
 import (
 	"strings"
 
-	"cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/agent"
 )
 
 type ChatCompletionRequest struct {

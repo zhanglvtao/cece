@@ -10,12 +10,12 @@ import (
 
 	"github.com/rivo/uniseg"
 
-	"cece/internal/logger"
-	"cece/internal/protocol"
-	"cece/internal/session"
-	"cece/internal/skill"
-	"cece/internal/update"
-	"cece/internal/version"
+	"github.com/zhanglvtao/cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/skill"
+	"github.com/zhanglvtao/cece/internal/update"
+	"github.com/zhanglvtao/cece/internal/version"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"

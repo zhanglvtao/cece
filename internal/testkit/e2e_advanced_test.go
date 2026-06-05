@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"cece/internal/agent"
-	"cece/internal/protocol"
-	"cece/internal/skill"
-	"cece/internal/testkit"
-	"cece/internal/ui"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/skill"
+	"github.com/zhanglvtao/cece/internal/testkit"
+	"github.com/zhanglvtao/cece/internal/ui"
 )
 
 // ── MCP tool call ──────────────────────────────────────────────────────────

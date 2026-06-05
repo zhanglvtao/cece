@@ -6,8 +6,8 @@ import (
 	"io"
 	"strings"
 
-	"cece/internal/agent"
-	"cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/logger"
 )
 
 type Chunk struct {

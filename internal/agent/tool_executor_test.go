@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 type staticTestTool struct{}

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 type Event interface{ isEvent() }

@@ -1,4 +1,4 @@
-module cece
+module github.com/zhanglvtao/cece
 
 go 1.26.3
 

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/protocol"
 	"charm.land/lipgloss/v2"
 )
 

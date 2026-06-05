@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"cece/internal/agent"
-	"cece/internal/prompt"
-	"cece/internal/protocol"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 type fakeClient struct {

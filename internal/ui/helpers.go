@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"cece/internal/ui/theme"
+	"github.com/zhanglvtao/cece/internal/ui/theme"
 )
 
 const (

@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"cece/internal/agent"
-	"cece/internal/engine"
-	"cece/internal/mcp"
-	"cece/internal/protocol"
-	"cece/internal/runtime"
-	"cece/internal/skill"
-	"cece/internal/tool"
-	"cece/internal/ui"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/engine"
+	"github.com/zhanglvtao/cece/internal/mcp"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/runtime"
+	"github.com/zhanglvtao/cece/internal/skill"
+	"github.com/zhanglvtao/cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/ui"
 
 	tea "charm.land/bubbletea/v2"
 )

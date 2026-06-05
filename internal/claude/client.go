@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"strings"
 
-	"cece/internal/agent"
-	"cece/internal/httpretry"
-	"cece/internal/logger"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/httpretry"
+	"github.com/zhanglvtao/cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // AuthMode controls how the API key is sent in request headers.

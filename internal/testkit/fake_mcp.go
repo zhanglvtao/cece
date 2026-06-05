@@ -1,7 +1,7 @@
 package testkit
 
 import (
-	"cece/internal/mcp"
+	"github.com/zhanglvtao/cece/internal/mcp"
 )
 
 // NewEmptyMCPManager returns a real *mcp.Manager with no servers

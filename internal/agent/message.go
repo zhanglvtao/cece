@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"cece/internal/prompt"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 type Role string

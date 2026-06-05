@@ -3,8 +3,8 @@ package codebase
 import (
 	"strings"
 
-	"cece/internal/agent"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // CodebaseRequest is the top-level request body for the codebase-api.

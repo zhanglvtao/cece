@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"cece/internal/prompt"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 type TurnPlan struct {

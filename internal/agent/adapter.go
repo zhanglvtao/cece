@@ -3,8 +3,8 @@ package agent
 import (
 	"encoding/json"
 
-	"cece/internal/protocol"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // ToDTO converts an internal agent.Event to a protocol.Event.

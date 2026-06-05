@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"cece/internal/lint"
+	"github.com/zhanglvtao/cece/internal/lint"
 )
 
 // Registry manages registered tools.

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"cece/internal/ui/picker"
+	"github.com/zhanglvtao/cece/internal/ui/picker"
 	tea "charm.land/bubbletea/v2"
 )
 

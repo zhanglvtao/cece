@@ -1,6 +1,6 @@
 package aiden
 
-import "cece/internal/tool"
+import "github.com/zhanglvtao/cece/internal/tool"
 
 type AidenTool struct {
 	Type     string       `json:"type"`

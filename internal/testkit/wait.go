@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
 // DefaultEventTimeout is the default ceiling for WaitForEvent /

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // ToolResultPolicy is a legacy type kept for interface compatibility.

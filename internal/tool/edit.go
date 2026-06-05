@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cece/internal/lint"
+	"github.com/zhanglvtao/cece/internal/lint"
 )
 
 type editParams struct {

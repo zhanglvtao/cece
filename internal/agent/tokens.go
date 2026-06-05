@@ -3,8 +3,8 @@ package agent
 import (
 	"encoding/json"
 
-	"cece/internal/prompt"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // Structural token overhead per API content block type.

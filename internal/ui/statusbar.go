@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/logger"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"

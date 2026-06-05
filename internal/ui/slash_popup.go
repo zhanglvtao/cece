@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"cece/internal/skill"
-	"cece/internal/ui/picker"
+	"github.com/zhanglvtao/cece/internal/skill"
+	"github.com/zhanglvtao/cece/internal/ui/picker"
 )
 
 const slashPopupMaxHeight = 8

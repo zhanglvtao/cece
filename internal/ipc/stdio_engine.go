@@ -7,7 +7,7 @@ import (
 	"io"
 	"sync"
 
-	"cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
 type Runtime interface {

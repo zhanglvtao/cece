@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
 func TestActionRoundTrip(t *testing.T) {

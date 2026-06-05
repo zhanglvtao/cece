@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/prompt"
 )
 
 func TestAssembleResultToSystemPrompt(t *testing.T) {

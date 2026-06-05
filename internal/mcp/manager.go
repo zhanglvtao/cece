@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"cece/internal/config"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/config"
+	"github.com/zhanglvtao/cece/internal/tool"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )

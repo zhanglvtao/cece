@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"cece/internal/auth"
+	"github.com/zhanglvtao/cece/internal/auth"
 	"time"
 )
 

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/session"
 )
 
 // MemStore is an in-memory implementation of session.Store, intended for

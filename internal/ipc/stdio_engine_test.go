@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
 type fakeRuntime struct {

@@ -7,16 +7,16 @@ package runtime
 import (
 	"context"
 
-	"cece/internal/agent"
-	"cece/internal/engine"
-	"cece/internal/lint"
-	"cece/internal/logger"
-	"cece/internal/mcp"
-	"cece/internal/prompt"
-	"cece/internal/protocol"
-	"cece/internal/session"
-	"cece/internal/skill"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/engine"
+	"github.com/zhanglvtao/cece/internal/lint"
+	"github.com/zhanglvtao/cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/mcp"
+	"github.com/zhanglvtao/cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/skill"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // Bundle is the wired runtime returned by Build.

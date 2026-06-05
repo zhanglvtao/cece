@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // CommandResult is what NewFakeBash returns for a recognised command.

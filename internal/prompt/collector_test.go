@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // stubToolListProvider returns a fixed set of tool definitions for testing.

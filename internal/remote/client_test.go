@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"cece/internal/ipc"
-	"cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/ipc"
+	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
 func TestClientWritesInputAndAction(t *testing.T) {

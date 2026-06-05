@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"cece/internal/agent"
-	"cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/logger"
 )
 
 // OutputEvent represents a single output event from the codebase-api SSE stream.

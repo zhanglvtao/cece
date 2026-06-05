@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"cece/internal/agent"
-	"cece/internal/mcp"
-	"cece/internal/protocol"
-	"cece/internal/session"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/mcp"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // EngineMediator wraps Engine and handles B-class UI orchestration commands

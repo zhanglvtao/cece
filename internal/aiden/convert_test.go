@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 func TestConvertSingleTool(t *testing.T) {

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"cece/internal/logger"
-	"cece/internal/protocol"
-	"cece/internal/ui/theme"
+	"github.com/zhanglvtao/cece/internal/logger"
+	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/ui/theme"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"cece/internal/ui/theme"
+	"github.com/zhanglvtao/cece/internal/ui/theme"
 	"charm.land/glamour/v2"
 	"charm.land/glamour/v2/ansi"
 )

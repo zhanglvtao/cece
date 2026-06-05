@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
 type ClientMessage struct {

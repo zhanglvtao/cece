@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 // SubAgentConfig configures a sub-agent run.

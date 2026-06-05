@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/agent"
 )
 
 func TestStreamRequestStripsThinkingBlocks(t *testing.T) {

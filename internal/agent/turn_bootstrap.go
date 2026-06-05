@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"cece/internal/prompt"
-	"cece/internal/session"
-	"cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/prompt"
+	"github.com/zhanglvtao/cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/tool"
 )
 
 type TurnBootstrap struct {
