@@ -15,15 +15,17 @@ type InteractionGate struct {
 	planState            *tool.PlanModeState
 	yolo                 bool
 	confirmCh            <-chan struct{}
+	rejectCh             <-chan struct{}
 	resetQuestionAnswers func()
 }
 
-func NewInteractionGate(registry *tool.Registry, planState *tool.PlanModeState, yolo bool, confirmCh <-chan struct{}, resetQuestionAnswers func()) *InteractionGate {
+func NewInteractionGate(registry *tool.Registry, planState *tool.PlanModeState, yolo bool, confirmCh <-chan struct{}, rejectCh <-chan struct{}, resetQuestionAnswers func()) *InteractionGate {
 	return &InteractionGate{
 		registry:             registry,
 		planState:            planState,
 		yolo:                 yolo,
 		confirmCh:            confirmCh,
+		rejectCh:             rejectCh,
 		resetQuestionAnswers: resetQuestionAnswers,
 	}
 }

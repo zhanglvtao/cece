@@ -37,6 +37,16 @@ type RejectPlanAction struct{}
 
 func (RejectPlanAction) isAction() {}
 
+// RejectToolCallsAction signals that the user rejected the pending tool calls.
+type RejectToolCallsAction struct{}
+
+func (RejectToolCallsAction) isAction() {}
+
+// RejectQuestionAction signals that the user cancelled the question.
+type RejectQuestionAction struct{}
+
+func (RejectQuestionAction) isAction() {}
+
 // AnswerQuestionAction sends user answers back to the runtime.
 type AnswerQuestionAction struct {
 	Answers []QuestionAnswer

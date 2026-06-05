@@ -699,6 +699,8 @@ func (m *Model) handleSkillPickerKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		m.modal.skillEnabled[sk.Name] = !m.modal.skillEnabled[sk.Name]
+		// Apply to store and slash popup immediately
+		m.applySkillPickerState()
 		// Rebuild picker to update checkboxes
 		m.rebuildSkillPicker()
 		return nil
@@ -749,30 +751,32 @@ func (m *Model) rebuildSkillPicker() {
 	m.modal.picker = p
 }
 
-// closeSkillPicker persists the enabled state and closes the modal.
-func (m *Model) closeSkillPicker() {
-	// Compute final enabled list
+// applySkillPickerState syncs the modal's skill enabled map to the store
+// and slash popup, for real-time effect during the picker session.
+func (m *Model) applySkillPickerState() {
 	var enabledNames []string
 	for _, sk := range m.skillStore.All() {
 		if m.modal.skillEnabled[sk.Name] {
 			enabledNames = append(enabledNames, sk.Name)
 		}
 	}
-
-	// Update store
 	m.skillStore.SetEnabled(enabledNames)
+	m.slashPopup.SetSkills(m.skillStore.Enabled())
+}
+
+// closeSkillPicker persists the enabled state and closes the modal.
+func (m *Model) closeSkillPicker() {
+	m.applySkillPickerState()
 
 	// Persist to settings.json
 	if m.projectDir != "" {
+		enabledNames := m.skillStore.EnabledNames()
 		if err := config.SaveEnabledSkills(m.projectDir, enabledNames); err != nil {
 			m.status = "Failed to save skills: " + err.Error()
 		} else {
 			m.status = "Skills saved"
 		}
 	}
-
-	// Refresh slash popup
-	m.slashPopup.SetSkills(m.skillStore.Enabled())
 
 	m.modal = modalState{}
 }

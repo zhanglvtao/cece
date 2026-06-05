@@ -244,9 +244,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 	}
 
 	skillStore := skill.NewStore(skill.DiscoverAll(projectDir))
-	if len(cfg.EnabledSkills) > 0 {
-		skillStore.SetEnabled(cfg.EnabledSkills)
-	}
+	skillStore.SetEnabled(cfg.EnabledSkills)
 	store := session.NewFileStore(projectDir)
 
 	createClientFn := func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient {

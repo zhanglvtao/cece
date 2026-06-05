@@ -30,9 +30,9 @@ type Engine struct {
 	planState        *tool.PlanModeState
 	taskList         *tool.TaskList
 	history          []agent.Message
-	historyWatermark int // history length before current turn; used to rollback on interrupt
 	cancel           context.CancelFunc
 	confirmCh        chan struct{} // set per Input call, cleared on completion
+	rejectCh         chan struct{} // set per Input call, signals user rejection without cancel
 	yolo             bool          // auto-approve tool execution without UI confirmation
 	maxTokens        int           // configurable max output tokens
 
@@ -1072,8 +1072,27 @@ func (e *Engine) Confirm() {
 // ApprovePlan approves the plan and allows the ExitPlanMode tool to execute.
 func (e *Engine) ApprovePlan() { e.Confirm() }
 
-// RejectPlan rejects the plan and cancels the current turn.
-func (e *Engine) RejectPlan() { e.Cancel() }
+// RejectPlan rejects the plan by signalling the interaction gate.
+func (e *Engine) RejectPlan() { e.signalReject() }
+
+// RejectToolCalls rejects the pending tool calls by signalling the interaction gate.
+func (e *Engine) RejectToolCalls() { e.signalReject() }
+
+// RejectQuestion cancels the question by signalling the interaction gate.
+func (e *Engine) RejectQuestion() { e.signalReject() }
+
+// signalReject sends a rejection signal on the rejectCh channel.
+func (e *Engine) signalReject() {
+	e.mu.Lock()
+	ch := e.rejectCh
+	e.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
 
 // Do dispatches A-class protocol actions (agent-loop interrupt signals).
 // B-class actions (SwitchModel, LoadSession, ListModels, CycleMode) are
@@ -1088,6 +1107,10 @@ func (e *Engine) Do(action protocol.Action) {
 		e.ApprovePlan()
 	case protocol.RejectPlanAction:
 		e.RejectPlan()
+	case protocol.RejectToolCallsAction:
+		e.RejectToolCalls()
+	case protocol.RejectQuestionAction:
+		e.RejectQuestion()
 	case protocol.AnswerQuestionAction:
 		e.AnswerQuestion(a.Answers)
 	case protocol.QueueInputAction:
@@ -1150,11 +1173,6 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 
 	user := agent.Message{Role: agent.UserRole, Content: input}
 
-	// Record watermark before appending user message so we can rollback on interrupt.
-	e.mu.Lock()
-	e.historyWatermark = len(e.history)
-	e.mu.Unlock()
-
 	snapshot := e.beginInputTurn(user)
 
 	// Check if a context-pressure nudge should be injected.
@@ -1180,29 +1198,25 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 
 	events := make(chan agent.Event)
 	confirmCh := make(chan struct{}, 1)
+	rejectCh := make(chan struct{}, 1)
 
 	e.mu.Lock()
 	e.cancel = cancel
 	e.confirmCh = confirmCh
+	e.rejectCh = rejectCh
 	e.mu.Unlock()
 
 	go func() {
 		defer close(events)
 		defer func() {
 			e.mu.Lock()
-			// Rollback history if the turn was interrupted (context cancelled).
-			if ctx.Err() != nil {
-				if e.historyWatermark < len(e.history) {
-					slog.Info("turn interrupted, rolling back history", "watermark", e.historyWatermark, "current", len(e.history))
-					e.history = e.history[:e.historyWatermark]
-				}
-			}
 			e.cancel = nil
 			e.confirmCh = nil
+			e.rejectCh = nil
 			e.mu.Unlock()
 		}()
 
-		agent.NewTurnBootstrap(e, sessionCoordinator, confirmCh).Run(ctx, input, user, snapshot, newSession, events)
+		agent.NewTurnBootstrap(e, sessionCoordinator, confirmCh, rejectCh).Run(ctx, input, user, snapshot, newSession, events)
 	}()
 
 	// Bridge internal events to protocol events via the unified event bus.
