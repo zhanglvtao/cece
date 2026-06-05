@@ -84,11 +84,8 @@ func TestToolConfirmDispatchesActions(t *testing.T) {
 
 	m.applyEvent(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
 	m.handleModalKey(keyMsg("n"))
-	if _, ok := sender.actions[len(sender.actions)-1].(protocol.CancelAction); !ok {
-		t.Fatalf("last action = %T, want CancelAction", sender.actions[len(sender.actions)-1])
-	}
-	if m.busy {
-		t.Fatal("busy should be false after rejecting tools")
+	if _, ok := sender.actions[len(sender.actions)-1].(protocol.RejectToolCallsAction); !ok {
+		t.Fatalf("last action = %T, want RejectToolCallsAction", sender.actions[len(sender.actions)-1])
 	}
 }
 

@@ -69,7 +69,7 @@ func TestBuildDryRunRequestIncludesLayersMessagesAndTools(t *testing.T) {
 		registry:  tool.NewRegistry(dryRunTool{}),
 		history:   []Message{{Role: UserRole, Content: "old"}},
 	}
-	bootstrap := NewTurnBootstrap(eng, nil, nil)
+	bootstrap := NewTurnBootstrap(eng, nil, nil, nil)
 	plan := bootstrap.BuildTurnPlan("hello", []Message{{Role: UserRole, Content: "hello"}})
 	dry := bootstrap.BuildDryRunRequest("hello", plan)
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -68,6 +69,14 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 			ToolResults: toolResultNames,
 		}, events)
 		if err != nil {
+			if ctx.Err() != nil {
+				// Context cancelled (user interrupted): insert interrupt message
+				// so the LLM can see it on the next turn.
+				interruptMsg := Message{Role: UserRole, Content: "[Request interrupted by user]"}
+				r.deps.AppendMessage(interruptMsg)
+				// Best-effort persist; ctx is already cancelled so we use background.
+				r.deps.PersistMessage(context.Background(), interruptMsg)
+			}
 			events <- RunFailed{Err: err}
 			return
 		}
@@ -89,6 +98,11 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				ToolResults: toolResultNames,
 			}, events)
 			if err != nil {
+				if ctx.Err() != nil {
+					interruptMsg := Message{Role: UserRole, Content: "[Request interrupted by user]"}
+					r.deps.AppendMessage(interruptMsg)
+					r.deps.PersistMessage(context.Background(), interruptMsg)
+				}
 				events <- RunFailed{Err: err}
 				return
 			}
@@ -111,6 +125,23 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		}
 
 		if err := r.interactionGate.WaitIfNeeded(ctx, resp.toolCalls, events); err != nil {
+			if errors.Is(err, WaitRejected) {
+				// User rejected: construct rejection tool_results and continue the loop.
+				if hasExitPlanMode(resp.toolCalls) {
+					events <- PlanRejected{}
+				} else {
+					events <- ToolCallsRejected{}
+				}
+				resultMsg := Message{
+					Role:          UserRole,
+					ContentBlocks: rejectToolResults(resp.toolCalls),
+				}
+				r.deps.AppendMessage(resultMsg)
+				r.deps.PersistMessage(ctx, resultMsg)
+				messages = r.deps.HistorySnapshot()
+				reason = "tool_result"
+				continue
+			}
 			events <- RunFailed{Err: err}
 			return
 		}
@@ -189,4 +220,30 @@ func assistantMessageFromResponse(resp modelResponse) Message {
 		Content:       resp.textContent,
 		ContentBlocks: contentBlocks,
 	}
+}
+
+// rejectToolResults builds tool_result content blocks that tell the LLM
+// the user rejected the tool calls. The rejection message varies by tool type.
+func rejectToolResults(calls []ApiToolUseBlock) []ApiContentBlock {
+	blocks := make([]ApiContentBlock, len(calls))
+	for i, call := range calls {
+		var msg string
+		switch call.Name {
+		case tool.ExitPlanModeToolName:
+			msg = "The user rejected the plan. Stay in plan mode and continue revising the plan based on the feedback."
+		case tool.AskUserQuestionToolName:
+			msg = "The user cancelled the question. Continue with your best judgment."
+		default:
+			msg = "The user rejected this tool call. Consider an alternative approach."
+		}
+		blocks[i] = ApiContentBlock{
+			Type: ApiToolResultContentType,
+			ToolResult: &ApiToolResultBlock{
+				ToolUseID: call.ID,
+				Content:   msg,
+				IsError:   true,
+			},
+		}
+	}
+	return blocks
 }

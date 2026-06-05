@@ -403,6 +403,11 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.PlanApprovalRequested:
 		m.openPlanConfirm(e.PlanFile)
 		m.status = "Approve plan"
+	case protocol.PlanRejected:
+		m.mode = protocol.PermissionModePlan
+		m.status = "Plan rejected"
+	case protocol.ToolCallsRejected:
+		m.status = "Tool calls rejected"
 	case protocol.QuestionAsked:
 		m.openQuestion(e.Questions)
 		m.status = "Answer question"

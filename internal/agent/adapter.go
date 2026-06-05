@@ -130,6 +130,12 @@ func ToDTO(e Event) protocol.Event {
 	case PlanApprovalRequested:
 		return protocol.PlanApprovalRequested{PlanContent: v.PlanContent, PlanFile: v.PlanFile}
 
+	case PlanRejected:
+		return protocol.PlanRejected{}
+
+	case ToolCallsRejected:
+		return protocol.ToolCallsRejected{}
+
 	case QuestionAsked:
 		return protocol.QuestionAsked{CallID: v.CallID, Questions: questionsToDTO(v.Questions)}
 

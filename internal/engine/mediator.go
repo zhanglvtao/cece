@@ -85,6 +85,10 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		m.Engine.ApprovePlan()
 	case protocol.RejectPlanAction:
 		m.Engine.RejectPlan()
+	case protocol.RejectToolCallsAction:
+		m.Engine.RejectToolCalls()
+	case protocol.RejectQuestionAction:
+		m.Engine.RejectQuestion()
 	case protocol.AnswerQuestionAction:
 		m.Engine.AnswerQuestion(a.Answers)
 	case protocol.QueueInputAction:

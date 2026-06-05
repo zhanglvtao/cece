@@ -1264,7 +1264,7 @@ func (e *Engine) DryRunRequest(input string) {
 	}
 	user := agent.Message{Role: agent.UserRole, Content: input}
 	snapshot := e.previewInputTurn(user)
-	bootstrap := agent.NewTurnBootstrap(e, agent.NewSessionCoordinator(e.store), nil)
+	bootstrap := agent.NewTurnBootstrap(e, agent.NewSessionCoordinator(e.store), nil, nil)
 	plan := bootstrap.BuildTurnPlan(input, snapshot)
 	e.emitEvent(agent.ToDTO(bootstrap.BuildDryRunRequest(input, plan)))
 }

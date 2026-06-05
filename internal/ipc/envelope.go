@@ -34,6 +34,8 @@ var actionKinds = map[string]func() protocol.Action{
 	"cancel":                func() protocol.Action { return &protocol.CancelAction{} },
 	"approve_plan":          func() protocol.Action { return &protocol.ApprovePlanAction{} },
 	"reject_plan":           func() protocol.Action { return &protocol.RejectPlanAction{} },
+		"reject_tool_calls":      func() protocol.Action { return &protocol.RejectToolCallsAction{} },
+		"reject_question":        func() protocol.Action { return &protocol.RejectQuestionAction{} },
 	"answer_question":       func() protocol.Action { return &protocol.AnswerQuestionAction{} },
 	"switch_model":          func() protocol.Action { return &protocol.SwitchModelAction{} },
 	"cycle_permission_mode": func() protocol.Action { return &protocol.CyclePermissionModeAction{} },
@@ -81,6 +83,8 @@ var eventKinds = map[string]func() protocol.Event{
 	"thinking_delta":            func() protocol.Event { return &protocol.ThinkingDelta{} },
 	"thinking_completed":        func() protocol.Event { return &protocol.ThinkingCompleted{} },
 	"plan_approval_requested":   func() protocol.Event { return &protocol.PlanApprovalRequested{} },
+		"plan_rejected":             func() protocol.Event { return &protocol.PlanRejected{} },
+		"tool_calls_rejected":       func() protocol.Event { return &protocol.ToolCallsRejected{} },
 	"question_asked":            func() protocol.Event { return &protocol.QuestionAsked{} },
 	"queued_input_promoted":     func() protocol.Event { return &protocol.QueuedInputPromoted{} },
 	"compacting":                func() protocol.Event { return &protocol.CompactingEvent{} },
@@ -210,6 +214,10 @@ func derefAction(a protocol.Action) protocol.Action {
 		return *v
 	case *protocol.RejectPlanAction:
 		return *v
+	case *protocol.RejectToolCallsAction:
+		return *v
+	case *protocol.RejectQuestionAction:
+		return *v
 	case *protocol.AnswerQuestionAction:
 		return *v
 	case *protocol.SwitchModelAction:
@@ -304,6 +312,10 @@ func derefEvent(ev protocol.Event) protocol.Event {
 	case *protocol.ThinkingCompleted:
 		return *v
 	case *protocol.PlanApprovalRequested:
+		return *v
+	case *protocol.PlanRejected:
+		return *v
+	case *protocol.ToolCallsRejected:
 		return *v
 	case *protocol.QuestionAsked:
 		return *v

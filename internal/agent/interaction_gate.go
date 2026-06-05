@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -30,6 +31,10 @@ func NewInteractionGate(registry *tool.Registry, planState *tool.PlanModeState, 
 	}
 }
 
+// WaitRejected indicates the user rejected the interaction (plan, tool calls, or question).
+// The caller should construct rejection tool_results and continue the agent loop.
+var WaitRejected = errors.New("interaction rejected by user")
+
 func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBlock, events chan<- Event) error {
 	if g.yolo || g.isAutoAccept() || shouldAutoApproveToolCalls(calls) {
 		// Auto-approve: yolo mode, auto-accept mode, or single EnterPlanMode.
@@ -54,7 +59,10 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 			PlanContent: planContent,
 			PlanFile:    planFile,
 		}
-		return g.wait(ctx)
+		if err := g.wait(ctx); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	if g.isPlanMode() && g.hasOnlyReadOnlyCalls(calls) {
@@ -107,6 +115,8 @@ func (g *InteractionGate) wait(ctx context.Context) error {
 	select {
 	case <-g.confirmCh:
 		return nil
+	case <-g.rejectCh:
+		return WaitRejected
 	case <-ctx.Done():
 		return ctx.Err()
 	}

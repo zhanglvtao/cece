@@ -393,7 +393,7 @@ func TestSubAgentActivityTextUsesToolInputForToolStart(t *testing.T) {
 	}
 }
 
-func TestEngineInterruptRollsBackHistory(t *testing.T) {
+func TestEngineInterruptPreservesHistory(t *testing.T) {
 	client := &blockingClient{unblock: make(chan struct{})}
 	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
 
@@ -419,10 +419,11 @@ func TestEngineInterruptRollsBackHistory(t *testing.T) {
 	// Wait for turn to complete
 	waitForTurnCompleted(t, eng)
 
-	// History should be rolled back — the "hello" user message should be gone
-	if eng.HistoryLen() != 2 {
+	// History should be preserved — the "hello" user message and interrupt
+	// marker should remain (no rollback).
+	if eng.HistoryLen() < 3 {
 		history := eng.History()
-		t.Fatalf("HistoryLen after cancel = %d, want 2; history = %+v", eng.HistoryLen(), history)
+		t.Fatalf("HistoryLen after cancel = %d, want >= 3; history = %+v", eng.HistoryLen(), history)
 	}
 }
 

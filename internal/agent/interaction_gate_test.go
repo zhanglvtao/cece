@@ -17,7 +17,7 @@ func TestExitPlanModeRequiresApprovalInPlanMode(t *testing.T) {
 	planState.Enter()
 
 	confirmCh := make(chan struct{}, 1)
-	gate := NewInteractionGate(registry, planState, false, confirmCh, nil)
+	gate := NewInteractionGate(registry, planState, false, confirmCh, nil, nil)
 
 	calls := []ApiToolUseBlock{
 		{

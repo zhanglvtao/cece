@@ -227,6 +227,16 @@ type PlanApprovalRequested struct {
 
 func (PlanApprovalRequested) isEvent() {}
 
+// PlanRejected is emitted when the user rejects a plan approval request.
+type PlanRejected struct{}
+
+func (PlanRejected) isEvent() {}
+
+// ToolCallsRejected is emitted when the user rejects tool call confirmation.
+type ToolCallsRejected struct{}
+
+func (ToolCallsRejected) isEvent() {}
+
 // QuestionAsked is emitted when AskUserQuestion tool is called.
 type QuestionAsked struct {
 	CallID    string

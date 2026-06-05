@@ -338,3 +338,15 @@ type ModeChangedDuringExec struct {
 }
 
 func (ModeChangedDuringExec) isEvent() {}
+
+// PlanRejected is emitted when the user rejects a plan approval request.
+// The agent loop should construct a rejection tool_result and continue.
+type PlanRejected struct{}
+
+func (PlanRejected) isEvent() {}
+
+// ToolCallsRejected is emitted when the user rejects tool call confirmation.
+// The agent loop should construct rejection tool_results and continue.
+type ToolCallsRejected struct{}
+
+func (ToolCallsRejected) isEvent() {}

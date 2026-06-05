@@ -13,10 +13,11 @@ type TurnBootstrap struct {
 	engine             TurnEngine
 	sessionCoordinator *SessionCoordinator
 	confirmCh          <-chan struct{}
+	rejectCh           <-chan struct{}
 }
 
-func NewTurnBootstrap(engine TurnEngine, sessionCoordinator *SessionCoordinator, confirmCh <-chan struct{}) *TurnBootstrap {
-	return &TurnBootstrap{engine: engine, sessionCoordinator: sessionCoordinator, confirmCh: confirmCh}
+func NewTurnBootstrap(engine TurnEngine, sessionCoordinator *SessionCoordinator, confirmCh <-chan struct{}, rejectCh <-chan struct{}) *TurnBootstrap {
+	return &TurnBootstrap{engine: engine, sessionCoordinator: sessionCoordinator, confirmCh: confirmCh, rejectCh: rejectCh}
 }
 
 func (b *TurnBootstrap) Run(ctx context.Context, input string, user Message, snapshot []Message, newSession SessionStartResult, events chan<- Event) {
@@ -119,7 +120,7 @@ func (b *TurnBootstrap) newModelStreamer() *ModelStreamer {
 
 func (b *TurnBootstrap) newInteractionGate() *InteractionGate {
 	eng := b.engine
-	return NewInteractionGate(eng.Registry(), eng.PlanState(), eng.Yolo(), b.confirmCh, func() {
+	return NewInteractionGate(eng.Registry(), eng.PlanState(), eng.Yolo(), b.confirmCh, b.rejectCh, func() {
 		eng.ResetQuestionAnswers()
 	})
 }

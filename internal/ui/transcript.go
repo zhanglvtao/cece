@@ -268,6 +268,10 @@ func (t *transcript) apply(event protocol.Event) {
 		t.appendDone(blockError, "error", errMsg)
 	case protocol.PlanApprovalRequested:
 		t.appendDone(blockPlan, "plan: "+e.PlanFile, e.PlanContent)
+	case protocol.PlanRejected:
+		t.appendDone(blockInfo, "plan", "Plan rejected — staying in plan mode")
+	case protocol.ToolCallsRejected:
+		t.appendDone(blockInfo, "rejected", "Tool calls rejected by user")
 	case protocol.QuestionAsked:
 		// Handled by modal; no transcript block needed.
 	case protocol.SessionLoadedEvent:

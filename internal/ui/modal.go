@@ -149,7 +149,10 @@ func (m *Model) handleConfirmToolsKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	case "n", "esc":
 		m.modal = modalState{}
-		m.cancelTurn("Tool calls rejected")
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.RejectToolCallsAction{})
+		}
+		m.status = "Tool calls rejected"
 	}
 	return nil
 }
@@ -176,7 +179,6 @@ func (m *Model) handleApprovePlanKey(msg tea.KeyPressMsg) tea.Cmd {
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.RejectPlanAction{})
 		}
-		m.busy = false
 		m.mode = protocol.PermissionModePlan
 		m.status = "Plan rejected"
 	}
@@ -248,7 +250,10 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 	if len(m.modal.questions) == 0 {
 		if msg.String() == "esc" {
 			m.modal = modalState{}
-			m.cancelTurn("Question cancelled")
+			if actor, ok := m.sender.(Actor); ok {
+				actor.Do(protocol.RejectQuestionAction{})
+			}
+			m.status = "Question cancelled"
 		}
 		return nil
 	}
@@ -338,7 +343,10 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.advanceQuestion()
 	case "esc", "ctrl+c":
 		m.modal = modalState{}
-		m.cancelTurn("Question cancelled")
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.RejectQuestionAction{})
+		}
+		m.status = "Question cancelled"
 	}
 	return nil
 }
