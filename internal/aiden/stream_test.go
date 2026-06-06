@@ -449,3 +449,82 @@ func TestDecodeCachedTokensAidenNormalized(t *testing.T) {
 		t.Errorf("expected CacheReadTokens=6000, got %d", cacheRead)
 	}
 }
+
+func TestDecodeDeepSeekStyleUsageChunk(t *testing.T) {
+	// Simulates DeepSeek's actual stream pattern:
+	// 1. content chunks with reasoning_content
+	// 2. finish_reason:stop chunk (choices non-empty, usage=0)
+	// 3. usage-only chunk (choices=[], usage populated)
+	body := sseBody(
+		`data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"hello"}}],"usage":{"prompt_tokens":0,"completion_tokens":0}}`,
+		``,
+		`data: {"id":"2","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0}}`,
+		``,
+		`data: {"id":"3","choices":[],"usage":{"prompt_tokens":160,"completion_tokens":1088,"total_tokens":1248,"prompt_tokens_details":{"cached_tokens":0}}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var inputTokens, outputTokens int
+	var messageDeltas int
+	for _, e := range events {
+		if e.EventType == "message_delta" {
+			messageDeltas++
+			if e.InputTokens > 0 {
+				inputTokens = e.InputTokens
+			}
+			if e.OutputTokens > 0 {
+				outputTokens = e.OutputTokens
+			}
+		}
+	}
+
+	if inputTokens != 160 {
+		t.Errorf("expected InputTokens=160, got %d", inputTokens)
+	}
+	if outputTokens != 1088 {
+		t.Errorf("expected OutputTokens=1088, got %d", outputTokens)
+	}
+	if messageDeltas < 2 {
+		t.Errorf("expected at least 2 message_delta events (finish + usage), got %d", messageDeltas)
+	}
+}
+
+func TestDecodeDeepSeekStyleUsageOnlyChunk(t *testing.T) {
+	body := sseBody(
+		`data: {"id":"1","choices":[{"index":0,"delta":{"content":"hi"}}],"usage":{"prompt_tokens":0,"completion_tokens":0}}`,
+		``,
+		`data: {"id":"2","choices":[],"usage":{"prompt_tokens":50,"completion_tokens":10,"total_tokens":60,"prompt_tokens_details":{"cached_tokens":0}}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var inputTokens, outputTokens int
+	for _, e := range events {
+		if e.EventType == "message_delta" {
+			if e.InputTokens > 0 {
+				inputTokens = e.InputTokens
+			}
+			if e.OutputTokens > 0 {
+				outputTokens = e.OutputTokens
+			}
+		}
+	}
+
+	if inputTokens != 50 {
+		t.Errorf("expected InputTokens=50, got %d", inputTokens)
+	}
+	if outputTokens != 10 {
+		t.Errorf("expected OutputTokens=10, got %d", outputTokens)
+	}
+}

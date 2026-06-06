@@ -388,6 +388,41 @@ func TrimToolResultsInRange(messages []Message, fromTurn, toTurn int) (truncated
 	return
 }
 
+// TruncateToolUseInputs replaces tool_use input in assistant messages from the
+// earliest turn up to turn `toTurn` with "[truncated]". Only the range before
+// the argument is truncated — turn toTurn and later are preserved.
+// Mutates messages in place. Returns (truncatedCount, tokensBefore, tokensAfter).
+// This is a last-resort safety net: when all other compression fails, truncating
+// tool_use inputs in the snapshot prevents the request body from exceeding the
+// gateway limit.
+func TruncateToolUseInputs(messages []Message, upToTurn int) (truncatedCount, tokensBefore, tokensAfter int) {
+	tokensBefore = EstimateMessagesTokens(messages)
+
+	msgEnd, ok := SafeContextBoundaryBeforeTurn(messages, upToTurn)
+	if !ok || msgEnd <= 0 {
+		tokensAfter = tokensBefore
+		return
+	}
+
+	for i := 0; i < msgEnd && i < len(messages); i++ {
+		if messages[i].Role != AssistantRole {
+			continue
+		}
+		for j := range messages[i].ContentBlocks {
+			cb := &messages[i].ContentBlocks[j]
+			if cb.Type == ApiToolUseContentType && cb.ToolUse != nil {
+				if len(cb.ToolUse.Input) > 0 && string(cb.ToolUse.Input) != `"[truncated]"` {
+					cb.ToolUse.Input = json.RawMessage(`"[truncated]"`)
+					truncatedCount++
+				}
+			}
+		}
+	}
+
+	tokensAfter = EstimateMessagesTokens(messages)
+	return
+}
+
 // PruneBeforeTurn deletes all messages before the given turn.
 // Returns the pruned message list (starting from the turn's boundary)
 // plus a CompactBoundary message summarizing what was removed.
