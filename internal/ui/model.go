@@ -212,12 +212,11 @@ func checkUpdateCmd() tea.Cmd {
 
 func consumeGlobalEventsCmd(ch <-chan protocol.Event) tea.Cmd {
 	return func() tea.Msg {
-		ev, ok := <-ch // block for first event
+		ev, ok := <-ch
 		if !ok {
 			return nil
 		}
 		events := []protocol.Event{ev}
-		// non-blocking drain remaining buffered events
 		for {
 			select {
 			case e, ok := <-ch:
@@ -226,6 +225,22 @@ func consumeGlobalEventsCmd(ch <-chan protocol.Event) tea.Cmd {
 				}
 				events = append(events, e)
 			default:
+				if len(events) >= 8 {
+					timer := time.NewTimer(8 * time.Millisecond)
+					defer timer.Stop()
+				batchMore:
+					for {
+						select {
+						case e, ok := <-ch:
+							if !ok {
+								return globalEventMsg{events: events}
+							}
+							events = append(events, e)
+						case <-timer.C:
+							break batchMore
+						}
+					}
+				}
 				return globalEventMsg{events: events}
 			}
 		}
@@ -259,6 +274,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		m.styles = DefaultStyles()
 		invalidateMarkdownCache()
+		m.transcript.invalidateAllCaches()
 		m.viewportDirty = true
 		return m, nil
 	case inputErrorMsg:
@@ -287,6 +303,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				logger.Info("UI: contextWindow changed during applyEvent", "old", cwBefore, "new", m.contextWindow, "eventType", fmt.Sprintf("%T", ev))
 			}
 		}
+		m.viewportDirty = true
 		if m.shouldQuit {
 			m.shouldQuit = false
 			return m, func() tea.Msg { return tea.Quit() }

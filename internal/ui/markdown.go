@@ -23,7 +23,9 @@ func renderMarkdown(text string, width int) string {
 		return ""
 	}
 	r := getMarkdownRenderer(width)
+	rendererMu.Lock()
 	out, err := r.Render(text)
+	rendererMu.Unlock()
 	if err != nil {
 		return text
 	}

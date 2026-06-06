@@ -268,7 +268,10 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 }
 
 func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState) {
+	// DeepSeek and some OpenAI-compatible APIs send usage in a separate
+	// final chunk with empty choices. Process usage before the early return.
 	if len(chunk.Choices) == 0 {
+		emitUsageIfPresent(chunk, out, state)
 		return
 	}
 	choice := chunk.Choices[0]
@@ -389,6 +392,24 @@ func mapStopReason(reason string) string {
 		return "max_tokens"
 	default:
 		return reason
+	}
+}
+
+// emitUsageIfPresent sends a message_delta with usage data from a chunk that
+// has no choices but has usage info. DeepSeek and some OpenAI-compatible APIs
+// send usage in a separate final chunk with empty choices, after the
+// finish_reason chunk. This can overwrite a zero-usage message_delta emitted
+// by the finish_reason chunk.
+func emitUsageIfPresent(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState) {
+	if chunk.Usage.PromptTokens == 0 && chunk.Usage.CompletionTokens == 0 {
+		return
+	}
+	out <- agent.ApiStreamEvent{
+		EventType:       "message_delta",
+		StopReason:      "end_turn",
+		InputTokens:     chunk.Usage.PromptTokens,
+		OutputTokens:    chunk.Usage.CompletionTokens,
+		CacheReadTokens: chunk.Usage.PromptTokensDetails.CachedTokens,
 	}
 }
 

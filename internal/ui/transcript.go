@@ -33,6 +33,11 @@ type transcriptBlock struct {
 	quietOk    bool   // quiet tool completed successfully — render inline ✓
 	toolName   string // set for blockTool, used for quiet-tool suppression
 	toolParams string // set for blockTool, parameter text rendered after [Name] without highlight
+
+	// Incremental rendering: dirty=true means this block needs re-render.
+	dirty       bool
+	cachedRender string // cached output of renderBlock
+	cachedWidth  int    // width that produced cachedRender
 }
 
 type transcript struct {
@@ -46,6 +51,11 @@ type transcript struct {
 	lastStopReason      string
 	cacheReadTokens     int
 	cacheCreationTokens int
+
+	// Incremental rendering cache
+	cachedFullRender  string
+	cachedRenderWidth int
+	streamingMD       streamingMarkdown
 }
 
 func newTranscript() transcript {
@@ -69,10 +79,31 @@ func (t *transcript) reset() {
 	t.cacheReadTokens = cacheRead
 	t.cacheCreationTokens = cacheCreation
 	t.contextUsed = ctxUsed
+	t.streamingMD.Reset()
+}
+
+// markDirty marks a block as needing re-render and invalidates the full render cache.
+func (t *transcript) markDirty(idx int) {
+	if idx >= 0 && idx < len(t.blocks) {
+		t.blocks[idx].dirty = true
+	}
+	t.cachedFullRender = ""
+}
+
+// invalidateAllCaches marks every block dirty and clears the full render cache.
+func (t *transcript) invalidateAllCaches() {
+	for i := range t.blocks {
+		t.blocks[i].dirty = true
+		t.blocks[i].cachedRender = ""
+		t.blocks[i].cachedWidth = 0
+	}
+	t.cachedFullRender = ""
+	t.streamingMD.Reset()
 }
 
 func (t *transcript) append(kind blockKind, title, text string) int {
-	t.blocks = append(t.blocks, transcriptBlock{kind: kind, title: title, text: text})
+	t.blocks = append(t.blocks, transcriptBlock{kind: kind, title: title, text: text, dirty: true})
+	t.cachedFullRender = ""
 	return len(t.blocks) - 1
 }
 
@@ -151,21 +182,26 @@ func (t *transcript) apply(event protocol.Event) {
 	case protocol.ThinkingDelta:
 		idx := t.ensureThinking()
 		t.blocks[idx].text += e.Text
+		t.markDirty(idx)
 	case protocol.ThinkingCompleted:
 		idx := t.ensureThinking()
 		if e.Text != "" {
 			t.blocks[idx].text = e.Text
 		}
 		t.blocks[idx].done = true
+		t.markDirty(idx)
 		t.currentThinking = -1
 	case protocol.AssistantStarted:
 		t.currentAssistant = t.append(blockAssistant, "cece", "")
 	case protocol.AssistantDelta:
 		idx := t.ensureAssistant()
 		t.blocks[idx].text += e.Text
+		t.markDirty(idx)
 	case protocol.AssistantCompleted:
 		if t.currentAssistant >= 0 && t.currentAssistant < len(t.blocks) {
 			t.blocks[t.currentAssistant].done = true
+			t.markDirty(t.currentAssistant)
+			t.streamingMD.Reset()
 		}
 	case protocol.StreamCompleted:
 		if e.InputTokens > 0 {
@@ -176,6 +212,8 @@ func (t *transcript) apply(event protocol.Event) {
 		t.lastStopReason = e.StopReason
 		if t.currentAssistant >= 0 && t.currentAssistant < len(t.blocks) {
 			t.blocks[t.currentAssistant].done = true
+			t.markDirty(t.currentAssistant)
+			t.streamingMD.Reset()
 		}
 	case protocol.TruncationRetry:
 		t.appendDone(blockInfo, "retry", fmt.Sprintf("output truncated, retrying with max_tokens %d -> %d", e.PrevMaxTokens, e.NewMaxTokens))
@@ -186,6 +224,7 @@ func (t *transcript) apply(event protocol.Event) {
 	case protocol.ToolCallDelta:
 		if idx, ok := t.toolByID[e.ID]; ok {
 			t.blocks[idx].text += e.Delta
+			t.markDirty(idx)
 		}
 	case protocol.ToolCallCompleted:
 		idx, ok := t.toolByID[e.ID]
@@ -198,6 +237,7 @@ func (t *transcript) apply(event protocol.Event) {
 		t.blocks[idx].title = name
 		t.blocks[idx].toolParams = params
 		t.blocks[idx].text = formatToolPreview(e.Name, e.Input)
+		t.markDirty(idx)
 	case protocol.ToolExecStarted:
 		idx, ok := t.toolByID[e.ID]
 		if !ok {
@@ -212,6 +252,7 @@ func (t *transcript) apply(event protocol.Event) {
 		} else if !strings.Contains(t.blocks[idx].text, "\n---\n") {
 			t.blocks[idx].text += "\n---\nrunning..."
 		}
+		t.markDirty(idx)
 	case protocol.ToolExecDelta:
 		idx, ok := t.toolByID[e.ID]
 		if !ok {
@@ -225,6 +266,7 @@ func (t *transcript) apply(event protocol.Event) {
 			t.blocks[idx].text = strings.TrimSuffix(t.blocks[idx].text, "running...")
 		}
 		t.blocks[idx].text += e.Text
+		t.markDirty(idx)
 	case protocol.ToolExecCompleted:
 		idx, ok := t.toolByID[e.ID]
 		if !ok {
@@ -263,6 +305,7 @@ func (t *transcript) apply(event protocol.Event) {
 		}
 		// Title was already set with KV params by ToolCallCompleted; skip here.
 		t.blocks[idx].done = true
+		t.markDirty(idx)
 	case protocol.RunFailed:
 		errMsg := "interrupted"
 		if e.Err != "" && e.Err != "context canceled" {
@@ -395,21 +438,99 @@ func (t *transcript) render(width int, sty Styles) string {
 	if width <= 0 {
 		width = 80
 	}
-	// Render blocks in order, but float any active (not-done) thinking block
-	// to the end so the user always sees what the LLM is currently thinking.
-	renderOrder := t.renderOrder()
+
+	// Fast path: no dirty blocks and same width -> return cached full render.
+	if t.cachedFullRender != "" && t.cachedRenderWidth == width && !t.hasDirtyBlocks() {
+		return t.cachedFullRender
+	}
+
+	// Width change invalidates all block caches.
+	if t.cachedRenderWidth != width && t.cachedRenderWidth != 0 {
+		for i := range t.blocks {
+			t.blocks[i].dirty = true
+			t.blocks[i].cachedRender = ""
+			t.blocks[i].cachedWidth = 0
+		}
+	}
+
+	renderOrder := t.renderOrderIndices()
 
 	var b strings.Builder
-	for i, block := range renderOrder {
+	for i, blockIdx := range renderOrder {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
-		b.WriteString(renderBlock(block, width, sty))
+		block := &t.blocks[blockIdx]
+		if !block.dirty && block.cachedWidth == width && block.cachedRender != "" {
+			b.WriteString(block.cachedRender)
+		} else {
+			rendered := t.renderBlockIncremental(*block, width, sty)
+			block.cachedRender = rendered
+			block.cachedWidth = width
+			block.dirty = false
+			b.WriteString(rendered)
+		}
 	}
 	if len(renderOrder) == 0 {
 		b.WriteString("Cece ready. Type a message and press Enter.")
 	}
-	return b.String()
+
+	result := b.String()
+	t.cachedFullRender = result
+	t.cachedRenderWidth = width
+	return result
+}
+
+func (t *transcript) hasDirtyBlocks() bool {
+	for i := range t.blocks {
+		if t.blocks[i].dirty {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *transcript) renderOrderIndices() []int {
+	var activeThinkingIdx int
+	hasActiveThinking := false
+	var rest []int
+	for i := range t.blocks {
+		if t.blocks[i].kind == blockThinking && !t.blocks[i].done {
+			activeThinkingIdx = i
+			hasActiveThinking = true
+		} else {
+			rest = append(rest, i)
+		}
+	}
+	if hasActiveThinking {
+		return append(rest, activeThinkingIdx)
+	}
+	return rest
+}
+
+func (t *transcript) renderBlockIncremental(block transcriptBlock, width int, sty Styles) string {
+	if block.kind == blockAssistant && !block.done && block.text != "" {
+		return t.renderStreamingAssistant(block, width, sty)
+	}
+	return renderBlock(block, width, sty)
+}
+
+func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, sty Styles) string {
+	label := block.title
+	if label == "" {
+		label = string(block.kind)
+	}
+	label += " ..."
+	lbl := labelStyleForKind(block.kind, sty)
+	text := strings.TrimRight(block.text, "\n")
+
+	renderer := getMarkdownRenderer(width)
+	if renderer == nil {
+		return renderBlock(block, width, sty)
+	}
+	rendered := t.streamingMD.Render(text, width, renderer)
+
+	return lbl.Render("["+label+"]") + "\n" + rendered
 }
 
 func (t *transcript) renderOrder() []transcriptBlock {
