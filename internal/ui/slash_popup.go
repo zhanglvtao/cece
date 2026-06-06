@@ -16,6 +16,7 @@ var builtinSlashCommands = []struct {
 	{"/compact", "Compress conversation history"},
 	{"/truncate-tool-result", "Truncate all tool results"},
 	{"/title", "Generate session title"},
+	{"/plan", "View latest plan"},
 	{"/dryrun", "Preview full request"},
 	{"/skills", "List available skills"},
 	{"/mcp", "Manage MCP servers"},
@@ -31,10 +32,10 @@ type slashEntry struct {
 
 // SlashPopup wraps a compact Picker for slash command completion.
 type SlashPopup struct {
-	picker *picker.Picker
+	picker  *picker.Picker
 	entries []slashEntry
 	styles  Styles
-	open   bool
+	open    bool
 }
 
 // NewSlashPopup creates a new SlashPopup component.
@@ -66,7 +67,7 @@ func (p *SlashPopup) buildPicker() {
 		if e.description != "" {
 			text += "  " + e.description
 		}
-		return styledPickerItem(p.styles.Picker.Cursor, p.styles.Picker.Item, text, selected)
+		return styledPickerItem(p.styles.Picker.Cursor, p.styles.Picker.Item, p.styles.Picker.SelectedItem, text, selected)
 	})
 	pk.SetCompact(true)
 	pk.SetFilterFn(func(item any, q string) bool {

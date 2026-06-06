@@ -230,7 +230,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		return runtimeBundle{}, fmt.Errorf("logger init failed: %w", err)
 	}
 
-	defaultProvider := cfg.Providers[0]
+	defaultProvider := selectDefaultProvider(cfg)
 	logger.Info("cece engine starting", "model", cfg.Model, "provider", defaultProvider.Name, "maxTokens", cfg.MaxTokens)
 
 	client := createClient(defaultProvider, cfg.Model, "")
@@ -268,7 +268,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 			}
 		}
 		if len(cfg.Providers) > 0 {
-			p := cfg.Providers[0]
+			p := defaultProvider
 			return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
 		}
 		return "", "", "", "", ""
@@ -283,7 +283,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 			}
 		}
 		if len(cfg.Providers) > 0 {
-			return createClient(cfg.Providers[0], model, "")
+			return createClient(defaultProvider, model, "")
 		}
 		return nil
 	}
@@ -333,6 +333,17 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		defaultMode:   cfg.DefaultMode,
 		cleanup:       bundle.Cleanup,
 	}, nil
+}
+
+func selectDefaultProvider(cfg config.Config) config.ProviderConfig {
+	if cfg.DefaultProvider != "" {
+		for _, p := range cfg.Providers {
+			if p.Name == cfg.DefaultProvider {
+				return p
+			}
+		}
+	}
+	return cfg.Providers[0]
 }
 
 // discoverContextWindow queries the model client for its context window,
@@ -439,4 +450,3 @@ func buildListAllModelsFn(cfg config.Config) runtime.ListAllModelsFn {
 		return allModels, nil
 	}
 }
-

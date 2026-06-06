@@ -33,3 +33,9 @@ type Store interface {
 	// UpdateMeta updates session metadata (model, context window, token counts).
 	UpdateMeta(ctx context.Context, sessionID string, meta SessionMeta) error
 }
+
+// RelationStore is an optional interface that Store implementations can
+// satisfy to persist parent-child agent relationships.
+type RelationStore interface {
+	UpdateRelation(ctx context.Context, sessionID string, parentID string, agentID string, kind string) error
+}

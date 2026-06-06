@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zhanglvtao/cece/internal/logger"
 	"github.com/zhanglvtao/cece/internal/protocol"
 	"github.com/zhanglvtao/cece/internal/ui/theme"
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 type blockKind string
@@ -25,13 +25,13 @@ const (
 )
 
 type transcriptBlock struct {
-	kind     blockKind
-	title    string
-	text     string
-	done     bool
-	err      bool
-	quietOk   bool   // quiet tool completed successfully — render inline ✓
-	toolName  string // set for blockTool, used for quiet-tool suppression
+	kind       blockKind
+	title      string
+	text       string
+	done       bool
+	err        bool
+	quietOk    bool   // quiet tool completed successfully — render inline ✓
+	toolName   string // set for blockTool, used for quiet-tool suppression
 	toolParams string // set for blockTool, parameter text rendered after [Name] without highlight
 }
 
@@ -168,6 +168,10 @@ func (t *transcript) apply(event protocol.Event) {
 			t.blocks[t.currentAssistant].done = true
 		}
 	case protocol.StreamCompleted:
+		if e.InputTokens > 0 {
+			t.inputTokens += e.InputTokens
+			t.contextUsed = e.InputTokens
+		}
 		t.outputTokens += e.OutputTokens
 		t.lastStopReason = e.StopReason
 		if t.currentAssistant >= 0 && t.currentAssistant < len(t.blocks) {
@@ -393,19 +397,7 @@ func (t *transcript) render(width int, sty Styles) string {
 	}
 	// Render blocks in order, but float any active (not-done) thinking block
 	// to the end so the user always sees what the LLM is currently thinking.
-	var activeThinking *transcriptBlock
-	var rest []transcriptBlock
-	for i := range t.blocks {
-		if t.blocks[i].kind == blockThinking && !t.blocks[i].done {
-			activeThinking = &t.blocks[i]
-		} else {
-			rest = append(rest, t.blocks[i])
-		}
-	}
-	renderOrder := rest
-	if activeThinking != nil {
-		renderOrder = append(renderOrder, *activeThinking)
-	}
+	renderOrder := t.renderOrder()
 
 	var b strings.Builder
 	for i, block := range renderOrder {
@@ -418,6 +410,51 @@ func (t *transcript) render(width int, sty Styles) string {
 		b.WriteString("Cece ready. Type a message and press Enter.")
 	}
 	return b.String()
+}
+
+func (t *transcript) renderOrder() []transcriptBlock {
+	var activeThinking *transcriptBlock
+	var rest []transcriptBlock
+	for i := range t.blocks {
+		if t.blocks[i].kind == blockThinking && !t.blocks[i].done {
+			activeThinking = &t.blocks[i]
+		} else {
+			rest = append(rest, t.blocks[i])
+		}
+	}
+	if activeThinking != nil {
+		return append(rest, *activeThinking)
+	}
+	return rest
+}
+
+func (t *transcript) lastPlanOffset(width int, sty Styles) (int, bool) {
+	if width <= 0 {
+		width = 80
+	}
+	offset := 0
+	planOffset := 0
+	found := false
+	for i, block := range t.renderOrder() {
+		if i > 0 {
+			offset += 2
+		}
+		if block.kind == blockPlan {
+			planOffset = offset
+			found = true
+		}
+		offset += renderedHeight(renderBlock(block, width, sty))
+	}
+	return planOffset, found
+}
+
+func (t *transcript) lastPlanBlock() (transcriptBlock, bool) {
+	for i := len(t.blocks) - 1; i >= 0; i-- {
+		if t.blocks[i].kind == blockPlan {
+			return t.blocks[i], true
+		}
+	}
+	return transcriptBlock{}, false
 }
 
 func labelStyleForKind(kind blockKind, sty Styles) lipgloss.Style {

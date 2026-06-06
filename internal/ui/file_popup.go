@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/zhanglvtao/cece/internal/ui/picker"
 	tea "charm.land/bubbletea/v2"
+	"github.com/zhanglvtao/cece/internal/ui/picker"
 )
 
 const filePopupMaxHeight = 10
@@ -123,7 +123,7 @@ func (p *FilePopup) buildPicker() {
 	}
 	pk := picker.New("", items, filePopupMaxHeight, func(item any, selected bool) string {
 		e := item.(fileEntry)
-		return styledPickerItem(p.styles.Picker.Cursor, p.styles.Picker.Item, e.path, selected)
+		return styledPickerItem(p.styles.Picker.Cursor, p.styles.Picker.Item, p.styles.Picker.SelectedItem, e.path, selected)
 	})
 	pk.SetCompact(true)
 	pk.SetFilterFn(func(item any, q string) bool {
@@ -159,7 +159,8 @@ func (p *FilePopup) rebuildEntries() {
 
 // fileLess defines the sort order for file entries.
 // Priority: directory > file, prefix match > contains match > no match,
-//           non-hidden > hidden, shallow > deep.
+//
+//	non-hidden > hidden, shallow > deep.
 func fileLess(a, b fileEntry, query string) bool {
 	// Directories before files
 	if a.isDir != b.isDir {

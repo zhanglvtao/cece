@@ -25,7 +25,7 @@ type TurnDeps struct {
 	UpdateSessionMeta    func(context.Context, modelResponse)
 	DrainQueuedInputs    func() []string
 	DrainModeReminder    func() string
-	DrainNudgeReminder   func() string
+	TryAutoCompact       func(ctx context.Context) bool
 	HistorySnapshot      func() []Message
 	ResetQuestionAnswers func()
 	IncrementAPICalls    func()
@@ -118,8 +118,21 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		r.deps.PersistMessage(ctx, assistant)
 		r.deps.UpdateSessionMeta(ctx, resp)
 
-		// No tool calls -- conversation turn is done.
+		// Auto-compact: if context usage is >= 90%, compact automatically.
+		// After compact, refresh the message snapshot so the next API call
+		// uses the compacted history.
+		if r.deps.TryAutoCompact != nil && r.deps.TryAutoCompact(ctx) {
+			messages = r.deps.HistorySnapshot()
+		}
+
+		// No tool calls -- either promote queued input first, or finish the turn.
 		if resp.stopReason != "tool_use" || len(resp.toolCalls) == 0 {
+			if r.promoteQueuedInputs(ctx, events, reason) {
+				messages = r.deps.HistorySnapshot()
+				reason = "user"
+				toolResultNames = nil
+				continue
+			}
 			events <- AssistantCompleted{Duration: time.Since(turnStart)}
 			return
 		}
@@ -164,22 +177,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		r.deps.PersistMessage(ctx, resultMsg)
 
 		// Check for queued user inputs between tool calls.
-		if inputs := r.deps.DrainQueuedInputs(); len(inputs) > 0 {
-			// Insert a standalone reminder before the first queued input
-			// so the LLM can decide whether to interrupt its current task.
-			if reason == "tool_result" {
-				reminder := Message{Role: UserRole, Content: QueuedInputReminder}
-				r.deps.AppendMessage(reminder)
-				r.deps.PersistMessage(ctx, reminder)
-			}
-			for _, input := range inputs {
-				user := Message{Role: UserRole, Content: input}
-				r.deps.AppendMessage(user)
-				r.deps.PersistMessage(ctx, user)
-				events <- UserMessageAdded{Message: user}
-				events <- QueuedInputPromoted{}
-			}
-		}
+		r.promoteQueuedInputs(ctx, events, reason)
 
 		messages = r.deps.HistorySnapshot()
 		// Inject mode change reminder if pending.
@@ -189,14 +187,30 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 			}
 		}
 		// Inject context-pressure nudge if needed.
-		if r.deps.DrainNudgeReminder != nil {
-			if nudge := r.deps.DrainNudgeReminder(); nudge != "" {
-				messages = append(messages, Message{Role: UserRole, Content: nudge})
-			}
-		}
+		// (removed: agentic loop no longer injects nudge; autoCompact handles high context)
 		// Next model call is triggered by tool results (or user intervention).
 		reason = "tool_result"
 	}
+}
+
+func (r *TurnRunner) promoteQueuedInputs(ctx context.Context, events chan<- Event, reason string) bool {
+	inputs := r.deps.DrainQueuedInputs()
+	if len(inputs) == 0 {
+		return false
+	}
+	if reason == "tool_result" {
+		reminder := Message{Role: UserRole, Content: QueuedInputReminder}
+		r.deps.AppendMessage(reminder)
+		r.deps.PersistMessage(ctx, reminder)
+	}
+	for _, input := range inputs {
+		user := Message{Role: UserRole, Content: input}
+		r.deps.AppendMessage(user)
+		r.deps.PersistMessage(ctx, user)
+		events <- UserMessageAdded{Message: user}
+		events <- QueuedInputPromoted{}
+	}
+	return true
 }
 
 func assistantMessageFromResponse(resp modelResponse) Message {

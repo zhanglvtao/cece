@@ -161,8 +161,6 @@ func TestLoadParsesStaticModels(t *testing.T) {
 	}
 }
 
-
-
 func TestLoadFallsBackToGlobalSettings(t *testing.T) {
 	homeDir := t.TempDir()
 	globalSettings := `{
@@ -224,7 +222,7 @@ func TestMergeSettingsProjectOverridesUser(t *testing.T) {
 
 	merged := mergeSettings(project, user)
 
-	if merged.Provider.Model != "project-model" {
+	if len(merged.Provider.Model) != 1 || merged.Provider.Model[0] != "project-model" {
 		t.Fatalf("Model = %q, want project-model", merged.Provider.Model)
 	}
 	if merged.Provider.MaxTokens != 8192 {
@@ -261,7 +259,7 @@ func TestMergeSettingsUserFillsGaps(t *testing.T) {
 
 	merged := mergeSettings(project, user)
 
-	if merged.Provider.Model != "project-model" {
+	if len(merged.Provider.Model) != 1 || merged.Provider.Model[0] != "project-model" {
 		t.Fatalf("Model = %q, want project-model", merged.Provider.Model)
 	}
 	if merged.Provider.MaxTokens != 4096 {

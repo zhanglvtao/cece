@@ -6,6 +6,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zhanglvtao/cece/internal/config"
 	"github.com/zhanglvtao/cece/internal/logger"
 	"github.com/zhanglvtao/cece/internal/protocol"
@@ -13,16 +16,14 @@ import (
 	"github.com/zhanglvtao/cece/internal/skill"
 	"github.com/zhanglvtao/cece/internal/ui/picker"
 	"github.com/zhanglvtao/cece/internal/ui/theme"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
-// styledPickerItem renders a picker item with colored cursor and dimmed non-selected text.
-func styledPickerItem(cursorStyle lipgloss.Style, itemStyle lipgloss.Style, text string, selected bool) string {
+// styledPickerItem renders a picker item with colored cursor and styled text.
+func styledPickerItem(cursorStyle lipgloss.Style, itemStyle lipgloss.Style, selectedItemStyle lipgloss.Style, text string, selected bool) string {
 	cursor := "  "
 	if selected {
 		cursor = cursorStyle.Render("> ")
+		text = selectedItemStyle.Render(text)
 	} else {
 		text = itemStyle.Render(text)
 	}
@@ -44,18 +45,18 @@ const (
 )
 
 type modalState struct {
-	kind          modalKind
-	calls         []protocol.ToolUseBlock
-	questions     []protocol.Question
-	qIndex        int
-	cursors       []int
-	selected      map[int][]int
-	custom        map[int]string
-	textMode      bool
-	textInput     string
-	picker        *picker.Picker
-	planFile      string
-	skillEnabled  map[string]bool // skill name -> enabled state in picker
+	kind         modalKind
+	calls        []protocol.ToolUseBlock
+	questions    []protocol.Question
+	qIndex       int
+	cursors      []int
+	selected     map[int][]int
+	custom       map[int]string
+	textMode     bool
+	textInput    string
+	picker       *picker.Picker
+	planFile     string
+	skillEnabled map[string]bool // skill name -> enabled state in picker
 }
 
 func (m modalState) active() bool { return m.kind != modalNone }
@@ -436,7 +437,7 @@ func (m *Model) openModelPicker(models []protocol.ModelInfo) {
 		if provider != "" {
 			provider += "/"
 		}
-		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, provider+name, selected)
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, m.styles.Picker.SelectedItem, provider+name, selected)
 	})
 	p.SetFilterFn(func(item any, q string) bool {
 		mi := item.(protocol.ModelInfo)
@@ -629,7 +630,7 @@ func (m *Model) openMCPPicker(servers []protocol.MCPServerInfo) {
 			status = s.Error
 		}
 		text := fmt.Sprintf("%s  %s  %s", s.Name, s.Type, status)
-		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, text, selected)
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, m.styles.Picker.SelectedItem, text, selected)
 	})
 	p.SetHelpText("[up/down] move  [enter] toggle connect/disconnect  [esc] close")
 	p.SetOnSelect(func(item any) tea.Cmd {
@@ -675,7 +676,7 @@ func (m *Model) openSkillPicker() {
 		}
 		source := sk.Source
 		text := fmt.Sprintf("%s %s  %s  %s", mark, sk.Name, source, sk.Description)
-		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, text, selected)
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, m.styles.Picker.SelectedItem, text, selected)
 	})
 	p.SetHelpText("[up/down] move  [space] toggle  [enter/esc] close")
 	p.SetFilterFn(func(item any, q string) bool {
@@ -743,7 +744,7 @@ func (m *Model) rebuildSkillPicker() {
 			mark = "[✓]"
 		}
 		text := fmt.Sprintf("%s %s  %s  %s", mark, sk.Name, sk.Source, sk.Description)
-		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, text, selected)
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, m.styles.Picker.SelectedItem, text, selected)
 	})
 	p.SetHelpText("[up/down] move  [space] toggle  [enter/esc] close")
 	p.SetFilterFn(func(item any, q string) bool {

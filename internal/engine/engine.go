@@ -74,6 +74,8 @@ type Engine struct {
 	cacheReadTokens     int                                  // cumulative cache read tokens
 	cacheCreationTokens int                                  // cumulative cache creation tokens
 	lastCompactTurn     int                                  // turn count at last compact/prune
+	consecutiveCompactFailures int                              // circuit breaker: stop autoCompact after 3 failures
+	lastNudgeTurn       int                                  // last turn number when nudge was injected (throttle)
 	inputQueue          *userInputQueue                      // queued user inputs while agent is busy
 	nextSubAgentID      int                                  // monotonic ID for sub-agent lifecycle events
 	subAgents          map[string]*AgentRuntime              // live sub-agent runtimes by ID
@@ -220,13 +222,17 @@ func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int,
 		return "", 0, 0, fmt.Errorf("no messages to summarize before turn %d", keepTurn)
 	}
 
+	// Only count tokens for API-visible messages (after last compact boundary).
+	// Full history includes pre-boundary messages retained for UI scrollback,
+	// which inflates the estimate far beyond what the API actually sees.
+	visible := agent.MessagesAfterCompactBoundary(snapshot)
+	tokensBefore := agent.EstimateMessagesTokens(visible)
+
 	compactor := agent.NewCompactor(client, 0)
 	summary, err := compactor.GenerateSummary(ctx, summarize)
 	if err != nil {
 		return "", 0, 0, err
 	}
-
-	tokensBefore := agent.EstimateMessagesTokens(snapshot)
 
 	boundary := agent.Message{
 		Role: agent.UserRole,
@@ -272,7 +278,13 @@ func (e *Engine) compactTrimToolResults(fromTurn, toTurn int) (int, int, int) {
 	history := e.history // mutate in place
 	e.mu.Unlock()
 
-	boundaries := agent.TurnBoundaries(history)
+	// Locate the last compact boundary to find the API-visible offset.
+	// Turn indices from the tool are relative to visible messages,
+	// so we offset them into the full history.
+	visible := agent.MessagesAfterCompactBoundary(history)
+	offset := len(history) - len(visible)
+
+	boundaries := agent.TurnBoundaries(visible)
 	totalTurns := len(boundaries)
 
 	if toTurn > totalTurns {
@@ -282,7 +294,17 @@ func (e *Engine) compactTrimToolResults(fromTurn, toTurn int) (int, int, int) {
 		return 0, 0, 0
 	}
 
-	truncatedCount, tokensBefore, tokensAfter := agent.TrimToolResultsInRange(history, fromTurn, toTurn)
+	// Token estimates should reflect only API-visible messages,
+	// not the full history which includes pre-boundary scrollback.
+	tokensBefore := agent.EstimateMessagesTokens(visible)
+
+	// Trim on the full history so mutations are reflected in e.history.
+	// Use offset-adjusted turn indices so the correct range is trimmed.
+	truncatedCount, _, _ := agent.TrimToolResultsInRange(history, fromTurn+offset, toTurn+offset)
+
+	// TrimToolResultsInRange mutates in place, so re-derive visible and estimate after.
+	visible = agent.MessagesAfterCompactBoundary(history)
+	tokensAfter := agent.EstimateMessagesTokens(visible)
 
 	e.mu.Lock()
 	e.history = history
@@ -304,7 +326,11 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	e.mu.Unlock()
 
 	boundaries := agent.TurnBoundaries(snapshot)
-	tokensBefore := agent.EstimateMessagesTokens(snapshot)
+	// Only count tokens for API-visible messages (after last compact boundary).
+	// Full history includes pre-boundary messages retained for UI scrollback,
+	// which inflates the estimate far beyond what the API actually sees.
+	visible := agent.MessagesAfterCompactBoundary(snapshot)
+	tokensBefore := agent.EstimateMessagesTokens(visible)
 
 	if turn <= 0 || turn >= len(boundaries) {
 		return tokensBefore, tokensBefore
@@ -329,7 +355,8 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	newHistory = append(newHistory, snapshot[:startIdx]...)
 	newHistory = append(newHistory, boundary)
 	newHistory = append(newHistory, snapshot[startIdx:]...)
-	tokensAfter := agent.EstimateMessagesTokens(append([]agent.Message{boundary}, snapshot[startIdx:]...))
+	// tokensAfter: only count what's API-visible after the new boundary.
+	tokensAfter := agent.EstimateMessagesTokens(agent.MessagesAfterCompactBoundary(newHistory))
 
 	e.mu.Lock()
 	e.history = newHistory
@@ -963,17 +990,20 @@ func (e *Engine) SetTokenState(lastInput, totalInput, totalOutput int) {
 
 // ── Context Nudge ─────────────────────────────────────────────────────────
 
-const nudgeContextPctThreshold = 60 // minimum context % used to trigger nudge
+const nudgeContextPctThreshold = 75 // minimum context % used to trigger nudge
 
 // shouldNudge checks whether a context-pressure nudge should be injected.
 // Returns (shouldNudge, turnsSinceCompact, contextPct, contextWindow).
 // Only contextPct >= nudgeContextPctThreshold triggers the nudge.
+// Throttled to at most once per turn.
 func (e *Engine) shouldNudge() (bool, int, int, int) {
 	e.mu.Lock()
 	history := e.history
 	lastCompactTurn := e.lastCompactTurn
 	lastInputTokens := e.lastInputTokens
 	contextWindow := e.contextWindow
+	turnCount := e.turnCount
+	lastNudgeTurn := e.lastNudgeTurn
 	e.mu.Unlock()
 
 	totalTurns := len(agent.TurnBoundaries(history))
@@ -989,6 +1019,14 @@ func (e *Engine) shouldNudge() (bool, int, int, int) {
 			"contextWindow", contextWindow,
 			"lastInputTokens", lastInputTokens,
 			"totalTurns", totalTurns,
+		)
+		return false, turnsSinceCompact, contextPct, contextWindow
+	}
+
+	// Throttle: at most one nudge per turn.
+	if turnCount == lastNudgeTurn {
+		slog.Debug("nudge check: already nudged this turn",
+			"turnCount", turnCount,
 		)
 		return false, turnsSinceCompact, contextPct, contextWindow
 	}
@@ -1031,6 +1069,11 @@ func (e *Engine) injectNudge(snapshot []agent.Message, turnsSinceCompact, contex
 	slog.Info("injecting context nudge into snapshot", "contextPct", contextPct, "usedK", usedK, "windowK", windowK, "turnsSinceCompact", turnsSinceCompact)
 	snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: nudgeText})
 
+	// Record that we nudged this turn so shouldNudge won't fire again.
+	e.mu.Lock()
+	e.lastNudgeTurn = e.turnCount
+	e.mu.Unlock()
+
 	return snapshot
 }
 
@@ -1041,19 +1084,65 @@ func (e *Engine) IncrementAPICalls() {
 	e.apiCalls++
 }
 
-// DrainNudgeReminder checks if a context-pressure nudge should be injected
-// and returns the nudge text (or empty string if no nudge needed).
-// Called by the agentic loop after each LLM response.
-func (e *Engine) DrainNudgeReminder() string {
-	ok, turns, pct, cw := e.shouldNudge()
-	if !ok {
-		return ""
+// ── Auto Compact ──────────────────────────────────────────────────────────
+
+const autoCompactPctThreshold = 90    // autoCompact triggers at 90% context usage
+const maxConsecutiveCompactFailures = 3 // circuit breaker threshold
+
+// shouldAutoCompact checks whether the system should automatically compact
+// based on context usage. Returns true when lastInputTokens >= 90% of
+// contextWindow and the circuit breaker hasn't tripped.
+func (e *Engine) shouldAutoCompact() bool {
+	e.mu.Lock()
+	lastInputTokens := e.lastInputTokens
+	contextWindow := e.contextWindow
+	failures := e.consecutiveCompactFailures
+	e.mu.Unlock()
+
+	if contextWindow <= 0 || lastInputTokens <= 0 {
+		return false
 	}
-	usedK := (e.lastInputTokens + 999) / 1000
-	windowK := (cw + 999) / 1000
-	nudge := buildContextNudgeReminder(pct, usedK, windowK, turns)
-	slog.Info("injecting context nudge in agentic loop", "contextPct", pct, "usedK", usedK, "windowK", windowK, "turnsSinceCompact", turns)
-	return nudge
+
+	if failures >= maxConsecutiveCompactFailures {
+		slog.Debug("autoCompact skipped: circuit breaker tripped",
+			"consecutiveFailures", failures,
+		)
+		return false
+	}
+
+	contextPct := lastInputTokens * 100 / contextWindow
+	if contextPct < autoCompactPctThreshold {
+		return false
+	}
+
+	slog.Info("autoCompact triggered",
+		"contextPct", contextPct,
+		"lastInputTokens", lastInputTokens,
+		"contextWindow", contextWindow,
+	)
+	return true
+}
+
+// TryAutoCompact checks if auto-compact is needed and executes it.
+// Returns true if compact was performed (history was modified).
+func (e *Engine) TryAutoCompact(ctx context.Context) bool {
+	if !e.shouldAutoCompact() {
+		return false
+	}
+
+	e.CompactHistory(ctx)
+
+	e.mu.Lock()
+	failures := e.consecutiveCompactFailures
+	e.mu.Unlock()
+
+	if failures >= maxConsecutiveCompactFailures {
+		slog.Warn("autoCompact circuit breaker tripped, stopping auto-compact attempts",
+			"consecutiveFailures", failures,
+		)
+	}
+
+	return true
 }
 
 // IncrementToolCount increments the tool execution counter for the given tool.
@@ -1170,6 +1259,10 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 	result, err := compactor.Compact(ctx, compactable)
 	if err != nil {
 		slog.Error("compact failed", "error", err)
+		e.mu.Lock()
+		e.consecutiveCompactFailures++
+		slog.Warn("compact failure count", "consecutiveFailures", e.consecutiveCompactFailures)
+		e.mu.Unlock()
 		e.emitEvent(protocol.CompactedEvent{
 			MessagesBefore: len(snapshot),
 			MessagesAfter:  len(snapshot),
@@ -1199,6 +1292,7 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 	e.mu.Lock()
 	e.history = newHistory
 	sessionID := e.sessionID
+	e.consecutiveCompactFailures = 0 // reset circuit breaker on success
 	e.mu.Unlock()
 
 	// Persist boundary message to session JSONL

@@ -275,3 +275,20 @@ func (s *FileStore) UpdateMeta(_ context.Context, sessionID string, meta Session
 	sess.UpdatedAt = time.Now()
 	return s.writeMeta(sess)
 }
+
+// UpdateRelation persists parent-child agent relationship on a session.
+// Implements RelationStore.
+func (s *FileStore) UpdateRelation(_ context.Context, sessionID string, parentID string, agentID string, kind string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, err := s.readMeta(sessionID)
+	if err != nil {
+		return fmt.Errorf("update relation: %w", err)
+	}
+	sess.ParentID = parentID
+	sess.AgentID = agentID
+	sess.Kind = kind
+	sess.UpdatedAt = time.Now()
+	return s.writeMeta(sess)
+}

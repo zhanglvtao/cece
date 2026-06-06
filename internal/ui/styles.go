@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"github.com/zhanglvtao/cece/internal/ui/theme"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/zhanglvtao/cece/internal/ui/theme"
 )
 
 // Styles holds all TUI style definitions built from ANSI terminal colors.
@@ -33,14 +33,15 @@ type Styles struct {
 		ToolArg lipgloss.Style
 	}
 	Picker struct {
-		Title   lipgloss.Style
-		Cursor  lipgloss.Style
-		Item    lipgloss.Style // non-selected item text
-		Help    lipgloss.Style
-		Filter  lipgloss.Style
-		Command lipgloss.Style
-		Info    lipgloss.Style // secondary info: model, time
-		Preview lipgloss.Style // preview text below title
+		Title        lipgloss.Style
+		Cursor       lipgloss.Style
+		Item         lipgloss.Style // non-selected item text
+		SelectedItem lipgloss.Style // selected item text
+		Help         lipgloss.Style
+		Filter       lipgloss.Style
+		Command      lipgloss.Style
+		Info         lipgloss.Style // secondary info: model, time
+		Preview      lipgloss.Style // preview text below title
 	}
 	Headline lipgloss.Style
 	Queued   lipgloss.Style
@@ -120,6 +121,7 @@ func DefaultStyles() Styles {
 	s.Picker.Title = lipgloss.NewStyle().Foreground(theme.Yellow)
 	s.Picker.Cursor = lipgloss.NewStyle().Foreground(theme.Green)
 	s.Picker.Item = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	s.Picker.SelectedItem = lipgloss.NewStyle().Foreground(theme.Fg).Bold(true)
 	s.Picker.Help = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Picker.Filter = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Picker.Command = lipgloss.NewStyle().Foreground(theme.Primary)
@@ -134,7 +136,7 @@ func DefaultStyles() Styles {
 	s.Status.Tokens = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Tool = lipgloss.NewStyle().Foreground(theme.Yellow)
-	s.Status.ToolFile = lipgloss.NewStyle().Foreground(theme.Green)     // file ops
+	s.Status.ToolFile = lipgloss.NewStyle().Foreground(theme.Green)    // file ops
 	s.Status.ToolWeb = lipgloss.NewStyle().Foreground(theme.Magenta)   // web ops
 	s.Status.ToolAsk = lipgloss.NewStyle().Foreground(theme.Blue)      // user interaction
 	s.Status.ToolCtx = lipgloss.NewStyle().Foreground(theme.Blue)      // context compression

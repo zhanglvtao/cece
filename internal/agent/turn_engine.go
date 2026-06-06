@@ -45,6 +45,6 @@ type TurnEngine interface {
 	// Queued inputs
 	DrainQueuedInputs() []string
 
-	// Nudge
-	DrainNudgeReminder() string
+	// Auto compact
+	TryAutoCompact(ctx context.Context) bool
 }

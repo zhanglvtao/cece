@@ -438,15 +438,11 @@ func shortID(id string) string {
 	return id[:8]
 }
 
-type relationStore interface {
-	UpdateRelation(ctx context.Context, sessionID string, parentID string, agentID string, kind string) error
-}
-
 func updateSubAgentRelation(ctx context.Context, store session.Store, sessionID, parentID, agentID string) {
 	if sessionID == "" || store == nil {
 		return
 	}
-	if rs, ok := store.(relationStore); ok {
+	if rs, ok := store.(session.RelationStore); ok {
 		_ = rs.UpdateRelation(ctx, sessionID, parentID, agentID, "agent")
 	}
 }

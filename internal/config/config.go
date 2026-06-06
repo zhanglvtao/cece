@@ -4,17 +4,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
-const defaultModel = "claude-sonnet-4-6"
+var defaultModels = []string{"glm-5.1", "gpt-5.5", "deepseek-v4-pro"}
+
+var pickedModels = struct {
+	sync.Mutex
+	m map[string]string
+}{m: make(map[string]string)}
+
 const settingsRelPath = ".cece/settings.json"
+
 // ProviderConfig describes a single API provider's credentials.
 type ProviderConfig struct {
 	Name       string        `json:"name"`
-	Protocol   string        `json:"protocol"`   // "anthropic" (default), "aiden", or "codebase"
+	Protocol   string        `json:"protocol"` // "anthropic" (default), "aiden", or "codebase"
 	APIKey     string        `json:"apiKey"`
 	BaseURL    string        `json:"baseURL"`
 	AuthMode   string        `json:"authMode"`   // "apikey" (default) or "bearer"
@@ -41,14 +50,14 @@ const (
 
 // MCPConfig describes a single MCP server connection.
 type MCPConfig struct {
-	Type     MCPType          `json:"type"`              // "stdio", "sse", or "streamable-http"
-	URL      string           `json:"url,omitempty"`     // for sse / streamable-http
-	Command  string           `json:"command,omitempty"` // for stdio
-	Args     []string         `json:"args,omitempty"`    // for stdio
-	Env      map[string]string `json:"env,omitempty"`    // for stdio
+	Type     MCPType           `json:"type"`              // "stdio", "sse", or "streamable-http"
+	URL      string            `json:"url,omitempty"`     // for sse / streamable-http
+	Command  string            `json:"command,omitempty"` // for stdio
+	Args     []string          `json:"args,omitempty"`    // for stdio
+	Env      map[string]string `json:"env,omitempty"`     // for stdio
 	Headers  map[string]string `json:"headers,omitempty"` // for sse / streamable-http
-	Disabled bool             `json:"disabled,omitempty"`
-	Timeout  int              `json:"timeout,omitempty"` // seconds, default 15
+	Disabled bool              `json:"disabled,omitempty"`
+	Timeout  int               `json:"timeout,omitempty"` // seconds, default 15
 }
 
 type MCPs map[string]MCPConfig
@@ -60,21 +69,74 @@ type LintConfig map[string]string
 
 type Config struct {
 	Model               string
-	LightModel          string           // lightweight model for title generation etc.
+	DefaultProvider     string
+	LightModel          string // lightweight model for title generation etc.
 	Debug               bool
 	Yolo                bool
 	MaxTokens           int
-	DefaultMode         string           // "default", "auto-accept", or "plan"
-	ModelContextMapping map[string]int   // model ID -> max context window
+	DefaultMode         string         // "default", "auto-accept", or "plan"
+	ModelContextMapping map[string]int // model ID -> max context window
 	Providers           []ProviderConfig
 	MCP                 MCPs
 	Lint                LintConfig
-	EnabledSkills       []string         // skill names to enable; empty = all enabled
+	EnabledSkills       []string // skill names to enable; empty = all enabled
+}
+
+type modelList []string
+
+func (m *modelList) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		if v := strings.TrimSpace(single); v != "" {
+			*m = []string{v}
+		}
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(data, &list); err != nil {
+		return err
+	}
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		if v := strings.TrimSpace(item); v != "" {
+			out = append(out, v)
+		}
+	}
+	*m = out
+	return nil
+}
+
+func (m modelList) MarshalJSON() ([]byte, error) {
+	if len(m) == 1 {
+		return json.Marshal(m[0])
+	}
+	return json.Marshal([]string(m))
+}
+
+func pickModel(key string, models []string) string {
+	if len(models) == 0 {
+		models = defaultModels
+	}
+	if len(models) == 0 {
+		return ""
+	}
+	if len(models) == 1 {
+		return models[0]
+	}
+	pickedModels.Lock()
+	defer pickedModels.Unlock()
+	if picked := pickedModels.m[key]; picked != "" {
+		return picked
+	}
+	picked := models[rand.Intn(len(models))]
+	pickedModels.m[key] = picked
+	return picked
 }
 
 type settingsFile struct {
 	Provider struct {
-		Model               string           `json:"model"`
+		Model               modelList        `json:"model"`
+		DefaultProvider     string           `json:"defaultProvider"`
 		LightModel          string           `json:"lightModel"`
 		MaxTokens           int              `json:"maxTokens"`
 		ModelContextMapping map[string]int   `json:"modelContextMapping"`
@@ -89,19 +151,19 @@ type settingsFile struct {
 	Yolo struct {
 		Enabled bool `json:"enabled"`
 	} `json:"yolo"`
-	MCP MCPs `json:"mcp"`
-	Lint LintConfig `json:"lint"`
+	MCP    MCPs       `json:"mcp"`
+	Lint   LintConfig `json:"lint"`
 	Skills struct {
 		Enabled []string `json:"enabled"`
 	} `json:"skills"`
 }
 
 func Load(projectDir string) (Config, error) {
-	cfg := Config{
-	}
+	cfg := Config{}
 
 	sf := loadSettingsFiles(projectDir)
-	cfg.Model = strings.TrimSpace(sf.Provider.Model)
+	cfg.Model = pickModel(projectDir, sf.Provider.Model)
+	cfg.DefaultProvider = strings.TrimSpace(sf.Provider.DefaultProvider)
 	cfg.LightModel = strings.TrimSpace(sf.Provider.LightModel)
 	cfg.MaxTokens = sf.Provider.MaxTokens
 	cfg.DefaultMode = sf.DefaultMode.Mode
@@ -139,7 +201,7 @@ func Load(projectDir string) (Config, error) {
 		cfg.Model = envModel
 	}
 	if cfg.Model == "" {
-		cfg.Model = defaultModel
+		cfg.Model = pickModel(projectDir, nil)
 	}
 
 	if v := os.Getenv("ANTHROPIC_MAX_TOKENS"); v != "" {
@@ -179,10 +241,15 @@ func mergeSettings(project, user settingsFile) settingsFile {
 	var out settingsFile
 
 	// Provider: scalar fields — project wins if non-zero
-	if strings.TrimSpace(project.Provider.Model) != "" {
+	if len(project.Provider.Model) > 0 {
 		out.Provider.Model = project.Provider.Model
 	} else {
 		out.Provider.Model = user.Provider.Model
+	}
+	if strings.TrimSpace(project.Provider.DefaultProvider) != "" {
+		out.Provider.DefaultProvider = project.Provider.DefaultProvider
+	} else {
+		out.Provider.DefaultProvider = user.Provider.DefaultProvider
 	}
 	if strings.TrimSpace(project.Provider.LightModel) != "" {
 		out.Provider.LightModel = project.Provider.LightModel
@@ -254,7 +321,6 @@ func mergeMap[K comparable, V any](a, b map[K]V) map[K]V {
 	}
 	return out
 }
-
 
 const defaultContextWindow = 200000
 

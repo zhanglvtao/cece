@@ -25,6 +25,9 @@ type Session struct {
 	TotalInputTokens  int               `json:"total_input_tokens,omitempty"`
 	TotalOutputTokens int               `json:"total_output_tokens,omitempty"`
 	StatusBar         StatusBarSnapshot `json:"status_bar,omitempty"`
+	ParentID          string            `json:"parent_id,omitempty"` // parent session ID (for sub-agent sessions)
+	AgentID           string            `json:"agent_id,omitempty"`  // agent runtime ID (e.g. "agent-1")
+	Kind              string            `json:"kind,omitempty"`       // "main" | "agent"
 	CreatedAt         time.Time         `json:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at"`
 }

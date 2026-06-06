@@ -1292,6 +1292,8 @@ type runningAgent struct {
 	ID              string
 	Description     string
 	Model           string
+	Status          string
+	SessionID       string
 	InputTokens     int
 	OutputTokens    int
 	CacheReadTokens int

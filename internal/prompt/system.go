@@ -26,3 +26,13 @@ func FormatStableSystemPrompt(repoRoot string) string {
 	}
 	return strings.TrimSpace(defaultSystemPrompt)
 }
+
+// FormatSubAgentSystemPrompt returns the system prompt for a sub-agent.
+// It starts with the default stable prompt and appends any extra instructions.
+func FormatSubAgentSystemPrompt(repoRoot string, systemPromptExtra string) string {
+	base := FormatStableSystemPrompt(repoRoot)
+	if systemPromptExtra != "" {
+		return base + "\n\n" + systemPromptExtra
+	}
+	return base
+}

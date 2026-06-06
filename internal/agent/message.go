@@ -297,23 +297,77 @@ func TurnBoundaries(messages []Message) []int {
 	return boundaries
 }
 
+func IsToolResultMessage(m Message) bool {
+	if m.Role != UserRole || len(m.ContentBlocks) == 0 {
+		return false
+	}
+	_, ok := m.ContentBlocks[0].AsToolResult()
+	return ok
+}
+
+func IsPlainUserMessage(m Message) bool {
+	return m.Role == UserRole && !m.CompactBoundary && !IsToolResultMessage(m)
+}
+
+func UserTurnBoundaries(messages []Message) []int {
+	var boundaries []int
+	for i, m := range messages {
+		if IsPlainUserMessage(m) {
+			boundaries = append(boundaries, i)
+		}
+	}
+	return boundaries
+}
+
+func SafeContextBoundaryBeforeTurn(messages []Message, turn int) (int, bool) {
+	boundaries := TurnBoundaries(messages)
+	if turn < 0 || turn >= len(boundaries) {
+		return 0, false
+	}
+	for i := boundaries[turn]; i >= 0; i-- {
+		if IsPlainUserMessage(messages[i]) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func SafeContextRange(messages []Message, fromTurn, toTurn int) (int, int, bool) {
+	boundaries := TurnBoundaries(messages)
+	if fromTurn < 0 {
+		fromTurn = 0
+	}
+	if fromTurn >= len(boundaries) || fromTurn >= toTurn {
+		return 0, 0, false
+	}
+	startIdx, ok := SafeContextBoundaryBeforeTurn(messages, fromTurn)
+	if !ok {
+		return 0, 0, false
+	}
+	endIdx := len(messages)
+	if toTurn < len(boundaries) {
+		var endOK bool
+		endIdx, endOK = SafeContextBoundaryBeforeTurn(messages, toTurn)
+		if !endOK {
+			return 0, 0, false
+		}
+	}
+	if endIdx <= startIdx {
+		return 0, 0, false
+	}
+	return startIdx, endIdx, true
+}
+
 // TrimToolResultsInRange trims tool_result content in messages belonging to
 // turns [fromTurn, toTurn). Returns (trimmedCount, tokensBefore, tokensAfter).
 // Mutates messages in place.
 func TrimToolResultsInRange(messages []Message, fromTurn, toTurn int) (truncatedCount, tokensBefore, tokensAfter int) {
-	boundaries := TurnBoundaries(messages)
 	tokensBefore = EstimateMessagesTokens(messages)
 
-	// Determine message index range for the specified turns
-	msgStart := 0
-	if fromTurn > 0 && fromTurn <= len(boundaries) {
-		msgStart = boundaries[fromTurn-1]
-	}
-	// Note: fromTurn=0 means from the beginning, so msgStart=0
-
-	msgEnd := len(messages)
-	if toTurn <= len(boundaries) {
-		msgEnd = boundaries[toTurn-1]
+	msgStart, msgEnd, ok := SafeContextRange(messages, fromTurn, toTurn)
+	if !ok {
+		tokensAfter = tokensBefore
+		return
 	}
 
 	for i := msgStart; i < msgEnd && i < len(messages); i++ {
@@ -338,14 +392,16 @@ func TrimToolResultsInRange(messages []Message, fromTurn, toTurn int) (truncated
 // Returns the pruned message list (starting from the turn's boundary)
 // plus a CompactBoundary message summarizing what was removed.
 func PruneBeforeTurn(messages []Message, turn int) ([]Message, int, int) {
-	boundaries := TurnBoundaries(messages)
 	tokensBefore := EstimateMessagesTokens(messages)
 
-	if turn <= 0 || turn > len(boundaries) {
+	if turn <= 0 {
+		return messages, tokensBefore, tokensBefore
+	}
+	startIdx, ok := SafeContextBoundaryBeforeTurn(messages, turn)
+	if !ok {
 		return messages, tokensBefore, tokensBefore
 	}
 
-	startIdx := boundaries[turn-1]
 	pruned := messages[startIdx:]
 
 	// Count how many turns were pruned

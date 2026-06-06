@@ -334,3 +334,61 @@ func TestProjectMessagesForRequestKeepsUserToolResults(t *testing.T) {
 		t.Fatalf("tool result = %+v, want call_1/file1\\nfile2", tr)
 	}
 }
+
+func TestSafeContextBoundaryBeforeTurnWalksBackToPlainUser(t *testing.T) {
+	messages := []Message{
+		{Role: UserRole, Content: "u0"},
+		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
+		{Role: UserRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
+		{Role: AssistantRole, Content: "done"},
+		{Role: UserRole, Content: "u1"},
+	}
+
+	idx, ok := SafeContextBoundaryBeforeTurn(messages, 1)
+	if !ok {
+		t.Fatal("expected safe boundary")
+	}
+	if idx != 0 {
+		t.Fatalf("safe boundary = %d, want 0", idx)
+	}
+
+	idx, ok = SafeContextBoundaryBeforeTurn(messages, 2)
+	if !ok {
+		t.Fatal("expected safe boundary")
+	}
+	if idx != 4 {
+		t.Fatalf("safe boundary = %d, want 4", idx)
+	}
+}
+
+func TestUserTurnBoundariesIgnoresToolResultsAndCompactBoundaries(t *testing.T) {
+	messages := []Message{
+		{Role: UserRole, Content: "u0"},
+		{Role: UserRole, Content: "summary", CompactBoundary: true},
+		{Role: UserRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
+		{Role: UserRole, Content: "u1"},
+	}
+
+	boundaries := UserTurnBoundaries(messages)
+	if len(boundaries) != 2 || boundaries[0] != 0 || boundaries[1] != 3 {
+		t.Fatalf("boundaries = %v, want [0 3]", boundaries)
+	}
+}
+
+func TestTrimToolResultsInRangeUsesSafeContextRange(t *testing.T) {
+	messages := []Message{
+		{Role: UserRole, Content: "u0"},
+		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
+		{Role: UserRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "old"}}}},
+		{Role: UserRole, Content: "u1"},
+	}
+
+	trimmed, _, _ := TrimToolResultsInRange(messages, 1, 2)
+	if trimmed != 1 {
+		t.Fatalf("trimmed = %d, want 1", trimmed)
+	}
+	tr, _ := messages[2].ContentBlocks[0].AsToolResult()
+	if tr.Content != "[trimmed]" {
+		t.Fatalf("tool result content = %q, want [trimmed]", tr.Content)
+	}
+}
