@@ -7,11 +7,16 @@ import (
 )
 
 type ChatCompletionRequest struct {
-	Model     string      `json:"model"`
-	Messages  []AidenMsg  `json:"messages"`
-	MaxTokens int         `json:"max_tokens,omitempty"`
-	Stream    bool        `json:"stream"`
-	Tools     []AidenTool `json:"tools,omitempty"`
+	Model         string         `json:"model"`
+	Messages      []AidenMsg     `json:"messages"`
+	MaxTokens     int            `json:"max_tokens,omitempty"`
+	Stream        bool           `json:"stream"`
+	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
+	Tools         []AidenTool    `json:"tools,omitempty"`
+}
+
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type ResponsesRequest struct {

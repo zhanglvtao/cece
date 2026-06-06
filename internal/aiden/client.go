@@ -132,6 +132,7 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 		Messages:  SerializeMessages(projectedMessages, system),
 		Stream:    true,
 		MaxTokens: maxTokens,
+		StreamOptions: &StreamOptions{IncludeUsage: true},
 	}
 
 	if len(tools) > 0 {
