@@ -51,6 +51,7 @@ func TestE2E_Skill_ToolCall_ReturnsSkillXML(t *testing.T) {
 		Instructions: "Always mention 'demo skill activated'",
 	}
 	skillStore := skill.NewStore([]*skill.Skill{testSkill})
+	skillStore.SetAllEnabled(true)
 
 	llm := testkit.NewScriptedClient(
 		testkit.ToolUseTurn("call-skill", "Skill", `{"name":"demo","args":"test args"}`),
@@ -87,6 +88,7 @@ func TestE2E_Skill_SlashCommand_LoadsSkill(t *testing.T) {
 		Instructions: "Always mention 'demo skill activated'",
 	}
 	skillStore := skill.NewStore([]*skill.Skill{testSkill})
+	skillStore.SetAllEnabled(true)
 
 	llm := testkit.NewScriptedClient(testkit.TextTurn("skill received"))
 	h := testkit.NewHarness(t, llm, testkit.WithSkillStore(skillStore))

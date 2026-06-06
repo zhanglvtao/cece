@@ -244,11 +244,13 @@ func TestSlashModelAndSkill(t *testing.T) {
 		t.Fatalf("last action = %T, want ListModelsAction", sender.actions[len(sender.actions)-1])
 	}
 
-	m.SetSkillStore(skill.NewStore([]*skill.Skill{{
+	store := skill.NewStore([]*skill.Skill{{
 		Name:         "demo",
 		Description:  "demo skill",
 		Instructions: "Do demo",
-	}}))
+	}})
+	store.SetAllEnabled(true)
+	m.SetSkillStore(store)
 	m.input.SetValue("/demo with args")
 	_, cmd = m.handleKey(keyMsg("enter"))
 	if cmd == nil {
