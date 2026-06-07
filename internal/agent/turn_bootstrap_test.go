@@ -24,6 +24,7 @@ func (e *dryRunEngine) PlanState() *tool.PlanModeState          { return tool.Ne
 func (e *dryRunEngine) TaskList() *tool.TaskList                { return tool.NewTaskList() }
 func (e *dryRunEngine) Yolo() bool                              { return false }
 func (e *dryRunEngine) MaxTokens() int                          { return 1234 }
+func (e *dryRunEngine) ContextWindow() int                      { return 270000 }
 func (e *dryRunEngine) ToolResultPolicy() ToolResultPolicy      { return ToolResultPolicy{} }
 func (e *dryRunEngine) SessionID() string                       { return "" }
 func (e *dryRunEngine) HistoryLen() int                         { return len(e.history) }
@@ -36,13 +37,13 @@ func (e *dryRunEngine) SetLastInputTokens(int) {}
 func (e *dryRunEngine) IncrementTokens(int, int) (string, session.SessionMeta, bool) {
 	return "", session.SessionMeta{}, false
 }
-func (e *dryRunEngine) IncrementAPICalls()          {}
-func (e *dryRunEngine) IncrementToolCount(string)   {}
-func (e *dryRunEngine) UpdateCacheTokens(int, int)  {}
-func (e *dryRunEngine) ResetQuestionAnswers()       {}
+func (e *dryRunEngine) IncrementAPICalls()                        {}
+func (e *dryRunEngine) IncrementToolCount(string)                 {}
+func (e *dryRunEngine) UpdateCacheTokens(int, int)                {}
+func (e *dryRunEngine) ResetQuestionAnswers()                     {}
 func (e *dryRunEngine) GetQuestionAnswers() []tool.QuestionAnswer { return nil }
-func (e *dryRunEngine) DrainQueuedInputs() []string { return nil }
-func (e *dryRunEngine) TryAutoCompact(ctx context.Context) bool  { return false }
+func (e *dryRunEngine) DrainQueuedInputs() []string               { return nil }
+func (e *dryRunEngine) TryAutoCompact(ctx context.Context) bool   { return false }
 
 type dryRunCollector struct{}
 

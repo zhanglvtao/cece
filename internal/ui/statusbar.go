@@ -177,12 +177,21 @@ func (sb *StatusBar) Render(width int) string {
 		line2Parts = append(line2Parts, sb.styles.Status.Calls.Render(fmt.Sprintf("api×%d", sb.apiCalls)))
 	}
 	if len(sb.toolCounts) > 0 {
-		names := make([]string, 0, len(sb.toolCounts))
+		ctxNames := make([]string, 0, len(sb.toolCounts))
+		otherNames := make([]string, 0, len(sb.toolCounts))
 		for n := range sb.toolCounts {
-			names = append(names, n)
+			if toolCategoryFor(n) == toolCatCtx {
+				ctxNames = append(ctxNames, n)
+			} else {
+				otherNames = append(otherNames, n)
+			}
 		}
-		sort.Strings(names)
-		for _, n := range names {
+		sort.Strings(ctxNames)
+		sort.Strings(otherNames)
+		for _, n := range ctxNames {
+			line2Parts = append(line2Parts, sb.styles.Status.ToolCtx.Render(fmt.Sprintf("%s×%d", shortToolName(n), sb.toolCounts[n])))
+		}
+		for _, n := range otherNames {
 			line2Parts = append(line2Parts, toolStyle(n, sb.styles).Render(fmt.Sprintf("%s×%d", shortToolName(n), sb.toolCounts[n])))
 		}
 	}
@@ -222,6 +231,8 @@ var toolShortNames = map[string]string{
 	"AskUserQuestion": "Ask",
 	"WebFetch":        "Web",
 	"Compact":         "Cmpct",
+	"TrimToolResults": "Trim",
+	"Prune":           "Prune",
 }
 
 // toolCategory classifies a tool name for color-coding.
@@ -229,22 +240,22 @@ type toolCategory int
 
 const (
 	toolCatDefault toolCategory = iota
-	toolCatFile    // file read/write/search/shell
-	toolCatWeb     // web fetch/search
-	toolCatAsk     // user interaction
-	toolCatCtx     // context compression
-	toolCatAgent   // sub-agent
-	toolCatPlan    // plan/unplan
+	toolCatFile                 // file read/write/search/shell
+	toolCatWeb                  // web fetch/search
+	toolCatAsk                  // user interaction
+	toolCatCtx                  // context compression
+	toolCatAgent                // sub-agent
+	toolCatPlan                 // plan/unplan
 )
 
 var toolCategories = map[string]toolCategory{
 	// File operations
-	"Read":    toolCatFile,
-	"Write":   toolCatFile,
-	"Edit":    toolCatFile,
-	"Glob":    toolCatFile,
-	"Grep":    toolCatFile,
-	"Bash":    toolCatFile,
+	"Read":  toolCatFile,
+	"Write": toolCatFile,
+	"Edit":  toolCatFile,
+	"Glob":  toolCatFile,
+	"Grep":  toolCatFile,
+	"Bash":  toolCatFile,
 	// Web operations
 	"WebFetch":  toolCatWeb,
 	"WebSearch": toolCatWeb,
@@ -252,8 +263,9 @@ var toolCategories = map[string]toolCategory{
 	"AskUserQuestion": toolCatAsk,
 	// Context compression
 	"Compact":             toolCatCtx,
+	"TrimToolResults":     toolCatCtx,
 	"TruncateToolResults": toolCatCtx,
-	"PrunedEvent":         toolCatCtx,
+	"Prune":               toolCatCtx,
 	// Sub-agent
 	"Agent": toolCatAgent,
 	// Plan mode
@@ -261,12 +273,15 @@ var toolCategories = map[string]toolCategory{
 	"ExitPlanMode":  toolCatPlan,
 }
 
-func toolStyle(name string, s Styles) lipgloss.Style {
-	cat := toolCatDefault
+func toolCategoryFor(name string) toolCategory {
 	if c, ok := toolCategories[name]; ok {
-		cat = c
+		return c
 	}
-	switch cat {
+	return toolCatDefault
+}
+
+func toolStyle(name string, s Styles) lipgloss.Style {
+	switch toolCategoryFor(name) {
 	case toolCatFile:
 		return s.Status.ToolFile
 	case toolCatWeb:

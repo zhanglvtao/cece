@@ -153,6 +153,7 @@ func (b *TurnBootstrap) turnDeps() TurnDeps {
 		IncrementAPICalls:  eng.IncrementAPICalls,
 		IncrementToolCount: eng.IncrementToolCount,
 		UpdateCacheTokens:  eng.UpdateCacheTokens,
+		ContextWindow:      eng.ContextWindow(),
 	}
 }
 

@@ -388,9 +388,9 @@ func TrimToolResultsInRange(messages []Message, fromTurn, toTurn int) (truncated
 	return
 }
 
-// TruncateToolUseInputs replaces tool_use input in assistant messages from the
-// earliest turn up to turn `toTurn` with "[truncated]". Only the range before
-// the argument is truncated — turn toTurn and later are preserved.
+// TruncateToolUseInputs replaces tool_use input in assistant messages before
+// turn `upToTurn` with "[truncated]". If upToTurn is past the last turn, the
+// whole message slice is eligible.
 // Mutates messages in place. Returns (truncatedCount, tokensBefore, tokensAfter).
 // This is a last-resort safety net: when all other compression fails, truncating
 // tool_use inputs in the snapshot prevents the request body from exceeding the
@@ -398,10 +398,19 @@ func TrimToolResultsInRange(messages []Message, fromTurn, toTurn int) (truncated
 func TruncateToolUseInputs(messages []Message, upToTurn int) (truncatedCount, tokensBefore, tokensAfter int) {
 	tokensBefore = EstimateMessagesTokens(messages)
 
-	msgEnd, ok := SafeContextBoundaryBeforeTurn(messages, upToTurn)
-	if !ok || msgEnd <= 0 {
+	boundaries := TurnBoundaries(messages)
+	if len(boundaries) == 0 || upToTurn <= 0 {
 		tokensAfter = tokensBefore
 		return
+	}
+	msgEnd := len(messages)
+	if upToTurn < len(boundaries) {
+		var ok bool
+		msgEnd, ok = SafeContextBoundaryBeforeTurn(messages, upToTurn)
+		if !ok || msgEnd <= 0 {
+			tokensAfter = tokensBefore
+			return
+		}
 	}
 
 	for i := 0; i < msgEnd && i < len(messages); i++ {

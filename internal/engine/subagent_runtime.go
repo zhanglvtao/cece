@@ -260,7 +260,11 @@ func (rt *AgentRuntime) handleEvent(ev protocol.Event) (AgentMessage, bool) {
 		rt.LastMessage = text
 		rt.UpdatedAt = time.Now()
 		rt.mu.Unlock()
-		return AgentMessage{Kind: AgentMessageProgress, Status: AgentStatusRunning, Payload: rt.Snapshot()}, true
+			// Update internal snapshot only — do NOT return a message.
+			// AssistantDelta fires per token; emitting SubAgentActivityEvent
+			// for each one floods the channel. UI gets enough signal from
+			// ModelRequestStarted / StreamCompleted / ToolExec* events.
+			return AgentMessage{}, false
 	case protocol.ToolCallStarted:
 		rt.mu.Lock()
 		rt.LastTool = "preparing " + v.Name

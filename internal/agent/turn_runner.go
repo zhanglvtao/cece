@@ -31,6 +31,7 @@ type TurnDeps struct {
 	IncrementAPICalls    func()
 	IncrementToolCount   func(name string)
 	UpdateCacheTokens    func(read, creation int)
+	ContextWindow        int
 }
 
 // TurnRunner owns the agent loop for one user turn.
@@ -59,6 +60,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 	reason := "user"
 	var toolResultNames []string
 	for {
+		messages = r.applyToolUseFallback(messages, plan.System)
 		r.deps.IncrementAPICalls()
 
 		resp, err := r.streamer.Stream(ctx, ModelStreamRequest{
@@ -89,6 +91,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				NewMaxTokens:  escalatedMaxTokens,
 			}
 			slog.Info("output truncated, escalating max_tokens", "from", r.maxTokens, "to", escalatedMaxTokens)
+			messages = r.applyToolUseFallback(messages, plan.System)
 			r.deps.IncrementAPICalls()
 			resp, err = r.streamer.Stream(ctx, ModelStreamRequest{
 				Messages:    messages,
@@ -191,6 +194,72 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		// Next model call is triggered by tool results (or user intervention).
 		reason = "tool_result"
 	}
+}
+
+func (r *TurnRunner) applyToolUseFallback(messages []Message, system SystemPrompt) []Message {
+	if r.deps.ContextWindow <= 0 {
+		return messages
+	}
+	tools := []tool.Definition(nil)
+	if r.streamer != nil && r.streamer.registry != nil {
+		tools = r.streamer.registry.Definitions()
+	}
+	estimated := EstimateRequestTokens(system, messages, tools)
+	if estimated <= r.deps.ContextWindow {
+		return messages
+	}
+
+	turns := len(TurnBoundaries(messages))
+	if turns <= 1 {
+		return messages
+	}
+
+	truncated := cloneMessagesForRequestFallback(messages)
+	totalTruncated := 0
+	before := estimated
+	for upToTurn := 1; upToTurn <= turns && estimated > r.deps.ContextWindow; upToTurn++ {
+		count, _, _ := TruncateToolUseInputs(truncated, upToTurn)
+		if count == 0 {
+			continue
+		}
+		totalTruncated += count
+		estimated = EstimateRequestTokens(system, truncated, tools)
+	}
+	if totalTruncated > 0 {
+		slog.Warn("tool_use input fallback truncation applied", "truncated", totalTruncated, "tokens_before", before, "tokens_after", estimated, "context_window", r.deps.ContextWindow)
+		return truncated
+	}
+	return messages
+}
+
+func cloneMessagesForRequestFallback(messages []Message) []Message {
+	out := make([]Message, len(messages))
+	for i, msg := range messages {
+		out[i] = msg
+		if len(msg.ContentBlocks) == 0 {
+			continue
+		}
+		out[i].ContentBlocks = make([]ApiContentBlock, len(msg.ContentBlocks))
+		for j, block := range msg.ContentBlocks {
+			out[i].ContentBlocks[j] = block
+			if block.ToolUse != nil {
+				toolUse := *block.ToolUse
+				if toolUse.Input != nil {
+					toolUse.Input = append([]byte(nil), toolUse.Input...)
+				}
+				out[i].ContentBlocks[j].ToolUse = &toolUse
+			}
+			if block.ToolResult != nil {
+				toolResult := *block.ToolResult
+				out[i].ContentBlocks[j].ToolResult = &toolResult
+			}
+			if block.Thinking != nil {
+				thinking := *block.Thinking
+				out[i].ContentBlocks[j].Thinking = &thinking
+			}
+		}
+	}
+	return out
 }
 
 func (r *TurnRunner) promoteQueuedInputs(ctx context.Context, events chan<- Event, reason string) bool {

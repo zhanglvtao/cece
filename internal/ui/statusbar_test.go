@@ -183,14 +183,14 @@ func TestStatusBarBusy(t *testing.T) {
 
 func TestStatusBarToolCategories(t *testing.T) {
 	sb := NewStatusBar()
-	sb.IncrementTool("Read")          // file
-	sb.IncrementTool("Bash")          // file
-	sb.IncrementTool("WebFetch")      // web
+	sb.IncrementTool("Read")            // file
+	sb.IncrementTool("Bash")            // file
+	sb.IncrementTool("WebFetch")        // web
 	sb.IncrementTool("AskUserQuestion") // ask
-	sb.IncrementTool("Compact")       // ctx
-	sb.IncrementTool("Agent")         // agent
-	sb.IncrementTool("EnterPlanMode") // plan
-	sb.IncrementTool("Unknown")       // default
+	sb.IncrementTool("Compact")         // ctx
+	sb.IncrementTool("Agent")           // agent
+	sb.IncrementTool("EnterPlanMode")   // plan
+	sb.IncrementTool("Unknown")         // default
 
 	got := sb.Render(120)
 	lines := strings.Split(got, "\n")
@@ -257,6 +257,33 @@ func TestStatusBarToolCategories(t *testing.T) {
 	defaultANSI := ansiFor("Unknown×1")
 	if defaultANSI == readANSI || defaultANSI == webANSI || defaultANSI == askANSI {
 		t.Fatalf("Unknown should differ from categorized colors, got=%q", defaultANSI)
+	}
+}
+
+func TestStatusBarGroupsContextToolsFirst(t *testing.T) {
+	sb := NewStatusBar()
+	sb.IncrementTool("Read")
+	sb.IncrementTool("Prune")
+	sb.IncrementTool("Compact")
+	sb.IncrementTool("TrimToolResults")
+
+	got := stripAnsi(sb.Render(120))
+	lines := strings.Split(got, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	line := lines[1]
+	wantOrder := []string{"Cmpct×1", "Prune×1", "Trim×1", "Read×1"}
+	last := -1
+	for _, label := range wantOrder {
+		idx := strings.Index(line, label)
+		if idx < 0 {
+			t.Fatalf("missing %q in %q", label, line)
+		}
+		if idx < last {
+			t.Fatalf("%q rendered out of order in %q", label, line)
+		}
+		last = idx
 	}
 }
 

@@ -56,32 +56,32 @@ type Engine struct {
 	yolo       bool          // auto-approve tool execution without UI confirmation
 	maxTokens  int           // configurable max output tokens
 
-	ContextWindowFor    func(model string) int               // returns context window for a model ID
-	ModelClientFor      func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client
-	store               session.Store                        // optional persistence backend
-	sessionID           string                               // current session ID, empty = not yet created
-	sessionCreated      bool                                 // true after first Input creates a session
-	modelName           string                               // current model name for meta persistence
-	contextWindow       int                                  // current context window size for meta persistence
-	protocol            string                               // current protocol (anthropic, aiden, codebase, etc.)
-	configName          string                               // current provider config name
-	lastInputTokens     int                                  // last request input tokens for resume water level
-	totalInputTokens    int                                  // cumulative input tokens across turns
-	totalOutputTokens   int                                  // cumulative output tokens across turns
-	apiCalls            int                                  // cumulative API call count
-	toolCounts          map[string]int                       // cumulative tool execution counts
-	turnCount           int                                  // cumulative conversation turn count
-	cacheReadTokens     int                                  // cumulative cache read tokens
-	cacheCreationTokens int                                  // cumulative cache creation tokens
-	lastCompactTurn     int                                  // turn count at last compact/prune
-	consecutiveCompactFailures int                              // circuit breaker: stop autoCompact after 3 failures
-	lastNudgeTurn       int                                  // last turn number when nudge was injected (throttle)
-	inputQueue          *userInputQueue                      // queued user inputs while agent is busy
-	nextSubAgentID      int                                  // monotonic ID for sub-agent lifecycle events
-	subAgents          map[string]*AgentRuntime              // live sub-agent runtimes by ID
-	subAgentFactory    SubAgentRuntimeFactory                // optional factory for building sub-agent runtimes with Mediator
-	questionAnswers     []tool.QuestionAnswer
-	eventCh             chan protocol.Event // global event channel for async responses
+	ContextWindowFor           func(model string) int               // returns context window for a model ID
+	ModelClientFor             func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client
+	store                      session.Store                        // optional persistence backend
+	sessionID                  string                               // current session ID, empty = not yet created
+	sessionCreated             bool                                 // true after first Input creates a session
+	modelName                  string                               // current model name for meta persistence
+	contextWindow              int                                  // current context window size for meta persistence
+	protocol                   string                               // current protocol (anthropic, aiden, codebase, etc.)
+	configName                 string                               // current provider config name
+	lastInputTokens            int                                  // last request input tokens for resume water level
+	totalInputTokens           int                                  // cumulative input tokens across turns
+	totalOutputTokens          int                                  // cumulative output tokens across turns
+	apiCalls                   int                                  // cumulative API call count
+	toolCounts                 map[string]int                       // cumulative tool execution counts
+	turnCount                  int                                  // cumulative conversation turn count
+	cacheReadTokens            int                                  // cumulative cache read tokens
+	cacheCreationTokens        int                                  // cumulative cache creation tokens
+	lastCompactTurn            int                                  // turn count at last compact/prune
+	consecutiveCompactFailures int                                  // circuit breaker: stop autoCompact after 3 failures
+	lastNudgeTurn              int                                  // last turn number when nudge was injected (throttle)
+	inputQueue                 *userInputQueue                      // queued user inputs while agent is busy
+	nextSubAgentID             int                                  // monotonic ID for sub-agent lifecycle events
+	subAgents                  map[string]*AgentRuntime             // live sub-agent runtimes by ID
+	subAgentFactory            SubAgentRuntimeFactory               // optional factory for building sub-agent runtimes with Mediator
+	questionAnswers            []tool.QuestionAnswer
+	eventCh                    chan protocol.Event // global event channel for async responses
 }
 
 func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, maxTokens int, assembler *prompt.ContextAssembler, projectDir string) *Engine {
@@ -117,8 +117,13 @@ func (e *Engine) SetMCPTools(tools []tool.Tool) {
 	defer e.mu.Unlock()
 	e.registry.SetMCPTools(tools)
 }
-func (e *Engine) Yolo() bool                               { return e.yolo }
-func (e *Engine) MaxTokens() int                           { return e.maxTokens }
+func (e *Engine) Yolo() bool     { return e.yolo }
+func (e *Engine) MaxTokens() int { return e.maxTokens }
+func (e *Engine) ContextWindow() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.contextWindow
+}
 func (e *Engine) ToolResultPolicy() agent.ToolResultPolicy { return agent.ToolResultPolicy{} }
 func (e *Engine) SessionID() string {
 	e.mu.Lock()
@@ -1086,7 +1091,7 @@ func (e *Engine) IncrementAPICalls() {
 
 // ── Auto Compact ──────────────────────────────────────────────────────────
 
-const autoCompactPctThreshold = 90    // autoCompact triggers at 90% context usage
+const autoCompactPctThreshold = 90      // autoCompact triggers at 90% context usage
 const maxConsecutiveCompactFailures = 3 // circuit breaker threshold
 
 // shouldAutoCompact checks whether the system should automatically compact

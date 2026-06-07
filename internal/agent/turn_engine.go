@@ -20,6 +20,7 @@ type TurnEngine interface {
 	TaskList() *tool.TaskList
 	Yolo() bool
 	MaxTokens() int
+	ContextWindow() int
 	ToolResultPolicy() ToolResultPolicy
 	SessionID() string
 

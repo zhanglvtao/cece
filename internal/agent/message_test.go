@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/zhanglvtao/cece/internal/prompt"
@@ -372,6 +373,44 @@ func TestUserTurnBoundariesIgnoresToolResultsAndCompactBoundaries(t *testing.T) 
 	boundaries := UserTurnBoundaries(messages)
 	if len(boundaries) != 2 || boundaries[0] != 0 || boundaries[1] != 3 {
 		t.Fatalf("boundaries = %v, want [0 3]", boundaries)
+	}
+}
+
+func TestTruncateToolUseInputsUsesSnapshotOnlyRange(t *testing.T) {
+	messages := []Message{
+		{Role: UserRole, Content: "u0"},
+		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Edit", Input: json.RawMessage(`{"old_string":"very long"}`)}}}},
+		{Role: UserRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
+		{Role: UserRole, Content: "u1"},
+		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_2", Name: "Edit", Input: json.RawMessage(`{"new_string":"keep"}`)}}}},
+	}
+
+	truncated, _, _ := TruncateToolUseInputs(messages, 2)
+	if truncated != 1 {
+		t.Fatalf("truncated = %d, want 1", truncated)
+	}
+	if got := string(messages[1].ContentBlocks[0].ToolUse.Input); got != `"[truncated]"` {
+		t.Fatalf("old tool input = %s, want truncated", got)
+	}
+	if got := string(messages[4].ContentBlocks[0].ToolUse.Input); got != `{"new_string":"keep"}` {
+		t.Fatalf("recent tool input = %s, want preserved", got)
+	}
+}
+
+func TestApplyToolUseFallbackDoesNotMutateOriginalMessages(t *testing.T) {
+	messages := []Message{
+		{Role: UserRole, Content: "u0"},
+		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Edit", Input: json.RawMessage(`{"old_string":"` + strings.Repeat("x", 2000) + `"}`)}}}},
+		{Role: UserRole, Content: "u1"},
+	}
+	runner := &TurnRunner{deps: TurnDeps{ContextWindow: 1}}
+
+	got := runner.applyToolUseFallback(messages, SystemPrompt{})
+	if string(messages[1].ContentBlocks[0].ToolUse.Input) == `"[truncated]"` {
+		t.Fatal("original messages were mutated")
+	}
+	if string(got[1].ContentBlocks[0].ToolUse.Input) != `"[truncated]"` {
+		t.Fatalf("fallback input = %s, want truncated", got[1].ContentBlocks[0].ToolUse.Input)
 	}
 }
 
