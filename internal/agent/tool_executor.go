@@ -39,7 +39,7 @@ func NewToolExecutor(registry *tool.Registry, planState *tool.PlanModeState, tas
 	}
 }
 
-// ExecuteBatch runs tool calls in parallel, emitting progress events to ch.
+// ExecuteBatch runs safe tool calls in parallel, using non-concurrent tools as barriers.
 // Returns tool_result content blocks to be appended to the conversation.
 func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock, ch chan<- Event) []ApiContentBlock {
 	type execResult struct {
@@ -47,7 +47,6 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 		result tool.Result
 	}
 
-	results := make(chan execResult, len(calls))
 	execMode := tool.PermissionModeDefault
 	if e.planState != nil {
 		execMode = e.planState.Mode()
@@ -60,38 +59,58 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 		}
 	}
 
-	for i, call := range calls {
-		go func(idx int, c ApiToolUseBlock) {
-			emitter := &chanEmitter{ch: ch, id: c.ID}
-			emitToolEvent(ch, ToolExecStarted{ID: c.ID, Name: c.Name})
-			var result tool.Result
-			if c.Name == tool.AskUserQuestionToolName {
-				answers := []tool.QuestionAnswer(nil)
-				if e.answerProvider != nil {
-					answers = e.answerProvider()
-				}
-				answerBytes, _ := json.Marshal(map[string]any{"answers": answers})
-				result = tool.Result{Content: string(answerBytes)}
-			} else {
-				denied := false
-				result, denied = e.permissionDeniedResult(c.Name, execMode, c.Input)
-				if !denied && hasEnterPlanMode && c.Name != tool.EnterPlanModeToolName {
-					result = tool.Result{Content: "EnterPlanMode must be handled before other tool calls. Continue planning with read-only tools after plan mode is active.", IsError: true}
-					denied = true
-				}
-				if !denied {
-					result = e.registry.Execute(ctx, c.Name, c.Input, emitter)
-				}
+	executeOne := func(idx int, c ApiToolUseBlock) execResult {
+		emitter := &chanEmitter{ch: ch, id: c.ID}
+		emitToolEvent(ch, ToolExecStarted{ID: c.ID, Name: c.Name})
+		var result tool.Result
+		if c.Name == tool.AskUserQuestionToolName {
+			answers := []tool.QuestionAnswer(nil)
+			if e.answerProvider != nil {
+				answers = e.answerProvider()
 			}
-			emitToolEvent(ch, ToolExecCompleted{ID: c.ID, Name: c.Name, Result: result})
-			results <- execResult{index: idx, result: result}
-		}(i, call)
+			answerBytes, _ := json.Marshal(map[string]any{"answers": answers})
+			result = tool.Result{Content: string(answerBytes)}
+		} else {
+			denied := false
+			result, denied = e.permissionDeniedResult(c.Name, execMode, c.Input)
+			if !denied && hasEnterPlanMode && c.Name != tool.EnterPlanModeToolName {
+				result = tool.Result{Content: "EnterPlanMode must be handled before other tool calls. Continue planning with read-only tools after plan mode is active.", IsError: true}
+				denied = true
+			}
+			if !denied {
+				result = e.registry.Execute(ctx, c.Name, c.Input, emitter)
+			}
+		}
+		emitToolEvent(ch, ToolExecCompleted{ID: c.ID, Name: c.Name, Result: result})
+		return execResult{index: idx, result: result}
+	}
+
+	runConcurrent := func(start, end int, resultMap map[int]tool.Result) {
+		results := make(chan execResult, end-start)
+		for i := start; i < end; i++ {
+			go func(idx int, c ApiToolUseBlock) {
+				results <- executeOne(idx, c)
+			}(i, calls[i])
+		}
+		for i := start; i < end; i++ {
+			r := <-results
+			resultMap[r.index] = r.result
+		}
 	}
 
 	resultMap := make(map[int]tool.Result, len(calls))
-	for range calls {
-		r := <-results
+	for i := 0; i < len(calls); {
+		if canRunToolConcurrently(calls[i]) {
+			start := i
+			for i < len(calls) && canRunToolConcurrently(calls[i]) {
+				i++
+			}
+			runConcurrent(start, i, resultMap)
+			continue
+		}
+		r := executeOne(i, calls[i])
 		resultMap[r.index] = r.result
+		i++
 	}
 
 	// Check if task list was updated during execution.
@@ -139,6 +158,24 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 		}
 	}
 	return blocks
+}
+
+func canRunToolConcurrently(call ApiToolUseBlock) bool {
+	switch call.Name {
+	case "Read", "Glob", "Grep", "WebFetch":
+		return true
+	case tool.AgentToolName:
+		var params struct {
+			Operation string `json:"operation"`
+		}
+		if err := json.Unmarshal(call.Input, &params); err != nil {
+			return false
+		}
+		operation := strings.TrimSpace(params.Operation)
+		return operation == "" || operation == "start"
+	default:
+		return false
+	}
 }
 
 type chanEmitter struct {
