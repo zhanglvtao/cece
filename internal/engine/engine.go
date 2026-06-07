@@ -600,6 +600,9 @@ func (e *Engine) sendToSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgen
 	if rt == nil {
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
 	}
+	if !rt.FinishedAt.IsZero() {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s has finished", cfg.AgentID), Err: "agent_finished"}, nil
+	}
 	if cfg.Input == "" {
 		return tool.AgentSubAgentResult{Content: "input is required for send operation", Err: "missing_input"}, nil
 	}
@@ -617,6 +620,9 @@ func (e *Engine) answerSubAgent(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgen
 	rt := e.getSubAgent(cfg.AgentID)
 	if rt == nil {
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
+	}
+	if !rt.FinishedAt.IsZero() {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s has finished", cfg.AgentID), Err: "agent_finished"}, nil
 	}
 	if len(cfg.Answers) == 0 {
 		return tool.AgentSubAgentResult{Content: "answers are required for answer operation", Err: "missing_answers"}, nil
@@ -690,6 +696,12 @@ func (e *Engine) switchSubAgentModel(cfg tool.AgentSubAgentConfig) (tool.AgentSu
 	if rt == nil {
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s not found", cfg.AgentID), Err: "agent_not_found"}, nil
 	}
+	if !rt.FinishedAt.IsZero() {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s has finished", cfg.AgentID), Err: "agent_finished"}, nil
+	}
+	if !rt.FinishedAt.IsZero() {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s has finished", cfg.AgentID), Err: "agent_finished"}, nil
+	}
 	if cfg.Model == "" {
 		return tool.AgentSubAgentResult{Content: "model is required for switch_model operation", Err: "missing_model"}, nil
 	}
@@ -713,6 +725,21 @@ func (e *Engine) getSubAgent(agentID string) *AgentRuntime {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.subAgents[agentID]
+}
+
+// cleanupFinishedSubAgents removes sub-agents that have reached a terminal
+// state (completed/failed/cancelled) from the supervisor map.
+// Called at the start of each new Input so the current turn can always
+// query sub-agents it launched, even after they finish.
+func (e *Engine) cleanupFinishedSubAgents() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for id, rt := range e.subAgents {
+		if rt.FinishedAt.IsZero() {
+			continue
+		}
+		delete(e.subAgents, id)
+	}
 }
 
 // BuildSubRegistry builds a tool registry for a sub-agent.
@@ -867,10 +894,13 @@ func (e *Engine) bridgeSubRuntimeEvents(rt *AgentRuntime, store session.Store, p
 		}
 	}
 
-	// Clean up from supervisor when event channel closes
-	e.mu.Lock()
-	delete(e.subAgents, rt.ID)
-	e.mu.Unlock()
+	// Mark runtime as finished (but don't delete from supervisor yet,
+	// so status/send operations can still query completed agents).
+	rt.mu.Lock()
+	if rt.FinishedAt.IsZero() {
+		rt.FinishedAt = time.Now()
+	}
+	rt.mu.Unlock()
 }
 
 func (e *Engine) SetLastInputTokens(tokens int) {
@@ -1520,6 +1550,9 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	if input == "" {
 		return errors.New("input must not be empty")
 	}
+
+	// Clean up finished sub-agents from previous turns.
+	e.cleanupFinishedSubAgents()
 
 	slog.Info("send called", "input", input)
 
