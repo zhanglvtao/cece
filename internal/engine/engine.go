@@ -36,6 +36,7 @@ type SubAgentBuildConfig struct {
 	Model             string
 	ProjectDir        string
 	MaxTokens         int
+	MaxTurns          int // 0 = unlimited
 	ParentSessionID   string
 	SystemPromptExtra string
 	Tools             []string // explicit tool names; empty = all except Agent
@@ -440,6 +441,7 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 			ParentSessionID:   parentSessionID,
 			SystemPromptExtra: cfg.SystemPromptExtra,
 			Tools:             cfg.Tools,
+			MaxTurns:          cfg.MaxTurns,
 		})
 		if err != nil {
 			e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
@@ -537,7 +539,7 @@ func (e *Engine) startSubAgentBare(ctx context.Context, cfg tool.AgentSubAgentCo
 
 	// Create runtime with cancellable context
 	subCtx, cancel := context.WithCancel(ctx)
-	rt := NewAgentRuntime(agentID, cfg.Description, subModel, parentSessionID, subEng, nil, subCtx, cancel)
+	rt := NewAgentRuntime(agentID, cfg.Description, subModel, parentSessionID, subEng, nil, subCtx, cancel, cfg.MaxTurns)
 
 	// Register in supervisor
 	e.mu.Lock()
@@ -760,6 +762,42 @@ func (e *Engine) bridgeSubRuntimeEvents(rt *AgentRuntime, store session.Store, p
 			continue
 		}
 		rt.record(msg)
+
+		// Check max_turns limit after each model request
+		if rt.MaxTurns > 0 && rt.TurnCount >= rt.MaxTurns {
+			snap := rt.Snapshot()
+			rt.Result = tool.AgentSubAgentResult{
+				AgentID:      rt.ID,
+				SessionID:    snap.SessionID,
+				Status:       string(AgentStatusCompleted),
+				Content:      snap.LastMessage,
+				InputTokens:  snap.InputTokens,
+				OutputTokens: snap.OutputTokens,
+				TurnsUsed:    snap.TurnCount,
+				HitMaxTurns:  true,
+			}
+			e.emitEvent(protocol.SubAgentActivityEvent{
+				ID:           rt.ID,
+				SessionID:    snap.SessionID,
+				Activity:     "hit max turns",
+				Status:       string(AgentStatusCompleted),
+				Model:        snap.Model,
+				InputTokens:  snap.InputTokens,
+				OutputTokens: snap.OutputTokens,
+				TurnCount:    snap.TurnCount,
+			})
+			e.emitEvent(protocol.SubAgentCompletedEvent{
+				ID:           rt.ID,
+				Description:  rt.Description,
+				SessionID:    snap.SessionID,
+				InputTokens:  snap.InputTokens,
+				OutputTokens: snap.OutputTokens,
+				TurnsUsed:    snap.TurnCount,
+				HitMaxTurns:  true,
+			})
+			rt.Engine.Cancel()
+			return
+		}
 
 		// Update session relation on SessionCreated
 		if _, ok := ev.(protocol.SessionCreated); ok {

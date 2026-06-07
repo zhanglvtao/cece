@@ -47,21 +47,24 @@ type AgentMessage struct {
 }
 
 type AgentRuntimeSnapshot struct {
-	ID              string      `json:"id"`
-	Description     string      `json:"description,omitempty"`
-	SessionID       string      `json:"session_id,omitempty"`
-	Status          AgentStatus `json:"status"`
-	Model           string      `json:"model,omitempty"`
-	InputTokens     int         `json:"input_tokens,omitempty"`
-	OutputTokens    int         `json:"output_tokens,omitempty"`
-	CacheReadTokens int         `json:"cache_read_tokens,omitempty"`
-	TurnCount       int         `json:"turn_count,omitempty"`
-	LastActivity    string      `json:"last_activity,omitempty"`
-	LastTool        string      `json:"last_tool,omitempty"`
-	LastMessage     string      `json:"last_message,omitempty"`
-	StartedAt       time.Time   `json:"started_at"`
-	UpdatedAt       time.Time   `json:"updated_at"`
-	FinishedAt      time.Time   `json:"finished_at,omitempty"`
+	ID                string      `json:"id"`
+	Description       string      `json:"description,omitempty"`
+	SessionID         string      `json:"session_id,omitempty"`
+	Status            AgentStatus `json:"status"`
+	Model             string      `json:"model,omitempty"`
+	InputTokens       int         `json:"input_tokens,omitempty"`
+	OutputTokens      int         `json:"output_tokens,omitempty"`
+	CacheReadTokens   int         `json:"cache_read_tokens,omitempty"`
+	CacheCreateTokens int         `json:"cache_create_tokens,omitempty"`
+	APICalls          int         `json:"api_calls,omitempty"`
+	TurnCount         int         `json:"turn_count,omitempty"`
+	MaxTurns          int         `json:"max_turns,omitempty"`
+	LastActivity      string      `json:"last_activity,omitempty"`
+	LastTool          string      `json:"last_tool,omitempty"`
+	LastMessage       string      `json:"last_message,omitempty"`
+	StartedAt         time.Time   `json:"started_at"`
+	UpdatedAt         time.Time   `json:"updated_at"`
+	FinishedAt        time.Time   `json:"finished_at,omitempty"`
 }
 
 type AgentRuntime struct {
@@ -72,18 +75,21 @@ type AgentRuntime struct {
 	Context         context.Context
 	CancelFunc      context.CancelFunc
 	ParentSessionID string
+	MaxTurns        int // 0 = unlimited
 
-	mu              sync.Mutex
-	Status          AgentStatus
-	SessionID       string
-	Model           string
-	InputTokens     int
-	OutputTokens    int
-	CacheReadTokens int
-	TurnCount       int
-	LastActivity    string
-	LastTool        string
-	LastMessage     string
+	mu                sync.Mutex
+	Status            AgentStatus
+	SessionID         string
+	Model             string
+	InputTokens       int
+	OutputTokens      int
+	CacheReadTokens   int
+	CacheCreateTokens int
+	APICalls          int
+	TurnCount         int
+	LastActivity      string
+	LastTool          string
+	LastMessage       string
 	lastMessage     AgentMessage
 	msgBuf          strings.Builder
 	StartedAt       time.Time
@@ -94,7 +100,7 @@ type AgentRuntime struct {
 	cancelOnce      sync.Once
 }
 
-func NewAgentRuntime(id, description, model, parentSessionID string, eng *Engine, mediator *EngineMediator, ctx context.Context, cancel context.CancelFunc) *AgentRuntime {
+func NewAgentRuntime(id, description, model, parentSessionID string, eng *Engine, mediator *EngineMediator, ctx context.Context, cancel context.CancelFunc, maxTurns int) *AgentRuntime {
 	now := time.Now()
 	return &AgentRuntime{
 		ID:              id,
@@ -104,6 +110,7 @@ func NewAgentRuntime(id, description, model, parentSessionID string, eng *Engine
 		Context:         ctx,
 		CancelFunc:      cancel,
 		ParentSessionID: parentSessionID,
+		MaxTurns:        maxTurns,
 		Status:          AgentStatusStarting,
 		Model:           model,
 		StartedAt:       now,
@@ -132,21 +139,24 @@ func (rt *AgentRuntime) Snapshot() AgentRuntimeSnapshot {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	return AgentRuntimeSnapshot{
-		ID:              rt.ID,
-		Description:     rt.Description,
-		SessionID:       rt.SessionID,
-		Status:          rt.Status,
-		Model:           rt.Model,
-		InputTokens:     rt.InputTokens,
-		OutputTokens:    rt.OutputTokens,
-		CacheReadTokens: rt.CacheReadTokens,
-		TurnCount:       rt.TurnCount,
-		LastActivity:    rt.LastActivity,
-		LastTool:        rt.LastTool,
-		LastMessage:     rt.LastMessage,
-		StartedAt:       rt.StartedAt,
-		UpdatedAt:       rt.UpdatedAt,
-		FinishedAt:      rt.FinishedAt,
+		ID:                rt.ID,
+		Description:       rt.Description,
+		SessionID:         rt.SessionID,
+		Status:            rt.Status,
+		Model:             rt.Model,
+		InputTokens:       rt.InputTokens,
+		OutputTokens:      rt.OutputTokens,
+		CacheReadTokens:   rt.CacheReadTokens,
+		CacheCreateTokens: rt.CacheCreateTokens,
+		APICalls:          rt.APICalls,
+		TurnCount:         rt.TurnCount,
+		MaxTurns:          rt.MaxTurns,
+		LastActivity:      rt.LastActivity,
+		LastTool:          rt.LastTool,
+		LastMessage:       rt.LastMessage,
+		StartedAt:         rt.StartedAt,
+		UpdatedAt:         rt.UpdatedAt,
+		FinishedAt:        rt.FinishedAt,
 	}
 }
 
@@ -244,6 +254,10 @@ func (rt *AgentRuntime) handleEvent(ev protocol.Event) (AgentMessage, bool) {
 		if v.CacheReadTokens > 0 {
 			rt.CacheReadTokens = v.CacheReadTokens
 		}
+		if v.CacheCreationTokens > 0 {
+			rt.CacheCreateTokens = v.CacheCreationTokens
+		}
+		rt.APICalls++
 		rt.UpdatedAt = time.Now()
 		rt.mu.Unlock()
 		return AgentMessage{Kind: AgentMessageProgress, Status: AgentStatusRunning, Payload: rt.Snapshot()}, true

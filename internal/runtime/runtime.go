@@ -294,7 +294,7 @@ func (f *subAgentFactory) NewSubAgentRuntime(ctx context.Context, cfg engine.Sub
 
 	// Create runtime with cancellable context
 	subCtx, cancel := context.WithCancel(ctx)
-	rt := engine.NewAgentRuntime(cfg.AgentID, cfg.Description, subModel, cfg.ParentSessionID, subEng, subMediator, subCtx, cancel)
+	rt := engine.NewAgentRuntime(cfg.AgentID, cfg.Description, subModel, cfg.ParentSessionID, subEng, subMediator, subCtx, cancel, cfg.MaxTurns)
 
 	return rt, nil
 }
