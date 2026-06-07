@@ -1167,3 +1167,252 @@ func TestExitTargetModeClearedAfterExit(t *testing.T) {
 		t.Fatalf("mode after Exit from default = %q, want default", s.Mode())
 	}
 }
+
+// ── Edit: Trailing Whitespace & \n Tolerance ──────────────────────────────────
+
+func TestFindActualStringTrailingWS(t *testing.T) {
+	file := "foo   \nbar  \nbaz\n"
+
+	tests := []struct {
+		name      string
+		oldString string
+		wantIdx   int
+		wantActual string
+	}{
+		{
+			name:      "exact match still works",
+			oldString: "foo   \nbar  \n",
+			wantIdx:   0,
+			wantActual: "foo   \nbar  \n",
+		},
+		{
+			name:      "trailing spaces stripped in old_string",
+			oldString: "foo\nbar\n",
+			wantIdx:   0,
+			wantActual: "foo   \nbar  \n",
+		},
+		{
+			name:      "mixed: some lines have trailing ws, some don't",
+			oldString: "foo\nbar  \nbaz\n",
+			wantIdx:   0,
+			wantActual: "foo   \nbar  \nbaz\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, actual := findActualString(file, tt.oldString)
+			if idx != tt.wantIdx {
+				t.Errorf("idx = %d, want %d", idx, tt.wantIdx)
+			}
+			if actual != tt.wantActual {
+				t.Errorf("actual = %q, want %q", actual, tt.wantActual)
+			}
+		})
+	}
+}
+
+func TestFindActualStringTrailingWSNotFound(t *testing.T) {
+	file := "foo   \nbar  \n"
+	// Content mismatch — not just trailing ws difference
+	idx, _ := findActualString(file, "qux\n")
+	if idx >= 0 {
+		t.Error("expected not found, but got a match")
+	}
+}
+
+func TestFindActualStringTrailingNewlineTolerance(t *testing.T) {
+	tests := []struct {
+		name      string
+		file      string
+		oldString string
+		wantIdx   int
+		wantActual string
+	}{
+		{
+			// "foo\nbar" is a precise substring of "foo\nbar\n" — exact match wins
+			name:      "old_string is exact substring (no \n tolerance needed)",
+			file:      "foo\nbar\n",
+			oldString: "foo\nbar",
+			wantIdx:   0,
+			wantActual: "foo\nbar",
+		},
+		{
+			// "foo\nbar\n" doesn't exist in "foo\nbar" — trim trailing \n to match
+			name:      "old_string has extra trailing newline",
+			file:      "foo\nbar",
+			oldString: "foo\nbar\n",
+			wantIdx:   0,
+			wantActual: "foo\nbar",
+		},
+		{
+			// "hello\n" is not in file "hello world\n", but trimming \n gives "hello" which matches
+			name:      "single word with trailing newline trim finds substring",
+			file:      "hello world\n",
+			oldString: "hello\n",
+			wantIdx:   0,
+			wantActual: "hello",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, actual := findActualString(tt.file, tt.oldString)
+			if idx != tt.wantIdx {
+				t.Errorf("idx = %d, want %d", idx, tt.wantIdx)
+			}
+			if actual != tt.wantActual {
+				t.Errorf("actual = %q, want %q", actual, tt.wantActual)
+			}
+		})
+	}
+}
+
+func TestFindActualStringTrailingNewlineUniqueness(t *testing.T) {
+	// "foo" appears twice in file, "foo\n" also appears twice
+	// Exact match of "foo" finds first occurrence at index 0
+	file := "foo\nfoo\n"
+	idx, actual := findActualString(file, "foo")
+	if idx < 0 {
+		t.Fatal("expected match")
+	}
+	if actual != "foo" {
+		t.Errorf("actual = %q, want %q", actual, "foo")
+	}
+}
+
+func TestEditTrailingWSReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("foo   \nbar  \nbaz\n"), 0o644)
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: "foo\nbar", // no trailing ws, no trailing \n
+		NewString: "hello\nworld",
+	})
+	result := e.Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	// The actualOld should be "foo   \nbar  \n" (trailing ws + newline preserved from file)
+	if string(data) != "hello\nworld  \nbaz\n" {
+		t.Fatalf("file content = %q", string(data))
+	}
+}
+
+func TestEditTrailingNewlineReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("foo\nbar\n"), 0o644)
+
+	var e editTool
+	input, _ := json.Marshal(editParams{
+		Path:      path,
+		OldString: "foo\nbar", // missing trailing \n — but "foo\nbar" is a precise substring
+		NewString: "baz\nqux",
+	})
+	result := e.Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+
+	data, _ := os.ReadFile(path)
+	// "foo\nbar" matches precisely, replaced with "baz\nqux"
+	// The trailing \n from "foo\nbar\n" remains since it wasn't part of the match
+	if string(data) != "baz\nqux\n" {
+		t.Fatalf("file content = %q", string(data))
+	}
+}
+
+func TestStripTrailingWS(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"foo   \nbar  \n", "foo\nbar\n"},
+		{"no_ws\n", "no_ws\n"},
+		{"\t\n", "\n"},
+		{"", ""},
+		{"a  \nb \t \nc", "a\nb\nc"},
+	}
+	for _, tt := range tests {
+		got := stripTrailingWS(tt.input)
+		if got != tt.want {
+			t.Errorf("stripTrailingWS(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestMapTrailingWSRangeBack(t *testing.T) {
+	orig := "foo   \nbar  \nbaz\n"
+	norm := stripTrailingWS(orig) // "foo\nbar\nbaz\n"
+
+	// Match "foo\nbar\n" in norm starting at index 0, length 8
+	start, end := mapTrailingWSRangeBack(orig, norm, 0, 8)
+	if start != 0 {
+		t.Errorf("start = %d, want 0", start)
+	}
+	actual := orig[start:end]
+	if actual != "foo   \nbar  \n" {
+		t.Errorf("actual = %q, want %q", actual, "foo   \nbar  \n")
+	}
+
+	// Match "bar\n" in norm starting at index 4, length 4
+	start2, end2 := mapTrailingWSRangeBack(orig, norm, 4, 4)
+	actual2 := orig[start2:end2]
+	if actual2 != "bar  \n" {
+		t.Errorf("actual2 = %q, want %q", actual2, "bar  \n")
+	}
+}
+
+func TestMapTrailingWSRangeBackIdentical(t *testing.T) {
+	// When no trailing ws to strip, fast path returns as-is
+	s := "foo\nbar\n"
+	start, end := mapTrailingWSRangeBack(s, s, 4, 4)
+	if start != 4 || end != 8 {
+		t.Errorf("got [%d,%d), want [4,8)", start, end)
+	}
+}
+
+func TestFindActualStringLastTrailingNewline(t *testing.T) {
+	file := "foo\nbar\nfoo\n"
+	// "foo" exact match — last occurrence at index 8
+	idx, actual := findActualStringLast(file, "foo")
+	if idx < 0 {
+		t.Fatal("expected match")
+	}
+	if actual != "foo" {
+		t.Errorf("actual = %q, want %q", actual, "foo")
+	}
+	if idx != 8 {
+		t.Errorf("idx = %d, want 8", idx)
+	}
+}
+
+// TestEditTrailingNewlineToleranceRealCase tests the real LLM scenario:
+// old_string doesn't exist as-is, but old_string+"\n" does.
+func TestEditTrailingNewlineToleranceRealCase(t *testing.T) {
+	// File has "line1\nline2\n", LLM writes old_string="line1\nline2\nline3"
+	// This should NOT match — it's genuinely different content
+	file := "line1\nline2\n"
+	idx, _ := findActualString(file, "line1\nline2\nline3")
+	if idx >= 0 {
+		t.Error("should not match different content")
+	}
+}
+
+func TestEditTrailingNewlineTrimFromOld(t *testing.T) {
+	// LLM writes old_string="hello\n" but file only has "hello" (no trailing newline)
+	file := "hello"
+	idx, actual := findActualString(file, "hello\n")
+	if idx < 0 {
+		t.Fatal("expected match via \\n tolerance")
+	}
+	if actual != "hello" {
+		t.Errorf("actual = %q, want %q", actual, "hello")
+	}
+}

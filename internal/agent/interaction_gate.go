@@ -41,6 +41,20 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 		return nil
 	}
 
+	// AskUserQuestion always blocks for user input regardless of mode.
+	// This is semantic (the agent needs an answer), not a permission check.
+	if hasAskUserQuestion(calls) {
+		questions := parseAskUserQuestionCalls(calls)
+		if g.resetQuestionAnswers != nil {
+			g.resetQuestionAnswers()
+		}
+		events <- QuestionAsked{
+			CallID:    calls[0].ID,
+			Questions: questions,
+		}
+		return g.wait(ctx)
+	}
+
 	// In default mode: all tools auto-approve unless LLM explicitly marks
 	// require_confirmation=true in the tool input.
 	if g.isDefaultMode() {
@@ -76,17 +90,6 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 	if g.isPlanMode() && g.hasWriteEffectTools(calls) {
 		// Plan mode + write outside plans dir: skip UI prompt, let ToolExecutor return denial.
 		return nil
-	}
-	if hasAskUserQuestion(calls) {
-		questions := parseAskUserQuestionCalls(calls)
-		if g.resetQuestionAnswers != nil {
-			g.resetQuestionAnswers()
-		}
-		events <- QuestionAsked{
-			CallID:    calls[0].ID,
-			Questions: questions,
-		}
-		return g.wait(ctx)
 	}
 
 	events <- ToolCallsReady{Calls: calls}
