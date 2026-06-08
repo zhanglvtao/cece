@@ -307,6 +307,12 @@ func (rt *AgentRuntime) handleEvent(ev protocol.Event) (AgentMessage, bool) {
 	case protocol.ToolCallsReady:
 		payload := map[string]any{"kind": "tool", "tool_calls": v.Calls}
 		return AgentMessage{Kind: AgentMessageConfirmRequest, Status: AgentStatusWaitingConfirm, Payload: payload}, true
+	case protocol.ModeChangedEvent:
+		rt.mu.Lock()
+		rt.LastActivity = "mode: " + string(v.Mode)
+		rt.UpdatedAt = time.Now()
+		rt.mu.Unlock()
+		return AgentMessage{Kind: AgentMessageProgress, Status: AgentStatusRunning, Payload: rt.Snapshot()}, true
 	case protocol.PlanApprovalRequested:
 		payload := map[string]any{"kind": "plan", "plan_file": v.PlanFile, "plan_preview": v.PlanContent}
 		return AgentMessage{Kind: AgentMessageConfirmRequest, Status: AgentStatusWaitingPlan, Payload: payload}, true
