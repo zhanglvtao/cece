@@ -285,11 +285,16 @@ func (t *transcript) apply(event protocol.Event) {
 			t.blocks[idx].done = true
 			break
 		}
-		maxLines := toolPreviewMaxLines
-		if isDiffTool(e.Name) {
-			maxLines = diffPreviewMaxLines
+		var result string
+		if isExecTool(e.Name) {
+			result = tailLines(e.Result.Content, 20)
+		} else {
+			maxLines := toolPreviewMaxLines
+			if isDiffTool(e.Name) {
+				maxLines = diffPreviewMaxLines
+			}
+			result = summarizeText(e.Result.Content, toolPreviewBytes, maxLines)
 		}
-		result := summarizeText(e.Result.Content, toolPreviewBytes, maxLines)
 		prefix := "ok"
 		if e.Result.IsError {
 			prefix = "error"
@@ -402,6 +407,12 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 						t.blocks[blk].err = true
 					} else {
 						t.blocks[blk].quietOk = true
+					}
+				} else if isExecTool(name) {
+					blk := t.appendDone(blockTool, "tool: "+name, tailLines(b.ToolResult.Content, 20))
+					t.blocks[blk].toolName = name
+					if b.ToolResult.IsError {
+						t.blocks[blk].err = true
 					}
 				} else {
 					t.appendDone(blockTool, "tool result", summarizeText(b.ToolResult.Content, toolPreviewBytes, diffAwareMaxLines(b.ToolResult.Content)))
@@ -752,6 +763,21 @@ func containsString(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// tailLines returns the last n lines of text. Used for exec tools like Bash.
+func tailLines(text string, n int) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	total := len(lines)
+	if total <= n {
+		return text
+	}
+	start := total - n
+	out := make([]string, 0, n)
+	for i := start; i < total; i++ {
+		out = append(out, lines[i])
+	}
+	return strings.Join(out, "\n")
 }
 
 // appendErrorContext appends session ID and log file path to an error message

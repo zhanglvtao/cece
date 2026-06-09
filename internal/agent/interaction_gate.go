@@ -36,13 +36,11 @@ func NewInteractionGate(registry *tool.Registry, planState *tool.PlanModeState, 
 var WaitRejected = errors.New("interaction rejected by user")
 
 func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBlock, events chan<- Event) error {
-	if g.yolo || g.isAutoAccept() || shouldAutoApproveToolCalls(calls) {
-		// Auto-approve: yolo mode, auto-accept mode, or single EnterPlanMode.
-		return nil
-	}
-
 	// AskUserQuestion always blocks for user input regardless of mode.
 	// This is semantic (the agent needs an answer), not a permission check.
+	// Must be checked FIRST — before yolo/auto-accept, otherwise
+	// AskUserQuestion gets skipped and stale answers from a previous turn
+	// are reused without showing the UI.
 	if hasAskUserQuestion(calls) {
 		questions := parseAskUserQuestionCalls(calls)
 		if g.resetQuestionAnswers != nil {
@@ -53,6 +51,11 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 			Questions: questions,
 		}
 		return g.wait(ctx)
+	}
+
+	if g.yolo || g.isAutoAccept() || shouldAutoApproveToolCalls(calls) {
+		// Auto-approve: yolo mode, auto-accept mode, or single EnterPlanMode.
+		return nil
 	}
 
 	// In default mode: all tools auto-approve unless LLM explicitly marks

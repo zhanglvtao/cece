@@ -53,6 +53,11 @@ func isDiffTool(name string) bool {
 	return name == "Edit" || name == "Write"
 }
 
+// isExecTool returns true for tools that execute commands (Bash).
+func isExecTool(name string) bool {
+	return name == "Bash"
+}
+
 // diffAwareMaxLines returns diffPreviewMaxLines if the content looks like
 // unified diff output, otherwise toolPreviewMaxLines.
 func diffAwareMaxLines(content string) int {
@@ -226,6 +231,44 @@ func summarizeText(s string, maxBytes, maxLines int) string {
 		out += "\n... truncated ..."
 	}
 	return out
+}
+
+// compactExecResult compresses multi-line exec output into a one-line summary:
+// "→ ok: item1, item2, item3 ... (N more)"
+func compactExecResult(text string, isError bool) string {
+	prefix := "→ ok"
+	if isError {
+		prefix = "→ error"
+	}
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return prefix
+	}
+	lines := strings.Split(text, "\n")
+	totalLines := len(lines)
+
+	// Build a single-line summary from first few lines.
+	items := make([]string, 0, 3)
+	maxItems := 3
+	for i := 0; i < len(lines) && i < maxItems; i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if len(line) > 60 {
+			line = line[:57] + "..."
+		}
+		items = append(items, line)
+	}
+
+	summary := strings.Join(items, ", ")
+	if len(items) == 0 {
+		return prefix
+	}
+	if totalLines > maxItems {
+		summary += fmt.Sprintf(" ... (%d more)", totalLines-len(items))
+	}
+	return prefix + ": " + summary
 }
 
 func indent(s, prefix string) string {

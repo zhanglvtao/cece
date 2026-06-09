@@ -95,6 +95,7 @@ type Model struct {
 	busy                bool
 	width               int
 	height              int
+	requestStartTime    time.Time // when the current request started
 
 	streamHeadline string // latest assistant text for inline indicator
 	tasks          []protocol.TodoItem
@@ -379,6 +380,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.ModelRequestStarted:
 		m.busy = true
 		m.status = "Requesting"
+		m.requestStartTime = time.Now()
 		m.statusBar.SetAPICalls(e.APICalls)
 		if e.ContextWindow > 0 && e.ContextWindow != m.contextWindow {
 			logger.Info("UI: contextWindow synced from ModelRequestStarted", "old", m.contextWindow, "new", e.ContextWindow)
@@ -393,10 +395,12 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.RunFailed:
 		m.busy = false
 		m.queued = nil
+		m.requestStartTime = time.Time{}
 		m.status = errorStatus("Failed")
 		m.streamHeadline = ""
 	case protocol.TurnCompleted:
 		m.busy = false
+		m.requestStartTime = time.Time{}
 		m.status = "Ready"
 		m.streamHeadline = ""
 		m.statusBar.IncrementTurnCount()
@@ -742,7 +746,7 @@ func (m *Model) inputView() string {
 
 // headlineView renders a one-line indicator above the input box.
 // Shows "<spinner> <status>" when idle (e.g. "- Ready"),
-// and "<spinner> <status> | <streamHeadline>" when busy streaming.
+// and "<spinner> <status> (<elapsed>) | <streamHeadline>" when busy streaming.
 // No lipgloss styling — plain text only.
 func (m *Model) headlineView() string {
 	if m.status == "" {
@@ -756,6 +760,11 @@ func (m *Model) headlineView() string {
 	}
 	// Colorize the status portion
 	prefix := m.styles.Headline.Render(statusText)
+	// Append elapsed time if a request is in progress
+	if m.busy && !m.requestStartTime.IsZero() {
+		elapsed := time.Since(m.requestStartTime)
+		prefix += " (" + elapsed.Round(100*time.Millisecond).String() + ")"
+	}
 	// Append streamHeadline if present, separated by " | "
 	if m.busy && m.streamHeadline != "" {
 		text := m.streamHeadline
