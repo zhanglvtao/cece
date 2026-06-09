@@ -406,7 +406,7 @@ func emitUsageIfPresent(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *pa
 	}
 	out <- agent.ApiStreamEvent{
 		EventType:       "message_delta",
-		StopReason:      "end_turn",
+		StopReason:      "", // leave empty — usage-only chunk must not overwrite the real stop reason
 		InputTokens:     chunk.Usage.PromptTokens,
 		OutputTokens:    chunk.Usage.CompletionTokens,
 		CacheReadTokens: chunk.Usage.PromptTokensDetails.CachedTokens,

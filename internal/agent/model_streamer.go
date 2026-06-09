@@ -143,7 +143,9 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		}
 		if chunk.EventType == "message_delta" {
 			resp.outputTokens = chunk.OutputTokens
-			resp.stopReason = chunk.StopReason
+			if chunk.StopReason != "" {
+				resp.stopReason = chunk.StopReason
+			}
 			// Some providers (OpenAI-compatible) deliver final usage in message_delta
 			if chunk.InputTokens > 0 {
 				resp.inputTokens = chunk.InputTokens
