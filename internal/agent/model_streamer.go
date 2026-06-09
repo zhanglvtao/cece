@@ -26,9 +26,10 @@ type modelResponse struct {
 
 // toolCallState tracks incremental assembly of a tool_use block across SSE events.
 type toolCallState struct {
-	id    string
-	name  string
-	input strings.Builder
+	id         string
+	providerID string
+	name       string
+	input      strings.Builder
 }
 
 // ModelStreamRequest describes one streaming model call within an agent turn.
@@ -170,8 +171,9 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				toolInputStates = make(map[int]*toolCallState)
 			}
 			toolInputStates[chunk.Index] = &toolCallState{
-				id:   chunk.ToolCallID,
-				name: chunk.ToolCallName,
+				id:         chunk.ToolCallID,
+				providerID: chunk.ToolCallProviderID,
+				name:       chunk.ToolCallName,
 			}
 			emitModelEvent(ch, ToolCallStarted{
 				ID:    chunk.ToolCallID,
@@ -200,9 +202,10 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 					logger.Debug("tool call with empty input detected", "name", ts.name, "id", ts.id)
 				}
 				resp.toolCalls = append(resp.toolCalls, ApiToolUseBlock{
-					ID:    ts.id,
-					Name:  ts.name,
-					Input: raw,
+					ID:         ts.id,
+					ProviderID: ts.providerID,
+					Name:       ts.name,
+					Input:      raw,
 				})
 				emitModelEvent(ch, ToolCallCompleted{
 					ID:    ts.id,

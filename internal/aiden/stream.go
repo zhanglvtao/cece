@@ -214,10 +214,11 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 		}
 		state.activeToolIndices[event.OutputIndex] = true
 		out <- agent.ApiStreamEvent{
-			EventType:    "content_block_start",
-			ToolCallID:   event.Item.CallID,
-			ToolCallName: event.Item.Name,
-			Index:        event.OutputIndex,
+			EventType:          "content_block_start",
+			ToolCallID:         event.Item.CallID,
+			ToolCallProviderID: event.Item.ID,
+			ToolCallName:       event.Item.Name,
+			Index:              event.OutputIndex,
 		}
 		if event.Item.Arguments != "" {
 			out <- agent.ApiStreamEvent{

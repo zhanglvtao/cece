@@ -30,6 +30,7 @@ type ResponsesRequest struct {
 
 type ResponsesInputItem struct {
 	Type      string `json:"type"`
+	ID        string `json:"id,omitempty"`
 	Role      string `json:"role,omitempty"`
 	Content   any    `json:"content,omitempty"`
 	CallID    string `json:"call_id,omitempty"`
@@ -166,6 +167,7 @@ func serializeResponsesMessage(m agent.Message) []ResponsesInputItem {
 			if cb.Type == agent.ApiToolUseContentType && cb.ToolUse != nil {
 				items = append(items, ResponsesInputItem{
 					Type:      "function_call",
+					ID:        responsesFunctionCallID(cb.ToolUse),
 					CallID:    cb.ToolUse.ID,
 					Name:      cb.ToolUse.Name,
 					Arguments: string(cb.ToolUse.Input),
@@ -241,4 +243,11 @@ func assistantText(m agent.Message) string {
 		return strings.Join(textParts, "")
 	}
 	return m.Content
+}
+
+func responsesFunctionCallID(toolUse *agent.ApiToolUseBlock) string {
+	if toolUse.ProviderID != "" {
+		return toolUse.ProviderID
+	}
+	return "fc_" + toolUse.ID
 }

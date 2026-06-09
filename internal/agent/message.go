@@ -74,9 +74,10 @@ func (cb ApiContentBlock) AsToolResult() (*ApiToolResultBlock, bool) {
 }
 
 type ApiToolUseBlock struct {
-	ID    string          `json:"id"`
-	Name  string          `json:"name"`
-	Input json.RawMessage `json:"input"`
+	ID         string          `json:"id"`
+	ProviderID string          `json:"provider_id,omitempty"`
+	Name       string          `json:"name"`
+	Input      json.RawMessage `json:"input"`
 }
 
 type ApiToolResultBlock struct {
@@ -103,10 +104,11 @@ type ApiStreamEvent struct {
 	CacheReadTokens     int    // from message_start usage
 
 	// Tool call fields (from content_block_start + input_json_delta)
-	ToolCallID    string // tool_use block id
-	ToolCallName  string // tool_use block name
-	ToolCallInput string // incremental JSON input (from input_json_delta)
-	Index         int    // content block index
+	ToolCallID         string // tool_use block id / call_id
+	ToolCallProviderID string // provider-specific output item id (e.g. Responses API fc_...)
+	ToolCallName       string // tool_use block name
+	ToolCallInput      string // incremental JSON input (from input_json_delta)
+	Index              int    // content block index
 
 	// Thinking block fields (from content_block_start type="thinking" + thinking_delta)
 	IsThinking         bool   // true when content_block_start has type "thinking"

@@ -254,6 +254,9 @@ func TestDecodeResponsesFunctionCallStartAndDelta(t *testing.T) {
 		if e.EventType == "content_block_start" && e.ToolCallID != "" {
 			toolID = e.ToolCallID
 			toolName = e.ToolCallName
+			if e.ToolCallProviderID != "fc_1" {
+				t.Fatalf("provider id = %q, want fc_1", e.ToolCallProviderID)
+			}
 		}
 		if e.Detail == "input_json_delta" {
 			inputParts = append(inputParts, e.ToolCallInput)

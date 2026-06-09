@@ -392,6 +392,69 @@ func TestSerializeEmptyToolResultContentPreservesField(t *testing.T) {
 	t.Logf("tool message content preserved as: %q (JSON: %s)", content, string(data))
 }
 
+func TestSerializeResponsesFunctionCallIncludesIDs(t *testing.T) {
+	msgs := []agent.Message{
+		{
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
+						ID:         "call_1",
+						ProviderID: "fc_1",
+						Name:       "Read",
+						Input:      json.RawMessage(`{"file_path":"/tmp/x"}`),
+					},
+				},
+			},
+		},
+	}
+
+	items := SerializeResponsesInput(msgs)
+	if len(items) != 2 {
+		t.Fatalf("items len = %d, want 2", len(items))
+	}
+	call := items[1]
+	if call.Type != "function_call" {
+		t.Fatalf("type = %q, want function_call", call.Type)
+	}
+	if call.ID != "fc_1" {
+		t.Fatalf("id = %q, want fc_1", call.ID)
+	}
+	if call.CallID != "call_1" {
+		t.Fatalf("call_id = %q, want call_1", call.CallID)
+	}
+}
+
+func TestSerializeResponsesFunctionCallDerivesIDForOldSessions(t *testing.T) {
+	msgs := []agent.Message{
+		{
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
+						ID:    "call_legacy",
+						Name:  "Read",
+						Input: json.RawMessage(`{"file_path":"/tmp/x"}`),
+					},
+				},
+			},
+		},
+	}
+
+	items := SerializeResponsesInput(msgs)
+	if len(items) != 2 {
+		t.Fatalf("items len = %d, want 2", len(items))
+	}
+	if items[1].ID != "fc_call_legacy" {
+		t.Fatalf("id = %q, want fc_call_legacy", items[1].ID)
+	}
+	if items[1].CallID != "call_legacy" {
+		t.Fatalf("call_id = %q, want call_legacy", items[1].CallID)
+	}
+}
+
 func TestSerializeJSONRoundTrip(t *testing.T) {
 	msgs := []agent.Message{
 		{Role: agent.UserRole, Content: "hi"},
