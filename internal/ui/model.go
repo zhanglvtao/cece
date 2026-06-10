@@ -744,6 +744,17 @@ func (m *Model) inputView() string {
 		Render(m.input.View())
 }
 
+// formatDuration formats a duration as whole seconds: "38s", "1m2s", etc.
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	m := int(d.Minutes())
+	s := int(d.Seconds()) % 60
+	return fmt.Sprintf("%dm%ds", m, s)
+}
+
 // headlineView renders a one-line indicator above the input box.
 // Shows "<spinner> <status>" when idle (e.g. "- Ready"),
 // and "<spinner> <status> (<elapsed>) | <streamHeadline>" when busy streaming.
@@ -763,7 +774,7 @@ func (m *Model) headlineView() string {
 	// Append elapsed time if a request is in progress
 	if m.busy && !m.requestStartTime.IsZero() {
 		elapsed := time.Since(m.requestStartTime)
-		prefix += " (" + elapsed.Round(100*time.Millisecond).String() + ")"
+		prefix += " (" + formatDuration(elapsed) + ")"
 	}
 	// Append streamHeadline if present, separated by " | "
 	if m.busy && m.streamHeadline != "" {
