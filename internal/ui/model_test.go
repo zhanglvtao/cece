@@ -681,6 +681,61 @@ func (f *fakeSessionStore) Rename(context.Context, string, string) error        
 func (f *fakeSessionStore) Delete(context.Context, string) error                          { return nil }
 func (f *fakeSessionStore) UpdateMeta(context.Context, string, session.SessionMeta) error { return nil }
 
+func TestChineseInputGoesDirectlyToTextarea(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	// Simulate a CJK key press from IME
+	chineseKey := tea.KeyPressMsg(tea.Key{Code: tea.KeyExtended, Text: "你"})
+	model, _ := m.handleKey(chineseKey)
+	m2 := model.(*Model)
+	if got := m2.input.Value(); got != "你" {
+		t.Fatalf("input = %q, want %q", got, "你")
+	}
+
+	// Second character
+	chineseKey2 := tea.KeyPressMsg(tea.Key{Code: tea.KeyExtended, Text: "好"})
+	model2, _ := m2.handleKey(chineseKey2)
+	m3 := model2.(*Model)
+	if got := m3.input.Value(); got != "你好" {
+		t.Fatalf("input = %q, want %q", got, "你好")
+	}
+}
+
+func TestChineseInputDoesNotTriggerEnter(t *testing.T) {
+	sender := newRecordingSender()
+	m := NewModel(sender, "sonnet", "/tmp")
+	// Type Chinese then press enter — only enter should submit
+	chineseKey := tea.KeyPressMsg(tea.Key{Code: tea.KeyExtended, Text: "你"})
+	model, _ := m.handleKey(chineseKey)
+	m2 := model.(*Model)
+	// Now press enter to submit
+	_, cmd := m2.handleKey(keyMsg("enter"))
+	if cmd != nil {
+		cmd()
+	}
+	if len(sender.inputs) != 1 || sender.inputs[0] != "你" {
+		t.Fatalf("inputs = %v, want [你]", sender.inputs)
+	}
+}
+
+func TestIsASCII(t *testing.T) {
+	cases := []struct {
+		input string
+		want  bool
+	}{
+		{"hello", true},
+		{"", true},
+		{"A", true},
+		{"你", false},
+		{"hello你好", false},
+		{"!", true},
+	}
+	for _, tc := range cases {
+		if got := isASCII(tc.input); got != tc.want {
+			t.Errorf("isASCII(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
 func TestModelPasteSanitizesVisibleCSIResidue(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	_, cmd := m.Update(tea.PasteMsg{Content: "line1[27;5;106~line2[27;5;106~"})

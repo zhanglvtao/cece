@@ -823,6 +823,17 @@ func (m *Model) hasInProgressTask() bool {
 }
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Fast path: if the key contains non-ASCII text (e.g. CJK characters from
+	// IME), send it directly to the textarea. This prevents any shortcut or
+	// popup handler from intercepting IME-committed text.
+	if text := msg.Key().Text; text != "" && !isASCII(text) {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.checkSlashPopupActive()
+		m.filePopup.Close()
+		return m, cmd
+	}
+
 	if handled := m.handleChatScrollKey(msg); handled {
 		return m, nil
 	}
@@ -1293,6 +1304,16 @@ func (m *Model) historyNext() bool {
 		m.input.SetValue("")
 	} else {
 		m.input.SetValue(m.history[next])
+	}
+	return true
+}
+
+// isASCII reports whether s contains only ASCII characters.
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 127 {
+			return false
+		}
 	}
 	return true
 }
