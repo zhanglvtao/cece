@@ -18,6 +18,17 @@ import (
 	"github.com/zhanglvtao/cece/internal/ui/theme"
 )
 
+// formatContextWindow formats a context window size as a human-readable string.
+func formatContextWindow(n int) string {
+	if n >= 1000000 {
+		return fmt.Sprintf("%dM", n/1000000)
+	}
+	if n >= 1000 {
+		return fmt.Sprintf("%dK", n/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
 // styledPickerItem renders a picker item with colored cursor and styled text.
 func styledPickerItem(cursorStyle lipgloss.Style, itemStyle lipgloss.Style, selectedItemStyle lipgloss.Style, text string, selected bool) string {
 	cursor := "  "
@@ -437,7 +448,11 @@ func (m *Model) openModelPicker(models []protocol.ModelInfo) {
 		if provider != "" {
 			provider += "/"
 		}
-		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, m.styles.Picker.SelectedItem, provider+name, selected)
+		line := provider + name
+		if mi.MaxContextWindow > 0 {
+			line += "  " + m.styles.Picker.Info.Render(formatContextWindow(mi.MaxContextWindow))
+		}
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, m.styles.Picker.SelectedItem, line, selected)
 	})
 	p.SetFilterFn(func(item any, q string) bool {
 		mi := item.(protocol.ModelInfo)
