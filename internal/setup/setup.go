@@ -37,13 +37,17 @@ const (
 	stepDone
 )
 
-var stepOrder = []step{stepProtocol, stepBaseURL, stepAPIKey, stepLoading, stepModel, stepMode}
+// navigableSteps is the ordered list of steps the user can navigate with left/right.
+var navigableSteps = []step{stepProtocol, stepBaseURL, stepAPIKey, stepModel, stepMode}
 
 // selectMsg carries a picker selection back to Update.
 type selectMsg struct{ value string }
 
 // backMsg signals the user wants to go to the previous step.
 type backMsg struct{}
+
+// forwardMsg signals the user wants to go to the next step (when already filled).
+type forwardMsg struct{}
 
 // modelsLoadedMsg carries the result of fetching models from the API.
 type modelsLoadedMsg struct {
@@ -92,31 +96,49 @@ type collected struct {
 
 // lipgloss styles for the setup wizard.
 var (
-	styleTitle   = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
-	styleStep    = lipgloss.NewStyle().Foreground(theme.Yellow)
-	styleCursor  = lipgloss.NewStyle().Foreground(theme.Primary)
-	styleError   = lipgloss.NewStyle().Foreground(theme.Red)
-	styleHelp    = lipgloss.NewStyle().Foreground(theme.FgMuted)
-	styleSuccess = lipgloss.NewStyle().Foreground(theme.Green).Bold(true)
-	styleSpinner = lipgloss.NewStyle().Foreground(theme.Primary)
-	styleLabel   = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	styleTitle    = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
+	styleStep     = lipgloss.NewStyle().Foreground(theme.Yellow)
+	styleCursor   = lipgloss.NewStyle().Foreground(theme.Primary)
+	styleError    = lipgloss.NewStyle().Foreground(theme.Red)
+	styleHelp     = lipgloss.NewStyle().Foreground(theme.FgMuted)
+	styleSuccess  = lipgloss.NewStyle().Foreground(theme.Green).Bold(true)
+	styleSpinner  = lipgloss.NewStyle().Foreground(theme.Primary)
+	styleLabel    = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	styleValue    = lipgloss.NewStyle().Foreground(theme.Fg)
+	styleKeyEnter = lipgloss.NewStyle().Foreground(theme.Green).Bold(true)
+	styleKeyEsc   = lipgloss.NewStyle().Foreground(theme.Red).Bold(true)
+	styleKeyLeft  = lipgloss.NewStyle().Foreground(theme.Blue).Bold(true)
+	styleKeyRight = lipgloss.NewStyle().Foreground(theme.Blue).Bold(true)
+	styleKeyOther = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
+	styleProgress = lipgloss.NewStyle().Foreground(theme.Primary)
+	styleProgressDone = lipgloss.NewStyle().Foreground(theme.Green)
+	styleProgressEmpty = lipgloss.NewStyle().Foreground(theme.FgMuted)
+	styleBox      = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(theme.Primary).Padding(0, 1)
 )
+
+// key renders a colored key label like [enter], [esc], etc.
+func key(style *lipgloss.Style, text string) string {
+	return style.Render("[" + text + "]")
+}
+
+// helpSep renders a dimmed separator between key hints.
+const helpSep = "  "
 
 // SetupModel is a standalone bubbletea model for the setup wizard.
 type SetupModel struct {
-	step        step
-	col         collected
-	picker      *picker.Picker
-	textInput   string
-	customInput bool // true when user chose "Custom input..." for model
-	width       int
-	height      int
-	err         string
-	existing    bool
-	projectDir  string
-	configPath  string
-	spinnerIdx  int
-	fetchErr    string // error from model fetch (shown but allows custom input)
+	step          step
+	col           collected
+	picker        *picker.Picker
+	textInput     string
+	customInput   bool
+	width         int
+	height        int
+	err           string
+	existing      bool
+	projectDir    string
+	configPath    string
+	spinnerIdx    int
+	fetchErr      string
 	fetchedModels []modelOption
 }
 
@@ -137,6 +159,143 @@ func NewSetupModel(projectDir string) SetupModel {
 
 func (m SetupModel) Init() tea.Cmd { return nil }
 
+// navigableIdx returns the index of s in navigableSteps, or -1.
+func navigableIdx(s step) int {
+	for i, ns := range navigableSteps {
+		if ns == s {
+			return i
+		}
+	}
+	return -1
+}
+
+// stepLabel returns the display label for a navigable step.
+func stepLabel(s step) string {
+	switch s {
+	case stepProtocol:
+		return "Protocol"
+	case stepBaseURL:
+		return "Base URL"
+	case stepAPIKey:
+		return "API Key"
+	case stepModel:
+		return "Model"
+	case stepMode:
+		return "Mode"
+	}
+	return "?"
+}
+
+// stepFilled returns true if the step has a user-entered value.
+func (m *SetupModel) stepFilled(s step) bool {
+	switch s {
+	case stepProtocol:
+		return m.col.protocol != ""
+	case stepBaseURL:
+		return m.col.baseURL != ""
+	case stepAPIKey:
+		return m.col.apiKey != ""
+	case stepModel:
+		return m.col.model != ""
+	case stepMode:
+		return m.col.mode != ""
+	}
+	return false
+}
+
+// canGoBack returns true if the user can navigate to the previous step.
+func (m *SetupModel) canGoBack() bool {
+	idx := navigableIdx(m.step)
+	return idx > 0
+}
+
+// canGoForward returns true if the current step is filled and there's a next step.
+func (m *SetupModel) canGoForward() bool {
+	idx := navigableIdx(m.step)
+	if idx < 0 || idx >= len(navigableSteps)-1 {
+		return false
+	}
+	return m.stepFilled(m.step)
+}
+
+// goBack navigates to the previous step.
+func (m *SetupModel) goBack() (tea.Model, tea.Cmd) {
+	idx := navigableIdx(m.step)
+	if idx > 0 {
+		return m.goToStep(navigableSteps[idx-1])
+	}
+	m.step = stepWelcome
+	m.picker = nil
+	return m, nil
+}
+
+// goForward navigates to the next step if the current one is filled.
+func (m *SetupModel) goForward() (tea.Model, tea.Cmd) {
+	idx := navigableIdx(m.step)
+	if idx >= 0 && idx < len(navigableSteps)-1 && m.stepFilled(m.step) {
+		return m.goToStep(navigableSteps[idx+1])
+	}
+	return m, nil
+}
+
+// goToStep transitions to a given step, restoring state.
+func (m *SetupModel) goToStep(s step) (tea.Model, tea.Cmd) {
+	m.step = s
+	m.err = ""
+	m.customInput = false
+	m.picker = nil
+	switch s {
+	case stepProtocol:
+		m.openPicker()
+	case stepBaseURL:
+		m.textInput = m.col.baseURL
+	case stepAPIKey:
+		m.textInput = m.col.apiKey
+	case stepModel:
+		if len(m.fetchedModels) > 0 {
+			m.openModelPicker()
+		} else {
+			m.openModelPicker()
+		}
+	case stepMode:
+		m.openPicker()
+	}
+	return m, nil
+}
+
+// progressBar renders a step progress indicator like ● ○ ○ ○ ○.
+func (m SetupModel) progressBar() string {
+	idx := navigableIdx(m.step)
+	var b strings.Builder
+	for i, s := range navigableSteps {
+		if i > 0 {
+			b.WriteString(styleProgressEmpty.Render(" ─ "))
+		}
+		if i < idx || m.stepFilled(s) {
+			b.WriteString(styleProgressDone.Render("●"))
+		} else if i == idx {
+			b.WriteString(styleProgress.Render("●"))
+		} else {
+			b.WriteString(styleProgressEmpty.Render("○"))
+		}
+	}
+	// Step labels below dots
+	b.WriteString("\n")
+	for i, s := range navigableSteps {
+		if i > 0 {
+			b.WriteString("      ") // align with " ─ "
+		}
+		if i == idx {
+			b.WriteString(styleStep.Render(stepLabel(s)))
+		} else if m.stepFilled(s) {
+			b.WriteString(styleProgressDone.Render(stepLabel(s)))
+		} else {
+			b.WriteString(styleProgressEmpty.Render(stepLabel(s)))
+		}
+	}
+	return b.String()
+}
+
 func (m SetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -147,10 +306,25 @@ func (m SetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+		// Left/right navigation (not in text input focus or picker open)
+		switch msg.String() {
+		case "left":
+			if m.canGoBack() {
+				return m.goBack()
+			}
+			return m, nil
+		case "right":
+			if m.canGoForward() {
+				return m.goForward()
+			}
+			return m, nil
+		}
 	case selectMsg:
 		return m.handleSelect(msg.value)
 	case backMsg:
 		return m.goBack()
+	case forwardMsg:
+		return m.goForward()
 	case modelsLoadedMsg:
 		return m.handleModelsLoaded(msg)
 	case tickMsg:
@@ -169,7 +343,7 @@ func (m SetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stepBaseURL, stepAPIKey:
 		return m.updateTextInput(msg)
 	case stepLoading:
-		return m, nil // waiting for modelsLoadedMsg
+		return m, nil
 	case stepDone:
 		return m.updateDone(msg)
 	}
@@ -235,7 +409,7 @@ func (m SetupModel) updateCustomModelInput(kp tea.KeyPressMsg) (tea.Model, tea.C
 	case "esc":
 		m.customInput = false
 		m.textInput = ""
-		m.openModelPicker() // reopen model picker
+		m.openModelPicker()
 		return m, nil
 	case "backspace":
 		if m.textInput != "" {
@@ -275,7 +449,6 @@ func (m SetupModel) updateTextInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case stepAPIKey:
 			m.col.apiKey = input
-			// Transition to loading step — fetch models from API
 			m.step = stepLoading
 			m.textInput = ""
 			m.fetchErr = ""
@@ -364,33 +537,6 @@ func (m SetupModel) handleSelect(value string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// goBack navigates to the previous step.
-func (m SetupModel) goBack() (tea.Model, tea.Cmd) {
-	idx := -1
-	for i, s := range stepOrder {
-		if s == m.step {
-			idx = i
-			break
-		}
-	}
-	if idx > 0 {
-		m.step = stepOrder[idx-1]
-	} else {
-		m.step = stepWelcome
-	}
-	// Restore text for text input steps
-	switch m.step {
-	case stepBaseURL:
-		m.textInput = m.col.baseURL
-	case stepAPIKey:
-		m.textInput = m.col.apiKey
-	default:
-		m.textInput = ""
-		m.openPicker()
-	}
-	return m, nil
-}
-
 // openPicker initializes the picker for the current step.
 func (m *SetupModel) openPicker() {
 	m.picker = nil
@@ -406,7 +552,8 @@ func (m *SetupModel) openPicker() {
 		p.SetOnSelect(func(item any) tea.Cmd {
 			return func() tea.Msg { return selectMsg{value: item.(protocolOption).id} }
 		})
-		p.SetHelpText("[up/down] move  [enter] select  [esc] quit")
+		help := key(&styleKeyOther, "up/down") + " move" + helpSep + key(&styleKeyEnter, "enter") + " select" + helpSep + key(&styleKeyEsc, "esc") + " quit"
+		p.SetHelpText(help)
 		m.picker = p
 
 	case stepMode:
@@ -425,7 +572,8 @@ func (m *SetupModel) openPicker() {
 		p.SetOnSelect(func(item any) tea.Cmd {
 			return func() tea.Msg { return selectMsg{value: item.(modeOption).id} }
 		})
-		p.SetHelpText("[up/down] move  [enter] select  [esc] back")
+		help := key(&styleKeyOther, "up/down") + " move" + helpSep + key(&styleKeyEnter, "enter") + " select" + helpSep + key(&styleKeyLeft, "←") + " back" + helpSep + key(&styleKeyEsc, "esc") + " back"
+		p.SetHelpText(help)
 		m.picker = p
 	}
 }
@@ -458,7 +606,8 @@ func (m *SetupModel) openModelPicker() {
 	p.SetOnSelect(func(item any) tea.Cmd {
 		return func() tea.Msg { return selectMsg{value: item.(modelOption).id} }
 	})
-	p.SetHelpText("[up/down] move  [enter] select  [type] filter  [esc] back")
+	help := key(&styleKeyOther, "up/down") + " move" + helpSep + key(&styleKeyEnter, "enter") + " select" + helpSep + key(&styleKeyOther, "type") + " filter" + helpSep + key(&styleKeyLeft, "←") + " back" + helpSep + key(&styleKeyEsc, "esc") + " back"
+	p.SetHelpText(help)
 	m.picker = p
 }
 
@@ -512,13 +661,15 @@ func (m SetupModel) View() tea.View {
 func (m SetupModel) welcomeView() string {
 	var b strings.Builder
 	b.WriteString(styleTitle.Render("cece setup") + "\n\n")
+	// Progress bar showing all steps
+	b.WriteString(m.progressBar() + "\n\n")
 	if m.existing {
-		fmt.Fprintf(&b, "Existing config found at %s\n", m.configPath)
+		fmt.Fprintf(&b, "%s Existing config found at %s\n", styleLabel.Render("⚠"), m.configPath)
 		b.WriteString("Running setup will overwrite it.\n\n")
 	} else {
 		fmt.Fprintf(&b, "Config will be written to %s\n\n", m.configPath)
 	}
-	b.WriteString(styleHelp.Render("[enter] start  [esc] quit"))
+	b.WriteString(key(&styleKeyEnter, "enter") + " start" + helpSep + key(&styleKeyEsc, "esc") + " quit")
 	return b.String()
 }
 
@@ -528,7 +679,7 @@ func (m SetupModel) pickerView() string {
 		var b strings.Builder
 		b.WriteString(styleStep.Render("[4/5]") + " Default model\n")
 		b.WriteString(styleLabel.Render("Custom model ID: ") + m.textInput + styleCursor.Render("▌") + "\n")
-		b.WriteString(styleHelp.Render("[enter] confirm  [esc] back"))
+		b.WriteString(key(&styleKeyEnter, "enter") + " confirm" + helpSep + key(&styleKeyLeft, "←") + " back" + helpSep + key(&styleKeyEsc, "esc") + " back")
 		return b.String()
 	}
 	if m.picker == nil {
@@ -550,35 +701,49 @@ func (m SetupModel) textView(stepNum, label string) string {
 		b.WriteString(display + styleCursor.Render("▌") + "\n")
 	}
 	if m.err != "" {
-		fmt.Fprintf(&b, "%s %s\n", styleError.Render("error:"), m.err)
+		fmt.Fprintf(&b, "\n%s %s\n", styleError.Render("error:"), m.err)
 	}
-	b.WriteString(styleHelp.Render("[enter] next  [esc] back"))
+
+	// Build navigation help line
+	parts := []string{key(&styleKeyEnter, "enter") + " next"}
+	if m.canGoBack() {
+		parts = append(parts, key(&styleKeyLeft, "←")+" back")
+	}
+	parts = append(parts, key(&styleKeyEsc, "esc")+" back")
+	b.WriteString("\n" + strings.Join(parts, helpSep))
 	return b.String()
 }
 
 func (m SetupModel) loadingView() string {
 	frame := spinnerFrames[m.spinnerIdx]
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s Fetching models from %s...\n", styleStep.Render("[4/5]"), styleSpinner.Render(frame), m.col.baseURL)
-	b.WriteString(styleHelp.Render("please wait"))
+	fmt.Fprintf(&b, "%s %s Fetching models from %s...\n\n", styleStep.Render("[4/5]"), styleSpinner.Render(frame), styleValue.Render(m.col.baseURL))
+	b.WriteString(styleHelp.Render("Querying available models from the provider") + "\n\n")
+	b.WriteString(key(&styleKeyOther, "ctrl+c") + " cancel")
 	return b.String()
 }
 
 func (m SetupModel) doneView() string {
-	var b strings.Builder
-	b.WriteString(styleSuccess.Render("✓ Setup complete") + "\n\n")
-	fmt.Fprintf(&b, "  %s  %s\n", styleLabel.Render("protocol:"), m.col.protocol)
-	fmt.Fprintf(&b, "  %s  %s\n", styleLabel.Render("base URL:"), m.col.baseURL)
-	fmt.Fprintf(&b, "  %s     %s\n", styleLabel.Render("model:"), m.col.model)
-	fmt.Fprintf(&b, "  %s      %s\n", styleLabel.Render("mode:"), m.col.mode)
+	// Build summary inside a bordered box
+	var inner strings.Builder
+	inner.WriteString(styleSuccess.Render("✓ Setup complete!") + "\n")
+	inner.WriteString("\n")
+	fmt.Fprintf(&inner, "  %s  %s\n", styleLabel.Render("protocol:"), styleValue.Render(m.col.protocol))
+	fmt.Fprintf(&inner, "  %s  %s\n", styleLabel.Render("base URL:"), styleValue.Render(m.col.baseURL))
+	fmt.Fprintf(&inner, "  %s     %s\n", styleLabel.Render("model:"), styleValue.Render(m.col.model))
+	fmt.Fprintf(&inner, "  %s      %s\n", styleLabel.Render("mode:"), styleValue.Render(m.col.mode))
 	keyPreview := m.col.apiKey
 	if len(keyPreview) > 4 {
 		keyPreview = keyPreview[:4] + "****"
 	}
-	fmt.Fprintf(&b, "  %s    %s\n", styleLabel.Render("apiKey:"), keyPreview)
-	b.WriteString("\n" + styleHelp.Render("Config written to "+m.configPath))
-	b.WriteString("\n" + styleHelp.Render("Run 'cece' to start.") + "\n\n")
-	b.WriteString(styleHelp.Render("[enter] quit"))
+	fmt.Fprintf(&inner, "  %s    %s\n", styleLabel.Render("apiKey:"), styleValue.Render(keyPreview))
+	inner.WriteString("\n" + styleHelp.Render("Config written to "+m.configPath))
+
+	boxed := styleBox.Render(inner.String())
+	var b strings.Builder
+	b.WriteString(boxed + "\n\n")
+	b.WriteString(styleHelp.Render("Run 'cece' to start.") + "\n")
+	b.WriteString(key(&styleKeyEnter, "enter") + " quit" + helpSep + key(&styleKeyEsc, "esc") + " quit")
 	return b.String()
 }
 
