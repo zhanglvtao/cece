@@ -679,11 +679,11 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 
 func renderThinkingPreview(text string) string {
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-	if len(lines) <= 4 {
+	if len(lines) <= 20 {
 		return text
 	}
-	preview := append([]string{}, lines[:3]...)
-	preview = append(preview, fmt.Sprintf("... %d lines hidden ...", len(lines)-4))
+	preview := append([]string{}, lines[:16]...)
+	preview = append(preview, fmt.Sprintf("... %d lines hidden ...", len(lines)-17))
 	return strings.Join(preview, "\n")
 }
 

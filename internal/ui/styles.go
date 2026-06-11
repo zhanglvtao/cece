@@ -78,7 +78,7 @@ func DefaultStyles() Styles {
 	var s Styles
 
 	s.Chat.LabelUser = lipgloss.NewStyle().Foreground(theme.Fg)
-	s.Chat.LabelAssistant = lipgloss.NewStyle().Foreground(theme.Primary)
+	s.Chat.LabelAssistant = lipgloss.NewStyle().Foreground(theme.Green)
 	s.Chat.LabelThinking = lipgloss.NewStyle().Foreground(theme.Magenta)
 	s.Chat.LabelTool = lipgloss.NewStyle().Foreground(theme.Yellow)
 	s.Chat.LabelError = lipgloss.NewStyle().Foreground(theme.Red)
