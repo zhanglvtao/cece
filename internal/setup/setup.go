@@ -175,6 +175,11 @@ func (m SetupModel) updatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	result, cmd := m.picker.HandleKey(kp)
 	if result == picker.ResultClose {
 		m.picker = nil
+		if cmd != nil {
+			// enter/tab: selection made, forward the onSelect cmd
+			return m, cmd
+		}
+		// esc: close
 		if m.step == stepProtocol {
 			return m, tea.Quit
 		}
