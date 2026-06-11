@@ -451,6 +451,8 @@ func (m *Model) openModelPicker(models []protocol.ModelInfo) {
 		line := provider + name
 		if mi.MaxContextWindow > 0 {
 			line += "  " + m.styles.Picker.Info.Render(formatContextWindow(mi.MaxContextWindow))
+		} else {
+			line += "  " + m.styles.Picker.Info.Render("unknown")
 		}
 		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, m.styles.Picker.SelectedItem, line, selected)
 	})
