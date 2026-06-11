@@ -11,3 +11,9 @@
 - 多多参考 ~/claude-code ~/opencode ~/crush ~/CodeWhale这几个成熟的 Agent
 - 完整一个 feat/bugfix 就要 commit，`Co-Authored-By: Cece <zhanglvtao@foxmail.com>`
 - 必须使用 `picker.Picker` 组件 如果需要做弹出选择的 tui 时
+- 你遇到有趣的问题，一定要记录下来。
+
+在这个项目根目录整理一个我们在开发 CC 过程中遇到的问题，比如：
+- 和事件流式（Event Streaming）事件处理相关的
+- 和工具实现相关的
+   例如 Edit 工具，它经常会编辑错误，由于前导的特殊字符数量匹配不上，经常出错

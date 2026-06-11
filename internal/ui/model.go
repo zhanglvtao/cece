@@ -321,6 +321,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case tea.PasteMsg:
 		msg.Content = sanitizePasteContent(msg.Content)
+		if m.modal.active() && m.modal.textMode {
+			m.modal.textInput += msg.Content
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		m.checkSlashPopupActive()
@@ -826,7 +830,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Fast path: if the key contains non-ASCII text (e.g. CJK characters from
 	// IME), send it directly to the textarea. This prevents any shortcut or
 	// popup handler from intercepting IME-committed text.
+	// Exception: when modal is active and in textMode, route to modal instead.
 	if text := msg.Key().Text; text != "" && !isASCII(text) {
+		if m.modal.active() && m.modal.textMode {
+			m.modal.textInput += text
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		m.checkSlashPopupActive()

@@ -717,6 +717,67 @@ func TestChineseInputDoesNotTriggerEnter(t *testing.T) {
 	}
 }
 
+func TestChineseInputInModalTextMode(t *testing.T) {
+	sender := newRecordingSender()
+	m := NewModel(sender, "sonnet", "/tmp")
+	m.applyEvent(protocol.QuestionAsked{Questions: []protocol.Question{{
+		Question: "Pick one",
+		Options:  []protocol.QuestionOption{{Label: "A"}, {Label: "B"}},
+	}}})
+	// Move to "Type something else..." (index 2, which is len(Options))
+	m.handleModalKey(keyMsg("down"))
+	m.handleModalKey(keyMsg("down"))
+	// Enter textMode
+	m.handleModalKey(keyMsg("enter"))
+	if !m.modal.textMode {
+		t.Fatal("expected textMode after enter on 'Type something else...'")
+	}
+	// Simulate CJK input — should go to modal.textInput, not main input
+	chineseKey := tea.KeyPressMsg(tea.Key{Code: tea.KeyExtended, Text: "你好"})
+	model, _ := m.handleKey(chineseKey)
+	m2 := model.(*Model)
+	if m2.modal.textInput != "你好" {
+		t.Fatalf("modal.textInput = %q, want %q", m2.modal.textInput, "你好")
+	}
+	if m2.input.Value() != "" {
+		t.Fatalf("main input = %q, want empty", m2.input.Value())
+	}
+	// Submit with enter
+	_, cmd := m2.handleKey(keyMsg("enter"))
+	if cmd != nil {
+		_ = cmd()
+	}
+	action, ok := sender.actions[len(sender.actions)-1].(protocol.AnswerQuestionAction)
+	if !ok {
+		t.Fatalf("last action = %T, want AnswerQuestionAction", sender.actions[len(sender.actions)-1])
+	}
+	if action.Answers[0].Custom != "你好" {
+		t.Fatalf("custom answer = %q, want %q", action.Answers[0].Custom, "你好")
+	}
+}
+
+func TestPasteInModalTextMode(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.applyEvent(protocol.QuestionAsked{Questions: []protocol.Question{{
+		Question: "Pick one",
+		Options:  []protocol.QuestionOption{{Label: "A"}},
+	}}})
+	// Move to "Type something else..." (index 1)
+	m.handleModalKey(keyMsg("down"))
+	m.handleModalKey(keyMsg("enter"))
+	if !m.modal.textMode {
+		t.Fatal("expected textMode")
+	}
+	// Paste — should go to modal.textInput, not main input
+	m.update(tea.PasteMsg{Content: "pasted text"})
+	if m.modal.textInput != "pasted text" {
+		t.Fatalf("modal.textInput = %q, want %q", m.modal.textInput, "pasted text")
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("main input = %q, want empty", m.input.Value())
+	}
+}
+
 func TestIsASCII(t *testing.T) {
 	cases := []struct {
 		input string

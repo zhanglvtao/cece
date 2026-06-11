@@ -54,6 +54,7 @@ type Usage struct {
 type ResponsesEvent struct {
 	Type        string              `json:"type"`
 	Delta       string              `json:"delta"`
+	Text        string              `json:"text"`
 	OutputIndex int                 `json:"output_index"`
 	Item        ResponsesOutputItem `json:"item"`
 	Response    ResponsesPayload    `json:"response"`
@@ -200,6 +201,22 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 				Detail:    "text_delta",
 				Index:     event.OutputIndex,
 			}
+		}
+	case "response.output_text.done":
+		if state.textBlockStarted || event.Text == "" {
+			return
+		}
+		if !state.messageStarted {
+			state.messageStarted = true
+			out <- agent.ApiStreamEvent{EventType: "message_start"}
+		}
+		state.textBlockStarted = true
+		out <- agent.ApiStreamEvent{EventType: "content_block_start", Index: event.OutputIndex}
+		out <- agent.ApiStreamEvent{
+			Delta:     event.Text,
+			EventType: "content_block_delta",
+			Detail:    "text_delta",
+			Index:     event.OutputIndex,
 		}
 	case "response.output_item.added":
 		if event.Item.Type != "function_call" {

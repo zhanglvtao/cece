@@ -453,6 +453,72 @@ func TestDecodeCachedTokensAidenNormalized(t *testing.T) {
 	}
 }
 
+func TestDecodeResponsesOutputTextDone(t *testing.T) {
+	body := sseBody(
+		`data: {"type":"response.created"}`,
+		``,
+		`data: {"type":"response.output_text.done","content_index":0,"output_index":1,"text":"hello from done"}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":12,"output_tokens":4}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var text string
+	var blockStarted bool
+	for _, e := range events {
+		if e.EventType == "content_block_start" && e.Index == 1 {
+			blockStarted = true
+		}
+		if e.Detail == "text_delta" {
+			text += e.Delta
+		}
+	}
+
+	if !blockStarted {
+		t.Fatal("expected content_block_start for output_text.done")
+	}
+	if text != "hello from done" {
+		t.Fatalf("text = %q, want output_text.done text", text)
+	}
+}
+
+func TestDecodeResponsesOutputTextDoneAfterDeltaDoesNotDuplicate(t *testing.T) {
+	body := sseBody(
+		`data: {"type":"response.created"}`,
+		``,
+		`data: {"type":"response.output_text.delta","content_index":0,"output_index":0,"delta":"hello"}`,
+		``,
+		`data: {"type":"response.output_text.done","content_index":0,"output_index":0,"text":"hello"}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":12,"output_tokens":4}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var text string
+	var deltas int
+	for _, e := range events {
+		if e.Detail == "text_delta" {
+			deltas++
+			text += e.Delta
+		}
+	}
+
+	if deltas != 1 {
+		t.Fatalf("text deltas = %d, want 1", deltas)
+	}
+	if text != "hello" {
+		t.Fatalf("text = %q, want delta text only", text)
+	}
+}
+
 func TestDecodeDeepSeekStyleUsageChunk(t *testing.T) {
 	// Simulates DeepSeek's actual stream pattern:
 	// 1. content chunks with reasoning_content
