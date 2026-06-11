@@ -92,20 +92,22 @@ type SetupModel struct {
 	height    int
 	err       string
 	existing  bool
+	projectDir string
+	configPath string
 }
 
 // NewSetupModel creates the setup wizard model.
-func NewSetupModel() SetupModel {
-	home, _ := os.UserHomeDir()
+func NewSetupModel(projectDir string) SetupModel {
+	configPath := filepath.Join(projectDir, settingsRelPath)
 	exists := false
-	if home != "" {
-		if _, err := os.Stat(filepath.Join(home, settingsRelPath)); err == nil {
-			exists = true
-		}
+	if _, err := os.Stat(configPath); err == nil {
+		exists = true
 	}
 	return SetupModel{
-		step:     stepWelcome,
-		existing: exists,
+		step:       stepWelcome,
+		existing:   exists,
+		projectDir: projectDir,
+		configPath: configPath,
 	}
 }
 
@@ -390,13 +392,8 @@ func (m *SetupModel) openPicker() {
 	}
 }
 
-// save writes the collected config to ~/.cece/settings.json.
+// save writes the collected config to .cece/settings.json in the project directory.
 func (m *SetupModel) save() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot find home dir: %w", err)
-	}
-
 	sf := settingsFile{
 		Provider: providerSection{
 			Model: []string{m.col.model},
@@ -417,11 +414,10 @@ func (m *SetupModel) save() error {
 		return fmt.Errorf("marshal settings: %w", err)
 	}
 
-	path := filepath.Join(home, settingsRelPath)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(m.configPath), 0o755); err != nil {
 		return fmt.Errorf("create .cece dir: %w", err)
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	return os.WriteFile(m.configPath, append(data, '\n'), 0o644)
 }
 
 func (m SetupModel) View() tea.View {
@@ -445,10 +441,10 @@ func (m SetupModel) welcomeView() string {
 	var b strings.Builder
 	b.WriteString("cece setup\n\n")
 	if m.existing {
-		b.WriteString("Existing config found at ~/.cece/settings.json\n")
+		fmt.Fprintf(&b, "Existing config found at %s\n", m.configPath)
 		b.WriteString("Running setup will overwrite it.\n\n")
 	} else {
-		b.WriteString("No config found. Let's set up cece.\n\n")
+		fmt.Fprintf(&b, "Config will be written to %s\n\n", m.configPath)
 	}
 	b.WriteString("[enter] start  [esc] quit")
 	return b.String()
@@ -500,7 +496,7 @@ func (m SetupModel) doneView() string {
 		keyPreview = keyPreview[:4] + "****"
 	}
 	fmt.Fprintf(&b, "  apiKey:    %s\n", keyPreview)
-	b.WriteString("\nConfig written to ~/.cece/settings.json\n\n")
+	b.WriteString("\nConfig written to " + m.configPath + "\n\n")
 	b.WriteString("Run 'cece' to start.\n\n")
 	b.WriteString("[enter] quit")
 	return b.String()

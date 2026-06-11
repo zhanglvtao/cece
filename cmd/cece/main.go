@@ -150,7 +150,8 @@ func runUpdate() int {
 }
 
 func runSetup() int {
-	model := setup.NewSetupModel()
+	projectDir, _ := os.Getwd()
+	model := setup.NewSetupModel(projectDir)
 	program := tea.NewProgram(&model)
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "setup failed: %v\n", err)
