@@ -24,6 +24,7 @@ import (
 	"github.com/zhanglvtao/cece/internal/remote"
 	"github.com/zhanglvtao/cece/internal/runtime"
 	"github.com/zhanglvtao/cece/internal/session"
+	"github.com/zhanglvtao/cece/internal/setup"
 	"github.com/zhanglvtao/cece/internal/skill"
 	"github.com/zhanglvtao/cece/internal/ui"
 	"github.com/zhanglvtao/cece/internal/update"
@@ -90,6 +91,8 @@ func main() {
 			os.Exit(0)
 		case "update":
 			os.Exit(runUpdate())
+		case "setup":
+			os.Exit(runSetup())
 		case "help", "--help", "-h":
 			printHelp()
 			os.Exit(0)
@@ -104,11 +107,13 @@ func printHelp() {
 Usage:
   cece              Start interactive TUI
   cece engine       Run engine process (internal)
+  cece setup        Interactive setup wizard
   cece update       Check for updates and install the latest version
   cece version      Print version
 
 Commands:
   help              Show this help
+  setup             Configure cece for first use
   version           Print version and exit
   update            Self-update to the latest release
 `)
@@ -141,6 +146,16 @@ func runUpdate() int {
 	}
 
 	fmt.Printf("Updated to v%s. Restart cece to use the new version.\n", newVersion)
+	return 0
+}
+
+func runSetup() int {
+	model := setup.NewSetupModel()
+	program := tea.NewProgram(&model)
+	if _, err := program.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "setup failed: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
