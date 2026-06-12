@@ -215,6 +215,9 @@ func (h *sessionHandler) Enabled(ctx context.Context, level slog.Level) bool {
 
 func (h *sessionHandler) Handle(ctx context.Context, r slog.Record) error {
 	id, _ := sessionID.Load().(string)
+	if len(id) > 8 {
+		id = id[:8]
+	}
 	r.AddAttrs(slog.String("session_id", id))
 	return h.next.Handle(ctx, r)
 }
