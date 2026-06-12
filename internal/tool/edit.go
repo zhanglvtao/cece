@@ -117,86 +117,142 @@ func (editTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 }
 
 // ── Fuzzy matching cascade ──────────────────────────────────────────────────
-
-// findActualString tries to find oldString in fileContent using a cascade of
-// normalization strategies. It returns the byte index in the original fileContent
-// and the actual substring from the file (preserving original whitespace/quotes).
 //
-// Cascade: exact → CRLF normalization → tab/space normalization →
-// trailing whitespace normalization → quote normalization.
-// Each step also tries trailing \n tolerance (add/strip one \n) if the base match fails.
+// findActualString tries to find oldString in fileContent by generating
+// candidate variants of oldString (zero-copy on fileContent) and searching
+// with strings.Index. The cascade:
+//
+//	exact match → trailing \n tolerance → CRLF variants →
+//	tab→spaces variant → curly→straight quotes variant →
+//	trailing whitespace tolerance (line-by-line)
+//
+// Returns the byte index in fileContent and the actual matched substring.
+
 func findActualString(fileContent, oldString string) (int, string) {
 	// 1. Exact match
 	if idx := strings.Index(fileContent, oldString); idx >= 0 {
 		return idx, oldString
 	}
-	// 1b. Trailing \n tolerance on exact (for when old_string is missing or has extra \n)
-	if idx, actual := findWithTrailingNewlineTolerance(fileContent, oldString); idx >= 0 {
+
+	// 2. Trailing \n tolerance on exact
+	if idx, actual := tryNewlineTolerance(fileContent, oldString); idx >= 0 {
 		return idx, actual
 	}
 
-	// 2. CRLF → LF normalization
-	normFile := strings.ReplaceAll(fileContent, "\r\n", "\n")
-	normOld := strings.ReplaceAll(oldString, "\r\n", "\n")
-	if idx := strings.Index(normFile, normOld); idx >= 0 {
-		origStart := crlfNormToOrig(fileContent, idx)
-		origEnd := crlfNormToOrig(fileContent, idx+len(normOld))
-		if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-			return origStart, fileContent[origStart:origEnd]
+	// 3. Old-string variants (CRLF, tab/space, quotes)
+	candidates := generateCandidates(oldString)
+	for _, c := range candidates {
+		if c == oldString {
+			continue // already tried
+		}
+		if idx := strings.Index(fileContent, c); idx >= 0 {
+			return idx, c
+		}
+		if idx, actual := tryNewlineTolerance(fileContent, c); idx >= 0 {
+			return idx, actual
 		}
 	}
-	// 2b. CRLF + trailing \n
-	if idx, actual := findCRLFWithNewlineTolerance(fileContent, normFile, normOld); idx >= 0 {
+
+	// 4. Trailing whitespace tolerance (line-by-line, last resort)
+	if idx, actual := findTrailingWSTolerant(fileContent, oldString); idx >= 0 {
 		return idx, actual
-	}
-
-	// 3. Tab → 4 spaces normalization
-	wsFile := expandTabs(fileContent)
-	wsOld := expandTabs(oldString)
-	if idx := strings.Index(wsFile, wsOld); idx >= 0 {
-		origStart, origEnd := mapTabNormRangeBack(fileContent, wsFile, idx, len(wsOld))
-		if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-			return origStart, fileContent[origStart:origEnd]
-		}
-	}
-
-	// 4. Trailing whitespace normalization (strip trailing spaces/tabs per line)
-	twsFile := stripTrailingWS(normFile)
-	twsOld := stripTrailingWS(normOld)
-	if twsFile != normFile || twsOld != normOld { // skip if no-op
-		if idx := strings.Index(twsFile, twsOld); idx >= 0 {
-			origStart, origEnd := mapTrailingWSRangeBack(fileContent, twsFile, idx, len(twsOld))
-			if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-				return origStart, fileContent[origStart:origEnd]
-			}
-		}
-	}
-
-	// 5. Quote normalization (curly → straight)
-	qFile := normalizeQuotes(fileContent)
-	qOld := normalizeQuotes(oldString)
-	if idx := strings.Index(qFile, qOld); idx >= 0 {
-		// Quote normalization changes byte length (curly=3 bytes, straight=1 byte).
-		// We need to map the range back using a position mapper.
-		origStart, origEnd := mapQuoteNormRangeBack(fileContent, qFile, idx, idx+len(qOld))
-		if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-			return origStart, fileContent[origStart:origEnd]
-		}
 	}
 
 	return -1, ""
 }
 
-// findWithTrailingNewlineTolerance tries matching with an extra or missing trailing \n.
-func findWithTrailingNewlineTolerance(fileContent, oldString string) (int, string) {
-	// Try oldString + "\n" — LLM omitted trailing newline
+// generateCandidates produces old-string variants that account for common
+// LLM rendering/encoding differences. Generates both directions for each
+// transformation so we can match regardless of which side has which encoding.
+func generateCandidates(s string) []string {
+	var out []string
+
+	// CRLF ↔ LF
+	if strings.Contains(s, "\r\n") {
+		out = append(out, strings.ReplaceAll(s, "\r\n", "\n"))
+	} else if strings.Contains(s, "\n") {
+		out = append(out, strings.ReplaceAll(s, "\n", "\r\n"))
+	}
+
+	// Tab ↔ 4 spaces
+	if strings.Contains(s, "\t") {
+		out = append(out, strings.ReplaceAll(s, "\t", "    "))
+	}
+	if strings.Contains(s, "    ") {
+		// Only generate spaces→tab for leading/trailing whitespace per line
+		out = append(out, spacesToTabs(s))
+	}
+
+	// Curly ↔ straight quotes
+	if containsCurlyQuote(s) {
+		out = append(out, normalizeQuotes(s))
+	}
+	if containsStraightQuote(s) {
+		out = append(out, straightToCurlyQuotes(s))
+	}
+
+	return out
+}
+
+// spacesToTabs converts leading runs of 4 spaces to tabs in each line.
+func spacesToTabs(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		j := 0
+		var b strings.Builder
+		for j < len(line) {
+			if j+4 <= len(line) && line[j:j+4] == "    " {
+				b.WriteByte('\t')
+				j += 4
+			} else {
+				break
+			}
+		}
+		b.WriteString(line[j:])
+		lines[i] = b.String()
+	}
+	return strings.Join(lines, "\n")
+}
+
+// containsStraightQuote reports whether s contains ASCII straight quotes.
+func containsStraightQuote(s string) bool {
+	return strings.ContainsAny(s, `"'`)
+}
+
+// straightToCurlyQuotes replaces straight quotes with curly equivalents.
+func straightToCurlyQuotes(s string) string {
+	var b strings.Builder
+	prev := ' '
+	for _, r := range s {
+		switch r {
+		case '"':
+			if prev == ' ' || prev == '\n' || prev == '\t' || prev == '(' {
+				b.WriteString("\u201C") // "
+			} else {
+				b.WriteString("\u201D") // "
+			}
+		case '\'':
+			if prev == ' ' || prev == '\n' || prev == '\t' || prev == '(' {
+				b.WriteString("\u2018") // '
+			} else {
+				b.WriteString("\u2019") // '
+			}
+		default:
+			b.WriteRune(r)
+		}
+		prev = r
+	}
+	return b.String()
+}
+
+// tryNewlineTolerance tries matching with an extra or missing trailing \n.
+func tryNewlineTolerance(fileContent, oldString string) (int, string) {
 	if !strings.HasSuffix(oldString, "\n") {
 		extended := oldString + "\n"
 		if idx := strings.Index(fileContent, extended); idx >= 0 {
 			return idx, extended
 		}
 	}
-	// Try oldString without trailing "\n" — LLM added extra newline
 	if strings.HasSuffix(oldString, "\n") {
 		trimmed := strings.TrimSuffix(oldString, "\n")
 		if idx := strings.Index(fileContent, trimmed); idx >= 0 {
@@ -206,8 +262,134 @@ func findWithTrailingNewlineTolerance(fileContent, oldString string) (int, strin
 	return -1, ""
 }
 
-// findWithTrailingNewlineToleranceLast is the LastIndex variant.
-func findWithTrailingNewlineToleranceLast(fileContent, oldString string) (int, string) {
+// findTrailingWSTolerant searches for oldString in fileContent line-by-line,
+// ignoring trailing whitespace on each line. Returns the byte range of the
+// actual (untrimmed) match in fileContent.
+func findTrailingWSTolerant(fileContent, oldString string) (int, string) {
+	oldLines := strings.Split(oldString, "\n")
+	// Preserve trailing empty line indicator
+	oldEndsWithNewline := len(oldLines) > 0 && oldLines[len(oldLines)-1] == ""
+	if oldEndsWithNewline {
+		oldLines = oldLines[:len(oldLines)-1]
+	}
+	if len(oldLines) == 0 {
+		return -1, ""
+	}
+
+	fileLines := strings.Split(fileContent, "\n")
+	for i := 0; i <= len(fileLines)-len(oldLines); i++ {
+		match := true
+		hasDiff := false
+		for j, ol := range oldLines {
+			trimmed := strings.TrimRight(ol, " \t")
+			fileTrimmed := strings.TrimRight(fileLines[i+j], " \t")
+			if trimmed != fileTrimmed {
+				match = false
+				break
+			}
+			if ol != fileLines[i+j] {
+				hasDiff = true
+			}
+		}
+		if match && hasDiff {
+			start := lineStartByte(fileContent, i)
+			// End: include trailing ws on each matched line + \n separators
+			// If old_string ends with \n, include the \n after the last line
+			end := lineStartByte(fileContent, i+len(oldLines))
+			if oldEndsWithNewline {
+				// Include the trailing whitespace on the last line + \n
+				// lineStartByte(i+len(oldLines)) already points past the \n
+			} else {
+				// Don't include the \n after the last matched line
+				// Back up to end of content (before \n)
+				if end > 0 && end <= len(fileContent) && fileContent[end-1] == '\n' {
+					// end points to start of next line, so the \n is at end-1
+					// We want to exclude the \n but include trailing ws on the last line
+					// The last matched line's content is from lineStartByte(i+len(oldLines)-1) to end
+					// We need just the content part (without \n)
+					// Actually: end = lineStartByte of line after last matched
+					// The last line content before \n is fileLines[i+len(oldLines)-1]
+					// So the range should include that content but not the trailing \n
+					lastLineStart := lineStartByte(fileContent, i+len(oldLines)-1)
+					end = lastLineStart + len(fileLines[i+len(oldLines)-1])
+				}
+			}
+			if end > len(fileContent) {
+				end = len(fileContent)
+			}
+			return start, fileContent[start:end]
+		}
+	}
+	return -1, ""
+}
+
+// lineStartByte returns the byte offset of the start of line n (0-based).
+func lineStartByte(s string, line int) int {
+	if line <= 0 {
+		return 0
+	}
+	idx := 0
+	for i := 0; i < line && idx < len(s); i++ {
+		nl := strings.IndexByte(s[idx:], '\n')
+		if nl < 0 {
+			return len(s)
+		}
+		idx += nl + 1
+	}
+	return idx
+}
+
+// containsCurlyQuote reports whether s contains any curly quote characters.
+func containsCurlyQuote(s string) bool {
+	return strings.ContainsAny(s, "\u2018\u2019\u201C\u201D")
+}
+
+// normalizeQuotes replaces curly quotes with straight quotes.
+func normalizeQuotes(s string) string {
+	r := strings.NewReplacer(
+		"\u2018", "'",
+		"\u2019", "'",
+		"\u201C", "\"",
+		"\u201D", "\"",
+	)
+	return r.Replace(s)
+}
+
+// findActualStringLast finds the last occurrence using the same cascade.
+func findActualStringLast(fileContent, oldString string) (int, string) {
+	// 1. Exact
+	if idx := strings.LastIndex(fileContent, oldString); idx >= 0 {
+		return idx, oldString
+	}
+
+	// 2. Trailing \n tolerance
+	if idx, actual := tryNewlineToleranceLast(fileContent, oldString); idx >= 0 {
+		return idx, actual
+	}
+
+	// 3. Variants
+	candidates := generateCandidates(oldString)
+	for _, c := range candidates {
+		if c == oldString {
+			continue
+		}
+		if idx := strings.LastIndex(fileContent, c); idx >= 0 {
+			return idx, c
+		}
+		if idx, actual := tryNewlineToleranceLast(fileContent, c); idx >= 0 {
+			return idx, actual
+		}
+	}
+
+	// 4. Trailing whitespace tolerance
+	if idx, actual := findTrailingWSTolerantLast(fileContent, oldString); idx >= 0 {
+		return idx, actual
+	}
+
+	return -1, ""
+}
+
+func tryNewlineToleranceLast(fileContent, oldString string) (int, string) {
 	if !strings.HasSuffix(oldString, "\n") {
 		extended := oldString + "\n"
 		if idx := strings.LastIndex(fileContent, extended); idx >= 0 {
@@ -223,114 +405,44 @@ func findWithTrailingNewlineToleranceLast(fileContent, oldString string) (int, s
 	return -1, ""
 }
 
-// findCRLFWithNewlineTolerance does trailing \n tolerance under CRLF normalization.
-func findCRLFWithNewlineTolerance(fileContent, normFile, normOld string) (int, string) {
-	// Try normOld + "\n"
-	if !strings.HasSuffix(normOld, "\n") {
-		extended := normOld + "\n"
-		if idx := strings.Index(normFile, extended); idx >= 0 {
-			origStart := crlfNormToOrig(fileContent, idx)
-			origEnd := crlfNormToOrig(fileContent, idx+len(extended))
-			if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-				return origStart, fileContent[origStart:origEnd]
+func findTrailingWSTolerantLast(fileContent, oldString string) (int, string) {
+	oldLines := strings.Split(oldString, "\n")
+	oldEndsWithNewline := len(oldLines) > 0 && oldLines[len(oldLines)-1] == ""
+	if oldEndsWithNewline {
+		oldLines = oldLines[:len(oldLines)-1]
+	}
+	if len(oldLines) == 0 {
+		return -1, ""
+	}
+
+	fileLines := strings.Split(fileContent, "\n")
+	for i := len(fileLines) - len(oldLines); i >= 0; i-- {
+		match := true
+		hasDiff := false
+		for j, ol := range oldLines {
+			trimmed := strings.TrimRight(ol, " \t")
+			fileTrimmed := strings.TrimRight(fileLines[i+j], " \t")
+			if trimmed != fileTrimmed {
+				match = false
+				break
+			}
+			if ol != fileLines[i+j] {
+				hasDiff = true
 			}
 		}
-	}
-	// Try normOld without trailing "\n"
-	if strings.HasSuffix(normOld, "\n") {
-		trimmed := strings.TrimSuffix(normOld, "\n")
-		if idx := strings.Index(normFile, trimmed); idx >= 0 {
-			origStart := crlfNormToOrig(fileContent, idx)
-			origEnd := crlfNormToOrig(fileContent, idx+len(trimmed))
-			if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-				return origStart, fileContent[origStart:origEnd]
+		if match && hasDiff {
+			start := lineStartByte(fileContent, i)
+			end := lineStartByte(fileContent, i+len(oldLines))
+			if !oldEndsWithNewline {
+				if end > 0 && end <= len(fileContent) && fileContent[end-1] == '\n' {
+					lastLineStart := lineStartByte(fileContent, i+len(oldLines)-1)
+					end = lastLineStart + len(fileLines[i+len(oldLines)-1])
+				}
 			}
-		}
-	}
-	return -1, ""
-}
-
-// findActualStringLast finds the last occurrence using the same cascade.
-func findActualStringLast(fileContent, oldString string) (int, string) {
-	// 1. Exact
-	if idx := strings.LastIndex(fileContent, oldString); idx >= 0 {
-		return idx, oldString
-	}
-	// 1b. Trailing \n tolerance
-	if idx, actual := findWithTrailingNewlineToleranceLast(fileContent, oldString); idx >= 0 {
-		return idx, actual
-	}
-
-	// 2. CRLF
-	normFile := strings.ReplaceAll(fileContent, "\r\n", "\n")
-	normOld := strings.ReplaceAll(oldString, "\r\n", "\n")
-	if idx := strings.LastIndex(normFile, normOld); idx >= 0 {
-		origStart := crlfNormToOrig(fileContent, idx)
-		origEnd := crlfNormToOrig(fileContent, idx+len(normOld))
-		if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-			return origStart, fileContent[origStart:origEnd]
-		}
-	}
-	// 2b. CRLF + trailing \n
-	if idx, actual := findCRLFWithNewlineToleranceLast(fileContent, normFile, normOld); idx >= 0 {
-		return idx, actual
-	}
-
-	// 3. Tab/space
-	wsFile := expandTabs(fileContent)
-	wsOld := expandTabs(oldString)
-	if idx := strings.LastIndex(wsFile, wsOld); idx >= 0 {
-		origStart, origEnd := mapTabNormRangeBack(fileContent, wsFile, idx, len(wsOld))
-		if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-			return origStart, fileContent[origStart:origEnd]
-		}
-	}
-
-	// 4. Trailing whitespace normalization
-	twsFile := stripTrailingWS(normFile)
-	twsOld := stripTrailingWS(normOld)
-	if twsFile != normFile || twsOld != normOld {
-		if idx := strings.LastIndex(twsFile, twsOld); idx >= 0 {
-			origStart, origEnd := mapTrailingWSRangeBack(fileContent, twsFile, idx, len(twsOld))
-			if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-				return origStart, fileContent[origStart:origEnd]
+			if end > len(fileContent) {
+				end = len(fileContent)
 			}
-		}
-	}
-
-	// 5. Quote
-	qFile := normalizeQuotes(fileContent)
-	qOld := normalizeQuotes(oldString)
-	if idx := strings.LastIndex(qFile, qOld); idx >= 0 {
-		origStart, origEnd := mapQuoteNormRangeBack(fileContent, qFile, idx, idx+len(qOld))
-		if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-			return origStart, fileContent[origStart:origEnd]
-		}
-	}
-
-	return -1, ""
-}
-
-// findCRLFWithNewlineToleranceLast does trailing \n tolerance under CRLF normalization (last occurrence).
-func findCRLFWithNewlineToleranceLast(fileContent, normFile, normOld string) (int, string) {
-	if !strings.HasSuffix(normOld, "\n") {
-		extended := normOld + "\n"
-		if idx := strings.LastIndex(normFile, extended); idx >= 0 {
-			origStart := crlfNormToOrig(fileContent, idx)
-			origEnd := crlfNormToOrig(fileContent, idx+len(extended))
-			if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-				return origStart, fileContent[origStart:origEnd]
-			}
-		}
-	}
-	if strings.HasSuffix(normOld, "\n") {
-		trimmed := strings.TrimSuffix(normOld, "\n")
-		if idx := strings.LastIndex(normFile, trimmed); idx >= 0 {
-			origStart := crlfNormToOrig(fileContent, idx)
-			origEnd := crlfNormToOrig(fileContent, idx+len(trimmed))
-			if origStart >= 0 && origEnd >= 0 && origEnd <= len(fileContent) {
-				return origStart, fileContent[origStart:origEnd]
-			}
+			return start, fileContent[start:end]
 		}
 	}
 	return -1, ""
@@ -340,247 +452,6 @@ func findCRLFWithNewlineToleranceLast(fileContent, normFile, normOld string) (in
 func findActualStringAll(fileContent, oldString string) string {
 	_, actual := findActualString(fileContent, oldString)
 	return actual
-}
-
-// ── Normalization helpers ───────────────────────────────────────────────────
-
-// expandTabs replaces each tab character with 4 spaces.
-func expandTabs(s string) string {
-	return strings.ReplaceAll(s, "\t", "    ")
-}
-
-// normalizeQuotes replaces curly quotes with straight quotes.
-func normalizeQuotes(s string) string {
-	r := strings.NewReplacer(
-		"\u2018", "'", // '
-		"\u2019", "'", // '
-		"\u201C", "\"", // "
-		"\u201D", "\"", // "
-	)
-	return r.Replace(s)
-}
-
-// stripTrailingWS strips trailing whitespace from each line.
-// Line endings (\n) are preserved. A final \n is preserved as an empty trailing line.
-func stripTrailingWS(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimRight(line, " \t")
-	}
-	return strings.Join(lines, "\n")
-}
-
-// mapTrailingWSRangeBack maps a range [normStart, normStart+normLen) in the
-// trailing-whitespace-stripped string back to [origStart, origEnd) in the original.
-// Since stripping only shortens lines (never changes line boundaries), we walk
-// both strings line-by-line to track the offset delta.
-func mapTrailingWSRangeBack(orig, norm string, normStart, normLen int) (int, int) {
-	// Fast path: identical → no mapping needed
-	if orig == norm {
-		return normStart, normStart + normLen
-	}
-
-	origPos := 0
-	normPos := 0
-	origStart := -1
-	origEnd := -1
-
-	for origPos < len(orig) && normPos <= normStart+normLen {
-		if normPos == normStart {
-			origStart = origPos
-		}
-		if normPos == normStart+normLen {
-			origEnd = origPos
-			break
-		}
-
-		// Walk to end of current line in both strings
-		origLineEnd := strings.IndexByte(orig[origPos:], '\n')
-		normLineEnd := strings.IndexByte(norm[normPos:], '\n')
-
-		var origLineLen, normLineLen int
-		if origLineEnd >= 0 {
-			origLineLen = origLineEnd + 1 // include \n
-		} else {
-			origLineLen = len(orig) - origPos
-		}
-		if normLineEnd >= 0 {
-			normLineLen = normLineEnd + 1
-		} else {
-			normLineLen = len(norm) - normPos
-		}
-
-		nextNormPos := normPos + normLineLen
-		nextOrigPos := origPos + origLineLen
-
-		// normStart falls within this line in norm — map to same line start in orig
-		if normPos < normStart && nextNormPos > normStart && origStart == -1 {
-			// Offset within the norm line
-			withinNorm := normStart - normPos
-			// The corresponding orig line (before stripping)
-			origLine := orig[origPos:]
-			if origLineEnd >= 0 {
-				origLine = origLine[:origLineEnd]
-			}
-			normLine := norm[normPos:]
-			if normLineEnd >= 0 {
-				normLine = normLine[:normLineEnd]
-			}
-			// Walk character by character within the line
-			oi, ni := 0, 0
-			for oi < len(origLine) && ni < withinNorm {
-				oi++
-				ni++
-			}
-			origStart = origPos + oi
-		}
-		if normPos < normStart+normLen && nextNormPos > normStart+normLen && origEnd == -1 {
-			withinNorm := normStart + normLen - normPos
-			origLine := orig[origPos:]
-			if origLineEnd >= 0 {
-				origLine = origLine[:origLineEnd]
-			}
-			oi, ni := 0, 0
-			for oi < len(origLine) && ni < withinNorm {
-				oi++
-				ni++
-			}
-			origEnd = origPos + oi
-			break
-		}
-
-		normPos = nextNormPos
-		origPos = nextOrigPos
-	}
-
-	if origStart == -1 {
-		origStart = 0
-	}
-	if origEnd == -1 {
-		origEnd = len(orig)
-	}
-	return origStart, origEnd
-}
-
-// crlfNormToOrig maps a byte offset in the CRLF-normalized string back
-// to the byte offset in the original string.
-// Each \r\n in orig becomes \n in norm, so norm is shorter.
-// We walk orig, tracking how many \r\n we've skipped, to find the
-// original byte position corresponding to normOffset.
-func crlfNormToOrig(orig string, normOffset int) int {
-	oi := 0  // byte offset in orig
-	ni := 0  // byte offset in norm
-	for oi < len(orig) && ni < normOffset {
-		if oi+1 < len(orig) && orig[oi] == '\r' && orig[oi+1] == '\n' {
-			// \r\n in orig → \n in norm: orig advances 2 bytes, norm advances 1
-			oi += 2
-			ni += 1
-		} else {
-			oi++
-			ni++
-		}
-	}
-	return oi
-}
-
-// mapTabNormRangeBack maps a range [normStart, normStart+normLen) in the
-// tab-expanded string back to [origStart, origEnd) in the original string.
-// Tab expands to 4 spaces, so we walk both strings to build the mapping.
-func mapTabNormRangeBack(orig, norm string, normStart, normLen int) (int, int) {
-	origPos := 0
-	normPos := 0
-	origStart := -1
-	origEnd := -1
-
-	for origPos < len(orig) && normPos <= normStart+normLen {
-		if normPos == normStart {
-			origStart = origPos
-		}
-		if normPos == normStart+normLen {
-			origEnd = origPos
-			break
-		}
-
-		if orig[origPos] == '\t' {
-			nextNormPos := normPos + 4
-			// normStart falls within an expanded tab — snap to tab position
-			if normPos < normStart && nextNormPos > normStart && origStart == -1 {
-				origStart = origPos
-			}
-			if normPos < normStart+normLen && nextNormPos > normStart+normLen && origEnd == -1 {
-				origEnd = origPos + 1
-				break
-			}
-			normPos = nextNormPos
-			origPos++
-		} else {
-			normPos++
-			origPos++
-		}
-	}
-
-	if origStart == -1 {
-		origStart = 0
-	}
-	if origEnd == -1 {
-		origEnd = len(orig)
-	}
-	return origStart, origEnd
-}
-
-// mapQuoteNormRangeBack maps a range [normStart, normEnd) in the
-// quote-normalized string back to [origStart, origEnd) in the original string.
-// Curly quotes are 3 bytes in UTF-8, straight quotes are 1 byte.
-// We walk both strings to build the mapping.
-func mapQuoteNormRangeBack(orig, norm string, normStart, normEnd int) (int, int) {
-	oi := 0 // byte offset in orig
-	ni := 0 // byte offset in norm
-	origStart := -1
-	origEnd := -1
-
-	for oi < len(orig) && ni < normEnd {
-		if ni == normStart {
-			origStart = oi
-		}
-
-		// Check if current position in orig is a curly quote (3 bytes → 1 byte in norm)
-		if oi+2 < len(orig) {
-			b3 := orig[oi : oi+3]
-			if b3 == "\u2018" || b3 == "\u2019" || b3 == "\u201C" || b3 == "\u201D" {
-				if ni+1 > normStart && origStart == -1 && ni < normStart {
-					origStart = oi
-				}
-				if ni+1 > normEnd && origEnd == -1 && ni < normEnd {
-					origEnd = oi
-					break
-				}
-				oi += 3
-				ni += 1
-				continue
-			}
-		}
-
-		if ni+1 > normStart && origStart == -1 && ni < normStart {
-			origStart = oi
-		}
-		if ni+1 > normEnd && origEnd == -1 && ni < normEnd {
-			origEnd = oi
-			break
-		}
-		oi++
-		ni++
-	}
-
-	if ni >= normEnd && origEnd == -1 {
-		origEnd = oi
-	}
-	if origStart == -1 {
-		origStart = 0
-	}
-	if origEnd == -1 {
-		origEnd = len(orig)
-	}
-	return origStart, origEnd
 }
 
 // ── Error context ───────────────────────────────────────────────────────────

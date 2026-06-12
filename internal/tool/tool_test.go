@@ -1298,8 +1298,9 @@ func TestEditTrailingWSReplacement(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(path)
-	// The actualOld should be "foo   \nbar  \n" (trailing ws + newline preserved from file)
-	if string(data) != "hello\nworld  \nbaz\n" {
+	// The actualOld is "foo   \nbar  " (trailing ws preserved from file)
+	// Replacing with "hello\nworld" gives: "hello\nworld\nbaz\n"
+	if string(data) != "hello\nworld\nbaz\n" {
 		t.Fatalf("file content = %q", string(data))
 	}
 }
@@ -1328,55 +1329,7 @@ func TestEditTrailingNewlineReplacement(t *testing.T) {
 	}
 }
 
-func TestStripTrailingWS(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"foo   \nbar  \n", "foo\nbar\n"},
-		{"no_ws\n", "no_ws\n"},
-		{"\t\n", "\n"},
-		{"", ""},
-		{"a  \nb \t \nc", "a\nb\nc"},
-	}
-	for _, tt := range tests {
-		got := stripTrailingWS(tt.input)
-		if got != tt.want {
-			t.Errorf("stripTrailingWS(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
 
-func TestMapTrailingWSRangeBack(t *testing.T) {
-	orig := "foo   \nbar  \nbaz\n"
-	norm := stripTrailingWS(orig) // "foo\nbar\nbaz\n"
-
-	// Match "foo\nbar\n" in norm starting at index 0, length 8
-	start, end := mapTrailingWSRangeBack(orig, norm, 0, 8)
-	if start != 0 {
-		t.Errorf("start = %d, want 0", start)
-	}
-	actual := orig[start:end]
-	if actual != "foo   \nbar  \n" {
-		t.Errorf("actual = %q, want %q", actual, "foo   \nbar  \n")
-	}
-
-	// Match "bar\n" in norm starting at index 4, length 4
-	start2, end2 := mapTrailingWSRangeBack(orig, norm, 4, 4)
-	actual2 := orig[start2:end2]
-	if actual2 != "bar  \n" {
-		t.Errorf("actual2 = %q, want %q", actual2, "bar  \n")
-	}
-}
-
-func TestMapTrailingWSRangeBackIdentical(t *testing.T) {
-	// When no trailing ws to strip, fast path returns as-is
-	s := "foo\nbar\n"
-	start, end := mapTrailingWSRangeBack(s, s, 4, 4)
-	if start != 4 || end != 8 {
-		t.Errorf("got [%d,%d), want [4,8)", start, end)
-	}
-}
 
 func TestFindActualStringLastTrailingNewline(t *testing.T) {
 	file := "foo\nbar\nfoo\n"
@@ -1414,5 +1367,96 @@ func TestEditTrailingNewlineTrimFromOld(t *testing.T) {
 	}
 	if actual != "hello" {
 		t.Errorf("actual = %q, want %q", actual, "hello")
+	}
+}
+
+func TestFindActualStringTabToSpaces(t *testing.T) {
+	// File has tabs, old_string uses 4 spaces (LLM rendering)
+	file := "\tfunc main() {\n\t\tfmt.Println(\"hello\")\n\t}\n"
+
+	// LLM sends spaces instead of tabs — spacesToTabs candidate should match
+	idx, actual := findActualString(file, "    func main() {\n        fmt.Println(\"hello\")\n    }\n")
+	if idx < 0 {
+		t.Fatal("expected match via spaces→tab candidate")
+	}
+	// The matched actual should be the file content (with tabs)
+	if actual != file {
+		t.Errorf("actual = %q, want %q", actual, file)
+	}
+}
+
+func TestFindActualStringSpacesToTabs(t *testing.T) {
+	// File has 4 spaces, old_string uses tabs
+	file := "    func main() {\n        fmt.Println(\"hello\")\n    }\n"
+
+	// LLM sends tabs instead of spaces
+	idx, actual := findActualString(file, "\tfunc main() {\n\t\tfmt.Println(\"hello\")\n\t}\n")
+	if idx < 0 {
+		t.Fatal("expected match — tab variant should match spaces in file")
+	}
+	// The candidate is the tab→spaces variant, which matches the file
+	if actual != file {
+		t.Errorf("actual = %q, want %q", actual, file)
+	}
+}
+
+func TestFindActualStringCRLFVariant(t *testing.T) {
+	// File uses LF, old_string uses CRLF
+	file := "line1\nline2\nline3\n"
+	idx, actual := findActualString(file, "line1\r\nline2\r\nline3\r\n")
+	if idx < 0 {
+		t.Fatal("expected match via CRLF→LF candidate")
+	}
+	if actual != file {
+		t.Errorf("actual = %q, want %q", actual, file)
+	}
+}
+
+func TestFindActualStringQuoteVariant(t *testing.T) {
+	// File has curly quotes, old_string has straight quotes
+	file := "\u201Chello\u201D"
+	idx, actual := findActualString(file, `"hello"`)
+	if idx < 0 {
+		t.Fatal("expected match via quote normalization candidate")
+	}
+	if actual != file {
+		t.Errorf("actual = %q, want %q", actual, file)
+	}
+}
+
+func TestGenerateCandidates(t *testing.T) {
+	candidates := generateCandidates("hello\tworld\r\n")
+	// Should contain: tab→spaces variant, CRLF→LF variant
+	foundTab := false
+	foundCRLF := false
+	for _, c := range candidates {
+		if c == "hello    world\r\n" {
+			foundTab = true
+		}
+		if c == "hello\tworld\n" {
+			foundCRLF = true
+		}
+	}
+	if !foundTab {
+		t.Error("expected tab→spaces candidate")
+	}
+	if !foundCRLF {
+		t.Error("expected CRLF→LF candidate")
+	}
+}
+
+func TestLineStartByte(t *testing.T) {
+	s := "line0\nline1\nline2\n"
+	if got := lineStartByte(s, 0); got != 0 {
+		t.Errorf("line 0 = %d, want 0", got)
+	}
+	if got := lineStartByte(s, 1); got != 6 {
+		t.Errorf("line 1 = %d, want 6", got)
+	}
+	if got := lineStartByte(s, 2); got != 12 {
+		t.Errorf("line 2 = %d, want 12", got)
+	}
+	if got := lineStartByte(s, 3); got != 18 {
+		t.Errorf("line 3 = %d, want 18", got)
 	}
 }

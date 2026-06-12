@@ -93,7 +93,7 @@ func (readTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 	// Format with line numbers
 	var b strings.Builder
 	for i := start; i < end; i++ {
-		fmt.Fprintf(&b, "%6d\t%s\n", i+1, lines[i])
+		fmt.Fprintf(&b, "%6d| %s\n", i+1, lines[i])
 	}
 
 	result := b.String()
