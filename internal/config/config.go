@@ -298,6 +298,13 @@ func mergeSettings(project, user settingsFile) settingsFile {
 	// Lint: merge maps, project keys win
 	out.Lint = mergeMap(project.Lint, user.Lint)
 
+	// Skills: project wins if non-empty, otherwise user
+	if len(project.Skills.Enabled) > 0 {
+		out.Skills.Enabled = project.Skills.Enabled
+	} else {
+		out.Skills.Enabled = user.Skills.Enabled
+	}
+
 	return out
 }
 
