@@ -222,8 +222,8 @@ func loadMetadata(projectDir string) (runtimeMetadata, error) {
 	if err != nil {
 		return runtimeMetadata{}, fmt.Errorf("config load failed: %w", err)
 	}
-	logPath := filepath.Join(projectDir, ".cece", "cece.log")
-	if err := logger.Init(logPath, cfg.Debug); err != nil {
+	logDir := filepath.Join(projectDir, ".cece", "log")
+	if err := logger.Init(logDir, cfg.Debug); err != nil {
 		return runtimeMetadata{}, fmt.Errorf("logger init failed: %w", err)
 	}
 	logger.Info("cece tui starting", "model", cfg.Model)
@@ -241,8 +241,8 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		return runtimeBundle{}, fmt.Errorf("config load failed: %w", err)
 	}
 
-	logPath := filepath.Join(projectDir, ".cece", "cece.log")
-	if err := logger.Init(logPath, cfg.Debug); err != nil {
+	logDir := filepath.Join(projectDir, ".cece", "log")
+	if err := logger.Init(logDir, cfg.Debug); err != nil {
 		return runtimeBundle{}, fmt.Errorf("logger init failed: %w", err)
 	}
 

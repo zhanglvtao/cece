@@ -34,6 +34,7 @@ type updateAvailableMsg struct {
 	current string
 	latest  string
 }
+type vimFinishedMsg struct{}
 
 // Sender submits user input to the runtime.
 type Sender interface {
@@ -51,6 +52,8 @@ type Eventer interface {
 }
 
 type layoutState struct {
+	titleBar   string
+	titleBarH  int
 	modal      string
 	modalH     int
 	popup      string
@@ -112,6 +115,7 @@ type Model struct {
 
 	sessions                session.Store
 	currentSessionID        string
+	currentSessionTitle     string
 	currentSessionEphemeral bool
 	pendingQuit             bool      // set on ctrl+c, quit after title generation completes
 	shouldQuit              bool      // set by applyEvent when pendingQuit title is done
@@ -123,6 +127,7 @@ type Model struct {
 	viewportDirty           bool // true when transcript content changed, cleared after refresh
 	viewportGotoBottom      bool // when dirty, whether to pin viewport to bottom
 	lastViewportWidth       int  // track width changes for refresh
+	scrollToPlanBlock       bool // scroll viewport to plan block's first line after PlanApprovalRequested
 }
 
 func NewModel(sender Sender, modelName string, projectDir string, contextWindow ...int) Model {
@@ -337,6 +342,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case updateAvailableMsg:
 		m.status = fmt.Sprintf("Update: v%s → v%s (cece update)", msg.current, msg.latest)
 		return m, nil
+	case vimFinishedMsg:
+		m.viewportDirty = true
+		return m, nil
 	}
 
 	if !m.modal.active() {
@@ -366,6 +374,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		}
 	case protocol.SessionCreated:
 		m.currentSessionID = e.ID
+		m.currentSessionTitle = ""
 		m.currentSessionEphemeral = true
 		m.status = "Session created"
 	case protocol.SessionTitleGeneratedEvent:
@@ -374,6 +383,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		} else {
 			m.status = "Title: " + e.Title
 			if e.SessionID == m.currentSessionID {
+				m.currentSessionTitle = e.Title
 				m.currentSessionEphemeral = false
 			}
 		}
@@ -428,6 +438,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.PlanApprovalRequested:
 		m.openPlanConfirm(e.PlanFile)
 		m.status = "Approve plan"
+		m.scrollToPlanBlock = true
 	case protocol.PlanRejected:
 		m.mode = protocol.PermissionModePlan
 		m.status = "Plan rejected"
@@ -457,6 +468,12 @@ func (m *Model) applyEvent(event protocol.Event) {
 		} else {
 			m.currentSessionID = e.SessionID
 			m.currentSessionEphemeral = false
+			m.currentSessionTitle = ""
+			if m.sessions != nil {
+				if s, err := m.sessions.Get(context.Background(), e.SessionID); err == nil && s.Title != "" {
+					m.currentSessionTitle = s.Title
+				}
+			}
 			if e.Model != "" {
 				m.modelName = e.Model
 				m.statusBar.UpdateModel(e.Model)
@@ -537,6 +554,13 @@ func (m *Model) applyEvent(event protocol.Event) {
 	m.statusBar.UpdateCache(m.transcript.cacheReadTokens, m.transcript.cacheCreationTokens)
 	m.refreshViewport(m.viewportGotoBottom || eventPinsViewportToBottom(event))
 	m.viewportGotoBottom = false
+	if m.scrollToPlanBlock {
+		m.scrollToPlanBlock = false
+		m.viewport.SetContent(m.transcript.render(m.width, m.styles))
+		if offset, found := m.transcript.lastPlanOffset(m.width, m.styles); found {
+			m.viewport.SetYOffset(offset)
+		}
+	}
 }
 
 // errorStatus prefixes a status message with the current session ID.
@@ -561,7 +585,12 @@ func (m *Model) View() tea.View {
 	m.resize()
 	sep := m.styles.Status.Separator.Render(strings.Repeat("─", max(m.width, 0)))
 	ls := m.measureLayout()
-	sections := []string{m.viewport.View()}
+	sections := []string{}
+	// Title bar at top: session title + id
+	if ls.titleBar != "" {
+		sections = append(sections, ls.titleBar, sep)
+	}
+	sections = append(sections, m.viewport.View())
 	if ls.modal != "" {
 		sections = append(sections, sep)
 		sections = append(sections, ls.modal)
@@ -608,10 +637,16 @@ func (m *Model) View() tea.View {
 		// Place cursor at the inline text input line inside the question modal.
 		cur := &tea.Cursor{}
 		cur.Y = m.viewport.Height() + ls.modalH - 1
+		if ls.titleBarH > 0 {
+			cur.Y += ls.titleBarH + 1
+		}
 		cur.X = 6 + uniseg.StringWidth(m.modal.textInput) // "> [ ] " prefix (6 chars) + typed text display width
 		view.Cursor = cur
 	} else if cur := m.input.Cursor(); cur != nil {
 		rowsAboveInput := m.viewport.Height()
+		if ls.titleBarH > 0 {
+			rowsAboveInput += ls.titleBarH + 1
+		}
 		if ls.modalH > 0 {
 			rowsAboveInput += 1 + ls.modalH
 		}
@@ -640,6 +675,8 @@ func (m *Model) View() tea.View {
 
 func (m *Model) measureLayout() layoutState {
 	ls := layoutState{separatorH: 1}
+	ls.titleBar = m.titleBarView()
+	ls.titleBarH = renderedHeight(ls.titleBar)
 	ls.modal = m.modalView()
 	ls.modalH = renderedHeight(ls.modal)
 	ls.popup = m.slashPopup.View(m.width)
@@ -658,6 +695,9 @@ func (m *Model) measureLayout() layoutState {
 	ls.statusH = m.statusBar.Height()
 
 	chromeH := ls.inputH + ls.statusH
+	if ls.titleBarH > 0 {
+		chromeH += ls.titleBarH + ls.separatorH
+	}
 	if ls.modalH > 0 {
 		chromeH += ls.separatorH + ls.modalH
 	}
@@ -799,6 +839,17 @@ func (m *Model) headlineView() string {
 		prefix = prefix[:maxLen-3] + "..."
 	}
 	return prefix
+}
+
+func (m *Model) titleBarView() string {
+	if m.currentSessionID == "" {
+		return ""
+	}
+	sid := "sid:" + m.currentSessionID
+	if m.currentSessionTitle != "" {
+		return m.styles.TitleBar.Render(m.currentSessionTitle + " · " + sid)
+	}
+	return m.styles.TitleBar.Render(sid)
 }
 
 func (m *Model) statusShowsSpinner() bool {
@@ -1039,6 +1090,18 @@ func (m *Model) handleFilePopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.filePopup.Close()
 		}
 		return m, nil
+	case "ctrl+o":
+		if path, ok := m.filePopup.SelectedFile(); ok {
+			m.filePopup.Close()
+			absPath := path
+			if !filepath.IsAbs(absPath) {
+				absPath = filepath.Join(m.projectDir, path)
+			}
+			return m, tea.ExecProcess(exec.Command("vim", absPath), func(err error) tea.Msg {
+				return vimFinishedMsg{}
+			})
+		}
+		return m, nil
 	case "space":
 		m.filePopup.Close()
 		// Fall through to insert space into textarea.
@@ -1170,6 +1233,11 @@ func (m *Model) handleSend() tea.Cmd {
 func (m *Model) handleSlashCommand(input string) tea.Cmd {
 	spec := parseSlashSpec(input)
 	switch spec.Command {
+	case "/exit":
+		if m.busy {
+			m.cancelTurn("Exiting")
+		}
+		return func() tea.Msg { return tea.Quit() }
 	case "/model":
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.ListModelsAction{})

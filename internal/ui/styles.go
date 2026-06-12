@@ -45,6 +45,7 @@ type Styles struct {
 	}
 	Headline lipgloss.Style
 	Queued   lipgloss.Style
+	TitleBar lipgloss.Style
 	Status   struct {
 		Separator lipgloss.Style
 		Model     lipgloss.Style
@@ -130,6 +131,7 @@ func DefaultStyles() Styles {
 
 	s.Headline = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Queued = lipgloss.NewStyle().Foreground(theme.FgMuted)
+	s.TitleBar = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Separator = lipgloss.NewStyle().Foreground(theme.FgMuted).Faint(true)
 	s.Status.Model = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Status.Context = lipgloss.NewStyle().Foreground(theme.Blue)

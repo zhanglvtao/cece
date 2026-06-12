@@ -8,18 +8,22 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"crypto/rand"
 	"encoding/hex"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 const location = "Asia/Shanghai"
+const maxLogSize int64 = 512 * 1024 * 1024 // 512MB
 
 var (
-	file      *os.File
-	humanFile *os.File
-	bufWriter *bufio.Writer
+	mu        sync.Mutex
+	logDir    string
+	curFile   *os.File
 	humanBuf  *bufio.Writer
 	sessionID atomic.Value
 )
@@ -30,64 +34,140 @@ func generateSessionID() string {
 	return hex.EncodeToString(b)
 }
 
-// Init initializes the global logger with dual output:
-//   - JSON format to path (e.g. .cece/cece.log)
-//   - Human-friendly format to {dir}/cece-human.log
-//
+func logFilePath(dir string) string {
+	ts := time.Now().Format("20060102150405")
+	return filepath.Join(dir, fmt.Sprintf("cece-%s.log", ts))
+}
+
+// Init initializes the global logger with human-friendly output.
+// logDir is the directory for log files (e.g. .cece/log/).
+// Each session creates a timestamped file like cece-20260612115032.log.
 // debug=true enables all levels; otherwise INFO and above.
-func Init(path string, debug bool) error {
+func Init(dir string, debug bool) error {
 	loc, err := time.LoadLocation(location)
 	if err != nil {
 		return err
 	}
 
-	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
-	// JSON log file
+	// Rotate old logs on startup
+	cleanOldLogs(dir)
+
+	logDir = dir
+	path := logFilePath(dir)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
-	file = f
-	bufWriter = bufio.NewWriter(f)
+	curFile = f
+	humanBuf = bufio.NewWriter(f)
 
-	// Human-friendly log file
-	humanPath := filepath.Join(dir, "cece-human.log")
-	hf, err := os.OpenFile(humanPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
+	flushFn := func() {
+		humanBuf.Flush()
+		rotateIfNeeded()
 	}
-	humanFile = hf
-	humanBuf = bufio.NewWriter(hf)
 
-	jsonHandler := newUTC8Handler(bufWriter, loc, debug, func() { bufWriter.Flush() })
-	humanHandler := newHumanHandler(humanBuf, loc, debug, func() { humanBuf.Flush() })
+	humanHandler := newHumanHandler(humanBuf, loc, debug, flushFn)
 
 	SetSessionID(generateSessionID())
-	tee := &sessionHandler{next: &teeHandler{a: jsonHandler, b: humanHandler}}
+	tee := &sessionHandler{next: humanHandler}
 	slog.SetDefault(slog.New(tee))
 
 	return nil
 }
 
-// Sync flushes buffers and closes log files. Call before program exit.
-func Sync() {
-	if bufWriter != nil {
-		bufWriter.Flush()
+// rotateIfNeeded checks if the current log file exceeds maxLogSize.
+// If so, it closes the current file and opens a new timestamped one.
+func rotateIfNeeded() {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if curFile == nil {
+		return
 	}
+
+	info, err := curFile.Stat()
+	if err != nil {
+		return
+	}
+	if info.Size() < maxLogSize {
+		return
+	}
+
+	// Flush and close current file
+	humanBuf.Flush()
+	curFile.Sync()
+	curFile.Close()
+
+	// Open new file
+	path := logFilePath(logDir)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	curFile = f
+	humanBuf.Reset(f)
+
+	// Clean old logs after rotation
+	cleanOldLogs(logDir)
+}
+
+// cleanOldLogs removes the oldest log files when total size exceeds maxLogSize.
+func cleanOldLogs(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	type fileEntry struct {
+		name string
+		size int64
+	}
+	var files []fileEntry
+	var totalSize int64
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "cece-") || !strings.HasSuffix(e.Name(), ".log") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, fileEntry{name: e.Name(), size: info.Size()})
+		totalSize += info.Size()
+	}
+
+	if totalSize <= maxLogSize || len(files) == 0 {
+		return
+	}
+
+	// Sort by name ascending (oldest timestamp first)
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].name < files[j].name
+	})
+
+	// Delete oldest files until total size ≤ maxLogSize
+	for i := 0; i < len(files) && totalSize > maxLogSize; i++ {
+		os.Remove(filepath.Join(dir, files[i].name))
+		totalSize -= files[i].size
+	}
+}
+
+// Sync flushes buffers and closes the log file. Call before program exit.
+func Sync() {
+	mu.Lock()
+	defer mu.Unlock()
+
 	if humanBuf != nil {
 		humanBuf.Flush()
 	}
-	if file != nil {
-		file.Sync()
-		file.Close()
-	}
-	if humanFile != nil {
-		humanFile.Sync()
-		humanFile.Close()
+	if curFile != nil {
+		curFile.Sync()
+		curFile.Close()
 	}
 }
 
@@ -99,10 +179,12 @@ func GetSessionID() string {
 }
 
 func LogPath() string {
-	if file == nil {
+	mu.Lock()
+	defer mu.Unlock()
+	if curFile == nil {
 		return ""
 	}
-	return file.Name()
+	return curFile.Name()
 }
 
 func Debug(msg string, args ...any) { log(slog.LevelDebug, msg, args...) }
@@ -143,75 +225,4 @@ func (h *sessionHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *sessionHandler) WithGroup(name string) slog.Handler {
 	return &sessionHandler{next: h.next.WithGroup(name)}
-}
-
-// teeHandler dispatches each log record to two handlers.
-type teeHandler struct {
-	a, b slog.Handler
-}
-
-func (t *teeHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return t.a.Enabled(ctx, level) || t.b.Enabled(ctx, level)
-}
-
-func (t *teeHandler) Handle(ctx context.Context, r slog.Record) error {
-	if t.a.Enabled(ctx, r.Level) {
-		if err := t.a.Handle(ctx, r); err != nil {
-			return err
-		}
-	}
-	if t.b.Enabled(ctx, r.Level) {
-		if err := t.b.Handle(ctx, r); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (t *teeHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &teeHandler{a: t.a.WithAttrs(attrs), b: t.b.WithAttrs(attrs)}
-}
-
-func (t *teeHandler) WithGroup(name string) slog.Handler {
-	return &teeHandler{a: t.a.WithGroup(name), b: t.b.WithGroup(name)}
-}
-
-// utc8Handler wraps slog.JSONHandler, converting timestamps to UTC+8.
-type utc8Handler struct {
-	*slog.JSONHandler
-	loc   *time.Location
-	flush func()
-}
-
-func newUTC8Handler(w *bufio.Writer, loc *time.Location, debug bool, flush func()) *utc8Handler {
-	level := slog.LevelInfo
-	if debug {
-		level = slog.LevelDebug
-	}
-	opts := &slog.HandlerOptions{
-		Level:     level,
-		AddSource: true,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.SourceKey {
-				if s, ok := a.Value.Any().(*slog.Source); ok {
-					a.Value = slog.StringValue(filepath.Base(s.File) + ":" + fmt.Sprintf("%d", s.Line))
-				}
-			}
-			return a
-		},
-	}
-	return &utc8Handler{
-		JSONHandler: slog.NewJSONHandler(w, opts),
-		loc:         loc,
-		flush:       flush,
-	}
-}
-
-func (h *utc8Handler) Handle(ctx context.Context, r slog.Record) error {
-	r.Time = r.Time.In(h.loc)
-	err := h.JSONHandler.Handle(ctx, r)
-	if h.flush != nil {
-		h.flush()
-	}
-	return err
 }

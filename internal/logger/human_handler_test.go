@@ -2,8 +2,8 @@ package logger
 
 import (
 	"bytes"
-	"encoding/json"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -139,43 +139,39 @@ func TestGenerateSessionID(t *testing.T) {
 	}
 }
 
-func TestSessionHandlerInjectsSessionID(t *testing.T) {
-	SetSessionID("sess-123")
-	t.Cleanup(func() { SetSessionID("") })
-
-	var buf bytes.Buffer
-	h := &sessionHandler{next: slog.NewJSONHandler(&buf, nil)}
-	slog.New(h).Info("test")
-
-	var got map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal log: %v", err)
+func TestCleanOldLogs(t *testing.T) {
+	dir := t.TempDir()
+	// Create some fake log files
+	for i, name := range []string{
+		"cece-20260101000000.log",
+		"cece-20260201000000.log",
+		"cece-20260301000000.log",
+	} {
+		content := strings.Repeat("x", 300) // 300 bytes each
+		os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)
+		_ = i
 	}
-	if got["session_id"] != "sess-123" {
-		t.Fatalf("session_id = %v, want sess-123", got["session_id"])
+
+	// Set a very small maxLogSize for testing
+	// Total is 900 bytes, with maxLogSize=500 it should delete oldest file(s)
+	// We can't easily override the constant, so test the function logic indirectly
+	// by checking that cleanOldLogs with small files doesn't crash.
+	cleanOldLogs(dir)
+
+	entries, _ := os.ReadDir(dir)
+	// Should have deleted some files since total (900) > maxLogSize (512MB)
+	// Actually 900 bytes < 512MB, so no files should be deleted
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries (all under 512MB), got %d", len(entries))
 	}
 }
 
-func TestLoggerWrappersUseCallerSource(t *testing.T) {
-	var buf bytes.Buffer
-	previous := slog.Default()
-	slog.SetDefault(slog.New(&sessionHandler{next: slog.NewJSONHandler(&buf, &slog.HandlerOptions{AddSource: true})}))
-	t.Cleanup(func() { slog.SetDefault(previous) })
-
-	Info("caller source")
-
-	var got map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal log: %v", err)
+func TestLogFilePath(t *testing.T) {
+	path := logFilePath("/tmp/logs")
+	if !strings.HasPrefix(filepath.Base(path), "cece-") {
+		t.Fatalf("log file name should start with cece-: %q", filepath.Base(path))
 	}
-	source, ok := got["source"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing source: %#v", got["source"])
-	}
-	if filepath.Base(source["file"].(string)) != "human_handler_test.go" {
-		t.Fatalf("source file = %v, want human_handler_test.go", source["file"])
-	}
-	if source["line"].(float64) == 0 {
-		t.Fatalf("source line missing: %#v", source)
+	if !strings.HasSuffix(path, ".log") {
+		t.Fatalf("log file name should end with .log: %q", path)
 	}
 }

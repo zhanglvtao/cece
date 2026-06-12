@@ -115,6 +115,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		}
 
 		if chunk.EventType != "" && !chunk.Done {
+			logger.Debug("sse event", "type", chunk.EventType, "detail", chunk.Detail, "delta", truncate(chunk.Delta, 60))
 			emitModelEvent(ch, StreamEventDetail{
 				EventType: chunk.EventType,
 				Detail:    chunk.Detail,

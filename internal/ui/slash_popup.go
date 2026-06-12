@@ -21,6 +21,7 @@ var builtinSlashCommands = []struct {
 	{"/skills", "List available skills"},
 	{"/mcp", "Manage MCP servers"},
 	{"/tool", "List registered tools"},
+	{"/exit", "Exit without generating title"},
 }
 
 // slashEntry is a single slash command candidate.
