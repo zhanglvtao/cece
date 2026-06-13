@@ -597,3 +597,117 @@ func TestDecodeDeepSeekStyleUsageOnlyChunk(t *testing.T) {
 		t.Errorf("expected OutputTokens=10, got %d", outputTokens)
 	}
 }
+
+func TestDecodeResponsesReasoningEvents(t *testing.T) {
+	// Simulates gpt-5.4 Responses API with reasoning output items
+	// that emit reasoning_text.delta events instead of output_text.delta.
+	body := sseBody(
+		`data: {"type":"response.created","response":{"id":"resp_1"}}`,
+		``,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Let me think"}]}}`,
+		``,
+		`data: {"type":"response.reasoning_text.delta","output_index":0,"delta":" about this"}`,
+		``,
+		`data: {"type":"response.reasoning_text.done","output_index":0}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":10,"output_tokens":5}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var thinkingStart, thinkingStop bool
+	var thinkingText string
+	var stopReason string
+	for _, e := range events {
+		if e.EventType == "content_block_start" && e.IsThinking {
+			thinkingStart = true
+		}
+		if e.EventType == "content_block_stop" && e.IsThinking {
+			thinkingStop = true
+		}
+		if e.Detail == "thinking_delta" {
+			thinkingText += e.ThinkingDelta
+		}
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+	}
+
+	if !thinkingStart {
+		t.Error("expected content_block_start with IsThinking for reasoning item")
+	}
+	if !thinkingStop {
+		t.Error("expected content_block_stop with IsThinking for reasoning item")
+	}
+	if thinkingText != "Let me think about this" {
+		t.Errorf("thinking text = %q, want 'Let me think about this'", thinkingText)
+	}
+	if stopReason != "end_turn" {
+		t.Errorf("stop reason = %q, want end_turn", stopReason)
+	}
+}
+
+func TestDecodeResponsesReasoningSummaryText(t *testing.T) {
+	// Simulates reasoning_summary_text events (separate from reasoning_text).
+	body := sseBody(
+		`data: {"type":"response.created","response":{"id":"resp_1"}}`,
+		``,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1"}}`,
+		``,
+		`data: {"type":"response.reasoning_summary_text.delta","output_index":0,"delta":"summary"}`,
+		``,
+		`data: {"type":"response.reasoning_summary_text.done","output_index":0}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":10,"output_tokens":5}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var thinkingText string
+	for _, e := range events {
+		if e.Detail == "thinking_delta" {
+			thinkingText += e.ThinkingDelta
+		}
+	}
+	if thinkingText != "summary" {
+		t.Errorf("thinking text = %q, want 'summary'", thinkingText)
+	}
+}
+
+func TestDecodeResponsesCompletedWithNoOutput(t *testing.T) {
+	// Simulates the exact scenario of c25b5055: response.completed without any
+	// text or tool call output. The stream should still emit Done properly.
+	body := sseBody(
+		`data: {"type":"response.created","response":{"id":"resp_1"}}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":8,"output_tokens":0}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var doneSeen bool
+	var stopReason string
+	for _, e := range events {
+		if e.Done {
+			doneSeen = true
+		}
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+	}
+	if !doneSeen {
+		t.Error("expected Done event")
+	}
+	if stopReason != "end_turn" {
+		t.Errorf("stop reason = %q, want end_turn", stopReason)
+	}
+}

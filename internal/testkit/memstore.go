@@ -168,6 +168,25 @@ func (s *MemStore) UpdateMeta(_ context.Context, sessionID string, meta session.
 	return nil
 }
 
+// SaveInputHistory persists the input history for a session.
+func (s *MemStore) SaveInputHistory(_ context.Context, sessionID string, history []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("memstore: session %s not found", sessionID)
+	}
+	if len(history) > 100 {
+		history = history[:100]
+	}
+	cp := make([]string, len(history))
+	copy(cp, history)
+	sess.InputHistory = cp
+	sess.UpdatedAt = time.Now()
+	return nil
+}
+
 // Compile-time check that MemStore implements session.Store.
 var _ session.Store = (*MemStore)(nil)
 

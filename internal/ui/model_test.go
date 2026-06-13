@@ -680,6 +680,7 @@ func (f *fakeSessionStore) Get(context.Context, string) (*session.Session, error
 func (f *fakeSessionStore) Rename(context.Context, string, string) error                  { return nil }
 func (f *fakeSessionStore) Delete(context.Context, string) error                          { return nil }
 func (f *fakeSessionStore) UpdateMeta(context.Context, string, session.SessionMeta) error { return nil }
+func (f *fakeSessionStore) SaveInputHistory(context.Context, string, []string) error       { return nil }
 
 func TestChineseInputGoesDirectlyToTextarea(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")

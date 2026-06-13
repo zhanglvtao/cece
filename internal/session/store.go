@@ -32,6 +32,9 @@ type Store interface {
 
 	// UpdateMeta updates session metadata (model, context window, token counts).
 	UpdateMeta(ctx context.Context, sessionID string, meta SessionMeta) error
+
+	// SaveInputHistory persists the input history for a session.
+	SaveInputHistory(ctx context.Context, sessionID string, history []string) error
 }
 
 // RelationStore is an optional interface that Store implementations can

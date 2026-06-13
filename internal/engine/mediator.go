@@ -222,8 +222,10 @@ func (m *EngineMediator) loadSession(sessionID string) {
 	m.Engine.LoadHistory(context.Background(), sessionID, msgs)
 
 	// Restore meta from session store
-	sess, err := m.store.Get(context.Background(), sessionID)
-	if err == nil {
+	sess, sessErr := m.store.Get(context.Background(), sessionID)
+	var inputHistory []string
+	if sessErr == nil {
+		inputHistory = sess.InputHistory
 		m.Engine.SetTokenState(sess.LastInputTokens, sess.TotalInputTokens, sess.TotalOutputTokens)
 		m.Engine.SetStatusBarState(sess.StatusBar)
 
@@ -261,6 +263,7 @@ func (m *EngineMediator) loadSession(sessionID string) {
 		CacheReadTokens:     sb.CacheReadTokens,
 		CacheCreationTokens: sb.CacheCreationTokens,
 		TurnCount:           sb.TurnCount,
+		InputHistory:        inputHistory,
 	})
 }
 

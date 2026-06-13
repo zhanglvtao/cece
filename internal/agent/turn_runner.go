@@ -117,6 +117,24 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		}
 
 		assistant := assistantMessageFromResponse(resp)
+
+		// If the model returned a completely empty response (no text, no
+		// tool calls, no thinking), the API may have silently dropped the
+		// output. Don't persist an empty assistant message — it causes
+		// consecutive user messages on the next turn, which confuses the
+		// model. Instead, inject a retry nudge.
+		if resp.textContent == "" && len(resp.toolCalls) == 0 && len(resp.thinkingBlocks) == 0 {
+			slog.Warn("model returned empty response — injecting retry nudge",
+				"stop_reason", resp.stopReason,
+				"input_tokens", resp.inputTokens,
+				"output_tokens", resp.outputTokens,
+			)
+			assistant = Message{
+				Role:    AssistantRole,
+				Content: "[Empty response — retrying]",
+			}
+		}
+
 		r.deps.AppendMessage(assistant)
 		r.deps.PersistMessage(ctx, assistant)
 		r.deps.UpdateSessionMeta(ctx, resp)

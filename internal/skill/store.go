@@ -2,10 +2,17 @@ package skill
 
 // Store holds discovered skills and provides lookup by name.
 type Store struct {
-	skills  []*Skill
-	byName  map[string]*Skill
-	enabled map[string]bool // non-nil = whitelist; nil = none enabled (default)
-	allOn   bool            // true = all enabled (for backward compat with empty enabled list in settings)
+	skills   []*Skill
+	byName   map[string]*Skill
+	enabled  map[string]bool // non-nil = whitelist; nil = none enabled (default)
+	allOn    bool            // true = all enabled (for backward compat with empty enabled list in settings)
+	OnChange func()          // called after SetEnabled/SetAllEnabled
+}
+
+func (s *Store) notify() {
+	if s.OnChange != nil {
+		s.OnChange()
+	}
 }
 
 // NewStore creates a Store from a deduplicated skill list.
@@ -44,15 +51,21 @@ func (s *Store) Enabled() []*Skill {
 }
 
 // SetEnabled sets the enabled whitelist.
-// A non-nil empty slice means "none enabled"; nil means "default (none)".
-// Set EnabledAll=true explicitly to enable all.
+// A nil or empty slice means "all enabled".
 func (s *Store) SetEnabled(names []string) {
+	if len(names) == 0 {
+		s.allOn = true
+		s.enabled = nil
+		s.notify()
+		return
+	}
 	s.allOn = false
 	m := make(map[string]bool, len(names))
 	for _, n := range names {
 		m[n] = true
 	}
 	s.enabled = m
+	s.notify()
 }
 
 // SetAllEnabled enables or disables all skills at once.
@@ -64,6 +77,7 @@ func (s *Store) SetAllEnabled(on bool) {
 		s.allOn = false
 		s.enabled = make(map[string]bool)
 	}
+	s.notify()
 }
 
 // IsEnabled reports whether a skill is enabled.
@@ -72,6 +86,11 @@ func (s *Store) IsEnabled(name string) bool {
 		return true
 	}
 	return s.enabled[name]
+}
+
+// AllEnabled reports whether all skills are enabled (no explicit whitelist).
+func (s *Store) AllEnabled() bool {
+	return s.allOn
 }
 
 // EnabledNames returns the list of currently enabled skill names.

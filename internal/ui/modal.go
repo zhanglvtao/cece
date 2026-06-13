@@ -797,6 +797,11 @@ func (m *Model) closeSkillPicker() {
 	// Persist to settings.json
 	if m.projectDir != "" {
 		enabledNames := m.skillStore.EnabledNames()
+		// When all skills are enabled, save empty list (= "all enabled")
+		// so new skills discovered later are automatically enabled.
+		if m.skillStore.AllEnabled() {
+			enabledNames = nil
+		}
 		if err := config.SaveEnabledSkills(m.projectDir, enabledNames); err != nil {
 			m.status = "Failed to save skills: " + err.Error()
 		} else {

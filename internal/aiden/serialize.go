@@ -147,7 +147,17 @@ func serializeResponsesMessage(m agent.Message) []ResponsesInputItem {
 	if m.Role == agent.AssistantRole {
 		var items []ResponsesInputItem
 		text := assistantText(m)
-		if text != "" {
+		hasToolCalls := false
+		for _, cb := range m.ContentBlocks {
+			if cb.Type == agent.ApiToolUseContentType && cb.ToolUse != nil {
+				hasToolCalls = true
+				break
+			}
+		}
+		if text != "" || hasToolCalls {
+			if text == "" {
+				text = " "
+			}
 			items = append(items, ResponsesInputItem{
 				Type: "message",
 				Role: "assistant",
@@ -155,8 +165,10 @@ func serializeResponsesMessage(m agent.Message) []ResponsesInputItem {
 					{Type: "output_text", Text: text},
 				},
 			})
-		} else if len(m.ContentBlocks) > 0 {
-			// Ensure at least one message item exists for tool-only responses.
+		} else {
+			// Empty assistant message (no text, no tool calls) — include a
+			// minimal spacer so the Responses API doesn't see consecutive
+			// user messages, which can cause the model to return empty.
 			items = append(items, ResponsesInputItem{
 				Type:    "message",
 				Role:    "assistant",

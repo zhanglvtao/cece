@@ -276,6 +276,24 @@ func (s *FileStore) UpdateMeta(_ context.Context, sessionID string, meta Session
 	return s.writeMeta(sess)
 }
 
+// SaveInputHistory persists the input history for a session by writing
+// it to the session's meta.json file. History is capped at 100 entries.
+func (s *FileStore) SaveInputHistory(_ context.Context, sessionID string, history []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, err := s.readMeta(sessionID)
+	if err != nil {
+		return fmt.Errorf("save input history: %w", err)
+	}
+	if len(history) > 100 {
+		history = history[:100]
+	}
+	sess.InputHistory = history
+	sess.UpdatedAt = time.Now()
+	return s.writeMeta(sess)
+}
+
 // UpdateRelation persists parent-child agent relationship on a session.
 // Implements RelationStore.
 func (s *FileStore) UpdateRelation(_ context.Context, sessionID string, parentID string, agentID string, kind string) error {

@@ -136,6 +136,12 @@ func Build(opts Options) (*Bundle, error) {
 		logger.Warn("initial session refresh failed", "error", err)
 	}
 
+	skillStore.OnChange = func() {
+		if _, err := assembler.RefreshSession(context.Background()); err != nil {
+			logger.Warn("skill change refresh failed", "error", err)
+		}
+	}
+
 	contextWindow := opts.ContextWindow
 	if contextWindow <= 0 {
 		contextWindow = 200000

@@ -483,6 +483,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 				m.contextWindow = e.ContextWindow
 			}
 			m.statusBar.Restore(e.APICalls, e.ToolCounts, e.CacheReadTokens, e.CacheCreationTokens, e.TurnCount)
+			if len(e.InputHistory) > 0 {
+				m.history = e.InputHistory
+				m.historyIndex = -1
+			}
 			m.status = "Session loaded"
 		}
 	case protocol.HistoryClearedEvent:
@@ -1354,8 +1358,23 @@ func (m *Model) addHistory(input string) {
 	}
 	if len(m.history) == 0 || m.history[0] != input {
 		m.history = append([]string{input}, m.history...)
+		if len(m.history) > 100 {
+			m.history = m.history[:100]
+		}
 	}
 	m.historyIndex = -1
+
+	// Persist input history to session store.
+	if m.sessions != nil && m.currentSessionID != "" {
+		// Copy so the closure captures a stable snapshot.
+		histCopy := make([]string, len(m.history))
+		copy(histCopy, m.history)
+		go func() {
+			if err := m.sessions.SaveInputHistory(context.Background(), m.currentSessionID, histCopy); err != nil {
+				logger.Error("failed to persist input history", "error", err)
+			}
+		}()
+	}
 }
 
 func (m *Model) historyPrev() bool {

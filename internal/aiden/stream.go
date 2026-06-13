@@ -61,11 +61,17 @@ type ResponsesEvent struct {
 }
 
 type ResponsesOutputItem struct {
-	Type      string `json:"type"`
-	ID        string `json:"id"`
-	CallID    string `json:"call_id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	Type      string                 `json:"type"`
+	ID        string                 `json:"id"`
+	CallID    string                 `json:"call_id"`
+	Name      string                 `json:"name"`
+	Arguments string                 `json:"arguments"`
+	Summary   []ResponsesSummaryItem `json:"summary"`
+}
+
+type ResponsesSummaryItem struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 type ResponsesPayload struct {
@@ -93,6 +99,10 @@ type parserState struct {
 	messageStarted    bool
 	thinkingOpen      bool
 	thinkingIndex     int
+	reasoningOpen     bool
+	reasoningIndex    int
+	reasoningSeen     bool
+	toolCallsSeen     bool
 	activeToolIndices map[int]bool
 	textBlockStarted  bool
 	terminalChunkSeen bool
@@ -166,6 +176,13 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 				IsThinking: true,
 			}
 		}
+		if state.reasoningOpen {
+			out <- agent.ApiStreamEvent{
+				EventType:  "content_block_stop",
+				Index:      state.reasoningIndex,
+				IsThinking: true,
+			}
+		}
 		for idx := range state.activeToolIndices {
 			out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
 		}
@@ -185,6 +202,49 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 			state.messageStarted = true
 			out <- agent.ApiStreamEvent{EventType: "message_start"}
 		}
+
+	case "response.in_progress":
+		// No-op: acknowledge the event for logging, no state change needed.
+
+	case "response.output_item.done":
+		// output_item.done signals the completion of an output item.
+		// For function_call items, this may carry the final arguments
+		// if no response.function_call_arguments.delta events were sent.
+		if event.Item.Type == "function_call" {
+			if _, ok := state.activeToolIndices[event.OutputIndex]; !ok {
+				// Function call was sent as a single item with
+				// arguments (no delta streaming). Emit the full block.
+				state.activeToolIndices[event.OutputIndex] = true
+				out <- agent.ApiStreamEvent{
+					EventType:          "content_block_start",
+					ToolCallID:         event.Item.CallID,
+					ToolCallProviderID: event.Item.ID,
+					ToolCallName:       event.Item.Name,
+					Index:              event.OutputIndex,
+				}
+				if event.Item.Arguments != "" {
+					out <- agent.ApiStreamEvent{
+						EventType:     "content_block_delta",
+						Detail:        "input_json_delta",
+						ToolCallInput: event.Item.Arguments,
+						Index:         event.OutputIndex,
+					}
+				}
+			}
+			// Close the tool block and remove from active set so
+			// response.completed doesn't double-close.
+			out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: event.OutputIndex}
+			delete(state.activeToolIndices, event.OutputIndex)
+		}
+		if event.Item.Type == "reasoning" && state.reasoningOpen {
+			out <- agent.ApiStreamEvent{
+				EventType:  "content_block_stop",
+				Index:      state.reasoningIndex,
+				IsThinking: true,
+			}
+			state.reasoningOpen = false
+		}
+
 	case "response.output_text.delta":
 		if !state.messageStarted {
 			state.messageStarted = true
@@ -218,33 +278,59 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 			Detail:    "text_delta",
 			Index:     event.OutputIndex,
 		}
+
 	case "response.output_item.added":
-		if event.Item.Type != "function_call" {
-			return
-		}
-		if !state.messageStarted {
-			state.messageStarted = true
-			out <- agent.ApiStreamEvent{EventType: "message_start"}
-		}
-		if state.activeToolIndices == nil {
-			state.activeToolIndices = make(map[int]bool)
-		}
-		state.activeToolIndices[event.OutputIndex] = true
-		out <- agent.ApiStreamEvent{
-			EventType:          "content_block_start",
-			ToolCallID:         event.Item.CallID,
-			ToolCallProviderID: event.Item.ID,
-			ToolCallName:       event.Item.Name,
-			Index:              event.OutputIndex,
-		}
-		if event.Item.Arguments != "" {
-			out <- agent.ApiStreamEvent{
-				EventType:     "content_block_delta",
-				Detail:        "input_json_delta",
-				ToolCallInput: event.Item.Arguments,
-				Index:         event.OutputIndex,
+		switch event.Item.Type {
+		case "function_call":
+			if !state.messageStarted {
+				state.messageStarted = true
+				out <- agent.ApiStreamEvent{EventType: "message_start"}
 			}
+			if state.activeToolIndices == nil {
+				state.activeToolIndices = make(map[int]bool)
+			}
+			state.activeToolIndices[event.OutputIndex] = true
+			state.toolCallsSeen = true
+			out <- agent.ApiStreamEvent{
+				EventType:          "content_block_start",
+				ToolCallID:         event.Item.CallID,
+				ToolCallProviderID: event.Item.ID,
+				ToolCallName:       event.Item.Name,
+				Index:              event.OutputIndex,
+			}
+			if event.Item.Arguments != "" {
+				out <- agent.ApiStreamEvent{
+					EventType:     "content_block_delta",
+					Detail:        "input_json_delta",
+					ToolCallInput: event.Item.Arguments,
+					Index:         event.OutputIndex,
+				}
+			}
+		case "reasoning":
+			if !state.messageStarted {
+				state.messageStarted = true
+				out <- agent.ApiStreamEvent{EventType: "message_start"}
+			}
+			state.reasoningOpen = true
+			state.reasoningIndex = event.OutputIndex
+			state.reasoningSeen = true
+			out <- agent.ApiStreamEvent{
+				EventType:  "content_block_start",
+				Index:      event.OutputIndex,
+				IsThinking: true,
+			}
+			if len(event.Item.Summary) > 0 {
+				out <- agent.ApiStreamEvent{
+					EventType:     "content_block_delta",
+					Detail:        "thinking_delta",
+					ThinkingDelta: event.Item.Summary[0].Text,
+					Index:         event.OutputIndex,
+				}
+			}
+		default:
+			logger.Debug("aiden unhandled output_item type", "item_type", event.Item.Type)
 		}
+
 	case "response.function_call_arguments.delta":
 		if event.Delta != "" {
 			out <- agent.ApiStreamEvent{
@@ -254,18 +340,70 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 				Index:         event.OutputIndex,
 			}
 		}
+	case "response.reasoning_text.delta":
+		if state.reasoningOpen && event.Delta != "" {
+			out <- agent.ApiStreamEvent{
+				EventType:     "content_block_delta",
+				Detail:        "thinking_delta",
+				ThinkingDelta: event.Delta,
+				Index:         state.reasoningIndex,
+			}
+		}
+	case "response.reasoning_text.done":
+		if state.reasoningOpen {
+			out <- agent.ApiStreamEvent{
+				EventType:  "content_block_stop",
+				Index:      state.reasoningIndex,
+				IsThinking: true,
+			}
+			state.reasoningOpen = false
+		}
+	case "response.reasoning_summary_text.delta":
+		if state.reasoningOpen && event.Delta != "" {
+			out <- agent.ApiStreamEvent{
+				EventType:     "content_block_delta",
+				Detail:        "thinking_delta",
+				ThinkingDelta: event.Delta,
+				Index:         state.reasoningIndex,
+			}
+		}
+	case "response.reasoning_summary_text.done":
+		if state.reasoningOpen {
+			out <- agent.ApiStreamEvent{
+				EventType:  "content_block_stop",
+				Index:      state.reasoningIndex,
+				IsThinking: true,
+			}
+			state.reasoningOpen = false
+		}
+
 	case "response.completed":
-		hadTools := len(state.activeToolIndices) > 0
+		hadTools := len(state.activeToolIndices) > 0 || state.toolCallsSeen
 		for idx := range state.activeToolIndices {
 			out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
 		}
 		state.activeToolIndices = nil
-		stopReason := "end_turn"
-		if event.Response.Status != "" {
-			stopReason = mapResponsesStopReason(event.Response.Status)
+		hadReasoning := state.reasoningOpen
+		if state.reasoningOpen {
+			out <- agent.ApiStreamEvent{
+				EventType:  "content_block_stop",
+				Index:      state.reasoningIndex,
+				IsThinking: true,
+			}
+			state.reasoningOpen = false
 		}
+		stopReason := "end_turn"
 		if hadTools {
 			stopReason = "tool_use"
+		} else if event.Response.Status != "" {
+			stopReason = mapResponsesStopReason(event.Response.Status)
+		}
+		if !hadTools && !state.textBlockStarted && !hadReasoning && !state.reasoningSeen {
+			logger.Warn("aiden response completed with no output",
+				"status", event.Response.Status,
+				"input_tokens", event.Response.Usage.InputTokens,
+				"output_tokens", event.Response.Usage.OutputTokens,
+			)
 		}
 		cacheRead := event.Response.Usage.InputTokensDetails.CachedTokens
 		if cacheRead == 0 {
@@ -282,6 +420,9 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 			state.doneEmitted = true
 			out <- agent.ApiStreamEvent{Done: true}
 		}
+
+	default:
+		logger.Debug("aiden unhandled response event", "type", event.Type)
 	}
 }
 
