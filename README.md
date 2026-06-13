@@ -15,49 +15,41 @@ Cece runs in your terminal, reads your codebase, and helps you write, edit, debu
 - **Context management**: Auto-compact at threshold, manual `/compact`, `/truncate-tool-result`
 - **Minimal TUI**: Status bar, slash commands, vim-like chat scrolling, file picker
 
-## Requirements
-
-- **Go >= 1.24**
-- **Anthropic API key** (or any OpenAI-compatible endpoint)
-
 ## Quick Start
 
 ```bash
-git clone https://github.com/zhanglvtao/cece.git
-cd cece
-./install.sh
+# 1. Install (requires Go >= 1.24)
+go install github.com/zhanglvtao/cece/cmd/cece@latest
+
+# 2. Configure — interactive wizard sets up provider, API key, model, and mode
+cece setup
+
+# 3. Run in any project directory
+cd your-project
+cece
 ```
 
-The script checks Go, builds the binary, installs it to PATH, and reminds you to set up a config file.
+That's it. The `setup` wizard writes config to `.cece/settings.json` in the current directory. You can also put it at `~/.cece/settings.json` for a global default.
 
-## Build from Source
+## Requirements
 
-```bash
-git clone https://github.com/zhanglvtao/cece.git
-cd cece
-go build -o cece ./cmd/cece
-```
+- **Go >= 1.24**
+- **An API key** for your provider (Anthropic, Codebase, Aiden, or any OpenAI-compatible endpoint)
 
 ## Configuration
 
-Cece looks for settings in two locations (project-level overrides user-level):
+`cece setup` is the recommended way to configure. It writes a `.cece/settings.json` in your current directory. The wizard walks you through provider selection, API key, model, and default mode.
+
+Cece reads config from two locations (project overrides user):
 
 | Location | Scope |
 |---|---|
-| `.cece/settings.json` | Project-level (checked into repo or per-project) |
-| `~/.cece/settings.json` | User-level (global default) |
-
-### Quick Start
-
-```bash
-mkdir -p ~/.cece
-cp docs/settings.example.json ~/.cece/settings.json
-# Edit apiKey in ~/.cece/settings.json
-```
+| `.cece/settings.json` | Project-level |
+| `~/.cece/settings.json` | User-level (global fallback) |
 
 ### Config Template
 
-A ready-to-use template with all fields and comments: [`docs/settings.example.json`](docs/settings.example.json)
+A reference with all fields and comments: [`docs/settings.example.json`](docs/settings.example.json)
 
 ### Field Reference
 
