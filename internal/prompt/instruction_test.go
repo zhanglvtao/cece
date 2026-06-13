@@ -53,6 +53,37 @@ func TestInstructionLoaderLoad(t *testing.T) {
 		}
 	})
 
+	t.Run("AGENTS.md takes priority over CLAUDE.md", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		loader := NewInstructionLoader(tmpDir)
+
+		os.WriteFile(filepath.Join(tmpDir, "CLAUDE.md"), []byte("claude content"), 0644)
+		os.WriteFile(filepath.Join(tmpDir, "AGENTS.md"), []byte("agents content"), 0644)
+
+		content, err := loader.Load()
+		if err != nil {
+			t.Fatalf("Load() returned error: %v", err)
+		}
+		if content != "agents content" {
+			t.Errorf("Load() = %q, want %q (AGENTS.md should take priority)", content, "agents content")
+		}
+	})
+
+	t.Run("falls back to CLAUDE.md when AGENTS.md missing", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		loader := NewInstructionLoader(tmpDir)
+
+		os.WriteFile(filepath.Join(tmpDir, "CLAUDE.md"), []byte("claude content"), 0644)
+
+		content, err := loader.Load()
+		if err != nil {
+			t.Fatalf("Load() returned error: %v", err)
+		}
+		if content != "claude content" {
+			t.Errorf("Load() = %q, want %q (should fall back to CLAUDE.md)", content, "claude content")
+		}
+	})
+
 	t.Run("directory is file returns error", func(t *testing.T) {
 		// 用一个文件路径作为 repoRoot，让 CLAUDE.md 路径指向一个非法位置
 		fileAsDir := filepath.Join(tmpDir, "not_a_dir")
