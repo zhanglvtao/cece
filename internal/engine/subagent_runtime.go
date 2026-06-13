@@ -186,6 +186,35 @@ func (rt *AgentRuntime) WaitInitial(timeout time.Duration) AgentMessage {
 	}
 }
 
+// WaitCompletion blocks until the agent reaches a terminal state (completed,
+// failed, or cancelled) or the context is done.
+func (rt *AgentRuntime) WaitCompletion(ctx context.Context) AgentMessage {
+	for {
+		snap := rt.Snapshot()
+		if isTerminalAgentStatus(snap.Status) {
+			return rt.LastAgentMessage()
+		}
+		select {
+		case msg := <-rt.updates:
+			if isTerminalAgentStatus(msg.Status) {
+				return msg
+			}
+		case <-ctx.Done():
+			snap := rt.Snapshot()
+			return AgentMessage{AgentID: rt.ID, Kind: AgentMessageError, Status: snap.Status, Payload: map[string]any{"cancelled": true}, CreatedAt: time.Now()}
+		}
+	}
+}
+
+func isTerminalAgentStatus(status AgentStatus) bool {
+	switch status {
+	case AgentStatusCompleted, AgentStatusFailed, AgentStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 func isInterestingAgentStatus(status AgentStatus) bool {
 	switch status {
 	case AgentStatusWaitingInput, AgentStatusWaitingConfirm, AgentStatusWaitingPlan, AgentStatusCompleted, AgentStatusFailed, AgentStatusCancelled:

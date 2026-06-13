@@ -475,8 +475,8 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 			return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("sub-agent start failed: %v", err), Err: err.Error()}, err
 		}
 
-		// Bounded wait
-		msg := rt.WaitInitial(3 * time.Second)
+		// Wait for agent to complete
+		msg := rt.WaitCompletion(ctx)
 		result := rt.resultFromMessage(msg)
 		e.accumulateSubAgentTokens(result)
 		return result, nil
@@ -562,8 +562,8 @@ func (e *Engine) startSubAgentBare(ctx context.Context, cfg tool.AgentSubAgentCo
 		return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("sub-agent start failed: %v", err), Err: err.Error()}, err
 	}
 
-	// Bounded wait
-	msg := rt.WaitInitial(3 * time.Second)
+	// Wait for agent to complete
+	msg := rt.WaitCompletion(subCtx)
 	result := rt.resultFromMessage(msg)
 	e.accumulateSubAgentTokens(result)
 	return result, nil
