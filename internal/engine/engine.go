@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/effort"
 	"github.com/zhanglvtao/cece/internal/logger"
 	"github.com/zhanglvtao/cece/internal/prompt"
 	"github.com/zhanglvtao/cece/internal/protocol"
@@ -56,6 +57,7 @@ type Engine struct {
 	rejectCh   chan struct{} // set per Input call, signals user rejection without cancel
 	yolo       bool          // auto-approve tool execution without UI confirmation
 	maxTokens  int           // configurable max output tokens
+	effort     string        // reasoning effort: "low", "high", "max", "auto"
 
 	ContextWindowFor           func(model string) int               // returns context window for a model ID
 	ModelClientFor             func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client
@@ -120,6 +122,23 @@ func (e *Engine) SetMCPTools(tools []tool.Tool) {
 }
 func (e *Engine) Yolo() bool     { return e.yolo }
 func (e *Engine) MaxTokens() int { return e.maxTokens }
+
+// SetEffort configures the reasoning effort level.
+func (e *Engine) SetEffort(v string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.effort = v
+}
+
+// resolveEffort returns the concrete effort level for a turn.
+// If e.effort is empty or "auto", it uses keyword-based selection on the input.
+// Sub-agents always get Low.
+func (e *Engine) resolveEffort(isSubAgent bool, input string) effort.ReasoningEffort {
+	e.mu.Lock()
+	v := e.effort
+	e.mu.Unlock()
+	return effort.Resolve(effort.ReasoningEffort(v), isSubAgent, input)
+}
 func (e *Engine) ContextWindow() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -464,6 +483,9 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 
 		// Emit start event
 		e.emitEvent(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description})
+
+		// Sub-agents always use low reasoning effort.
+		rt.Engine.SetEffort("low")
 
 		// Start child Engine
 		if err := rt.Engine.Input(rt.Context, cfg.Prompt); err != nil {
@@ -1560,6 +1582,12 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	e.cleanupFinishedSubAgents()
 
 	slog.Info("send called", "input", input)
+
+	// Resolve reasoning effort and apply to client.
+	resolvedEffort := e.resolveEffort(false, input)
+	if e.client != nil {
+		e.client.SetReasoningEffort(string(resolvedEffort))
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 

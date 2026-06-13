@@ -75,6 +75,7 @@ type Config struct {
 	Yolo                bool
 	MaxTokens           int
 	DefaultMode         string         // "default", "auto-accept", or "plan"
+	Effort              string         // reasoning effort: "low", "high", "max", "auto" (default: "high")
 	ModelContextMapping map[string]int // model ID -> max context window
 	Providers           []ProviderConfig
 	MCP                 MCPs
@@ -139,6 +140,7 @@ type settingsFile struct {
 		DefaultProvider     string           `json:"defaultProvider"`
 		LightModel          string           `json:"lightModel"`
 		MaxTokens           int              `json:"maxTokens"`
+		Effort              string           `json:"effort"`
 		ModelContextMapping map[string]int   `json:"modelContextMapping"`
 		Providers           []ProviderConfig `json:"providers"`
 	} `json:"provider"`
@@ -167,6 +169,7 @@ func Load(projectDir string) (Config, error) {
 	cfg.LightModel = strings.TrimSpace(sf.Provider.LightModel)
 	cfg.MaxTokens = sf.Provider.MaxTokens
 	cfg.DefaultMode = sf.DefaultMode.Mode
+	cfg.Effort = sf.Provider.Effort
 	cfg.ModelContextMapping = sf.Provider.ModelContextMapping
 	cfg.Providers = sf.Provider.Providers
 	cfg.Debug = sf.Debug.Enabled
@@ -177,6 +180,10 @@ func Load(projectDir string) (Config, error) {
 
 	if v := os.Getenv("ZLAUDE_YOLO"); v == "1" || v == "true" {
 		cfg.Yolo = true
+	}
+
+	if v := strings.TrimSpace(os.Getenv("ZLAUDE_EFFORT")); v != "" {
+		cfg.Effort = v
 	}
 
 	// Environment variable fallback: add an "env" provider when set.
@@ -255,6 +262,11 @@ func mergeSettings(project, user settingsFile) settingsFile {
 		out.Provider.LightModel = project.Provider.LightModel
 	} else {
 		out.Provider.LightModel = user.Provider.LightModel
+	}
+	if strings.TrimSpace(project.Provider.Effort) != "" {
+		out.Provider.Effort = project.Provider.Effort
+	} else {
+		out.Provider.Effort = user.Provider.Effort
 	}
 	if project.Provider.MaxTokens != 0 {
 		out.Provider.MaxTokens = project.Provider.MaxTokens

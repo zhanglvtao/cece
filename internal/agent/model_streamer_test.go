@@ -60,3 +60,5 @@ func (c staticStreamClient) Stream(context.Context, []Message, SystemPrompt, []t
 	close(ch)
 	return ch, nil
 }
+
+func (c staticStreamClient) SetReasoningEffort(_ string) {}

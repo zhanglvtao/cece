@@ -29,6 +29,8 @@ func (f *fakeClient) Stream(_ context.Context, _ []agent.Message, _ agent.System
 	return out, nil
 }
 
+func (f *fakeClient) SetReasoningEffort(_ string) {}
+
 func TestNewEngineCreatesWithDefaults(t *testing.T) {
 	registry := tool.NewRegistry()
 	assembler := prompt.NewContextAssembler("test", registry, nil)
@@ -355,6 +357,8 @@ func (r *recordingClient) Stream(_ context.Context, messages []agent.Message, _ 
 	return out, nil
 }
 
+func (r *recordingClient) SetReasoningEffort(_ string) {}
+
 func waitForTurnCompleted(t *testing.T, eng *Engine) {
 	t.Helper()
 	timeout := time.After(5 * time.Second)
@@ -386,6 +390,8 @@ func (b *blockingClient) Stream(ctx context.Context, _ []agent.Message, _ agent.
 	}()
 	return out, nil
 }
+
+func (b *blockingClient) SetReasoningEffort(_ string) {}
 
 func TestRunSubAgentEmitsUniqueIDsForParallelAgents(t *testing.T) {
 	eng := NewEngine(&recordingClient{}, tool.NewRegistry(), true, 1024, nil, t.TempDir())

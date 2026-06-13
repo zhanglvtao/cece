@@ -132,6 +132,9 @@ func (c *ScriptedClient) Stream(_ context.Context, messages []agent.Message, _ a
 	return out, nil
 }
 
+// SetReasoningEffort is a no-op for the scripted client.
+func (c *ScriptedClient) SetReasoningEffort(_ string) {}
+
 // textOnlyEvents builds a minimal SSE sequence that streams a single
 // text content block and ends the turn naturally.
 func textOnlyEvents(text string, inputTokens, outputTokens int) []agent.ApiStreamEvent {

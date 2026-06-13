@@ -67,6 +67,9 @@ func (c *Client) SetAuthHelper(helper string) {
 func (c *Client) SetModel(model string) { c.model = model }
 func (c *Client) Model() string         { return c.model }
 
+// SetReasoningEffort is a no-op for the Claude client.
+func (c *Client) SetReasoningEffort(effort string) {}
+
 // SetThinking enables extended thinking with the given budget (0 = default 10000).
 func (c *Client) SetThinking(enabled bool, budget int) {
 	c.thinkingOn = enabled

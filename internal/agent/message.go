@@ -142,6 +142,7 @@ type ModelInfo struct {
 
 type ModelClient interface {
 	Stream(ctx context.Context, messages []Message, system SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan ApiStreamEvent, error)
+	SetReasoningEffort(effort string)
 }
 
 // AssembleResultToSystemPrompt converts a prompt.AssembleResult into a SystemPrompt

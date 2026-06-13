@@ -47,6 +47,10 @@ func (c *Client) SetAuthHelper(helper string) {
 
 func (c *Client) SetModel(model string)     { c.model = model }
 func (c *Client) Model() string             { return c.model }
+
+// SetReasoningEffort is a no-op for the codebase client.
+func (c *Client) SetReasoningEffort(effort string) {}
+
 func (c *Client) SetConfigName(name string) { c.configName = name }
 
 func (c *Client) SetProvider(apiKey, baseURL string, _ int) {

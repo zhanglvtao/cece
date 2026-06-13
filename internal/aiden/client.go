@@ -20,11 +20,12 @@ import (
 const ceceUserAgent = "cece-agent"
 
 type Client struct {
-	apiKey     string
-	model      string
-	baseURL    string
-	tokenCache *auth.TokenCache
-	httpClient *http.Client
+	apiKey          string
+	model           string
+	baseURL         string
+	tokenCache      *auth.TokenCache
+	httpClient      *http.Client
+	reasoningEffort string
 }
 
 func NewClient(apiKey, model, baseURL string) *Client {
@@ -42,6 +43,9 @@ func (c *Client) SetAuthHelper(helper string) {
 
 func (c *Client) SetModel(model string) { c.model = model }
 func (c *Client) Model() string         { return c.model }
+
+// SetReasoningEffort sets the reasoning effort for future requests.
+func (c *Client) SetReasoningEffort(effort string) { c.reasoningEffort = effort }
 
 func (c *Client) SetProvider(apiKey, baseURL string, _ int) {
 	c.apiKey = apiKey
@@ -128,11 +132,12 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 	}
 
 	payload := ChatCompletionRequest{
-		Model:     c.model,
-		Messages:  SerializeMessages(projectedMessages, system),
-		Stream:    true,
-		MaxTokens: maxTokens,
-		StreamOptions: &StreamOptions{IncludeUsage: true},
+		Model:           c.model,
+		Messages:        SerializeMessages(projectedMessages, system),
+		Stream:          true,
+		MaxTokens:       maxTokens,
+		StreamOptions:   &StreamOptions{IncludeUsage: true},
+		ReasoningEffort: c.reasoningEffort,
 	}
 
 	if len(tools) > 0 {
@@ -164,6 +169,7 @@ func (c *Client) streamResponses(ctx context.Context, messages []agent.Message, 
 		Input:           SerializeResponsesInput(messages),
 		Stream:          true,
 		MaxOutputTokens: maxTokens,
+		ReasoningEffort: c.reasoningEffort,
 	}
 
 	if len(tools) > 0 {

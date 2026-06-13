@@ -17,6 +17,8 @@ func (m *mockStreamClient) Stream(ctx context.Context, messages []Message, syste
 	return m.streamFn(ctx, messages, system, tools, maxTokens)
 }
 
+func (m *mockStreamClient) SetReasoningEffort(_ string) {}
+
 func makeMockStreamClient(summaryText string) *mockStreamClient {
 	return &mockStreamClient{
 		streamFn: func(ctx context.Context, messages []Message, system SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan ApiStreamEvent, error) {
