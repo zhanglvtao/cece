@@ -1415,12 +1415,17 @@ func (e *Engine) History() []protocol.Message {
 
 func (e *Engine) Cancel() {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	// Cancel all sub-agents first so they emit terminal events.
+	for id, rt := range e.subAgents {
+		rt.Cancel()
+		delete(e.subAgents, id)
+	}
 	if e.cancel != nil {
 		e.cancel()
 		e.cancel = nil
 	}
 	e.inputQueue.Clear()
+	e.mu.Unlock()
 }
 
 // QueueInput appends a user input to the queue while the agent is busy.

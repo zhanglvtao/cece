@@ -543,9 +543,9 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.SubAgentActivityEvent:
 		m.updateRunningAgentActivity(e)
 	case protocol.SubAgentCompletedEvent:
-		m.removeRunningAgent(e.ID)
+		m.markAgentDone(e.ID, "completed")
 	case protocol.SubAgentFailedEvent:
-		m.removeRunningAgent(e.ID)
+		m.markAgentDone(e.ID, "failed")
 		m.status = errorStatus(fmt.Sprintf("● %s failed: %s", e.Description, e.Error))
 	}
 	// Sync all status bar data from model state.
@@ -1447,7 +1447,7 @@ type runningAgent struct {
 	ID              string
 	Description     string
 	Model           string
-	Status          string
+	Status          string // "running", "completed", "failed"
 	SessionID       string
 	InputTokens     int
 	OutputTokens    int
@@ -1455,6 +1455,7 @@ type runningAgent struct {
 	TurnCount       int
 	ToolCall        string
 	LastMsg         string
+	DoneAt          time.Time // when agent completed/failed; zero means still running
 }
 
 func (m *Model) upsertRunningAgent(id, description string) {
@@ -1497,6 +1498,17 @@ func (m *Model) updateRunningAgentActivity(e protocol.SubAgentActivityEvent) {
 	}
 }
 
+func (m *Model) markAgentDone(id, status string) {
+	for i := range m.runningAgents {
+		if m.runningAgents[i].ID == id {
+			m.runningAgents[i].Status = status
+			m.runningAgents[i].DoneAt = time.Now()
+			m.runningAgents[i].ToolCall = ""
+			return
+		}
+	}
+}
+
 func (m *Model) removeRunningAgent(id string) {
 	for i := range m.runningAgents {
 		if m.runningAgents[i].ID == id {
@@ -1506,53 +1518,71 @@ func (m *Model) removeRunningAgent(id string) {
 	}
 }
 
-const maxAgentBarAgents = 3
+// agentDoneTTL is how long a completed/failed agent bar entry remains visible.
+const agentDoneTTL = 3 * time.Second
 
 func (m *Model) agentBarHeight() int {
+	m.purgeDoneAgents()
 	if len(m.runningAgents) == 0 {
 		return 0
 	}
+	// Each agent: 1 line for header + 1 line for streaming text.
+	// Between agents: 1 blank line.
 	n := len(m.runningAgents)
-	if n > maxAgentBarAgents {
-		n = maxAgentBarAgents
+	return n*2 + (n-1)*1
+}
+
+// purgeDoneAgents removes agents that have been in done state longer than agentDoneTTL.
+func (m *Model) purgeDoneAgents() {
+	now := time.Now()
+	j := 0
+	for _, a := range m.runningAgents {
+		if !a.DoneAt.IsZero() && now.Sub(a.DoneAt) > agentDoneTTL {
+			continue
+		}
+		m.runningAgents[j] = a
+		j++
 	}
-	// Each agent renders as one line; +1 for the "+N more" overflow line if needed.
-	h := n
-	if len(m.runningAgents) > maxAgentBarAgents {
-		h++
-	}
-	// Blank line between agents
-	h += (n - 1) * 1
-	return h
+	m.runningAgents = m.runningAgents[:j]
 }
 
 func (m *Model) agentBarView() string {
+	m.purgeDoneAgents()
 	if len(m.runningAgents) == 0 {
 		return ""
 	}
 	dimmed := m.styles.Agent.Done
+	completed := m.styles.Agent.Completed
 	w := m.width
 	if w < 10 {
 		w = 10
 	}
 	var b strings.Builder
-	show := m.runningAgents
-	overflow := 0
-	if len(show) > maxAgentBarAgents {
-		overflow = len(show) - maxAgentBarAgents
-		show = show[:maxAgentBarAgents]
-	}
-	for i, a := range show {
+	for i, a := range m.runningAgents {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		// Blinking spinner dot: ● / ○
-		dot := "●"
-		if m.statusFrame%4 >= 2 {
-			dot = "○"
+		done := !a.DoneAt.IsZero()
+		// Line 1: dot [Agent] description  model | turn N | in/out/cache | tool
+		var dot string
+		if done {
+			if a.Status == "completed" {
+				dot = completed.Render("✓")
+			} else {
+				dot = dimmed.Render("✗")
+			}
+		} else {
+			dot = "●"
+			if m.statusFrame%4 >= 2 {
+				dot = "○"
+			}
+			dot = m.styles.Agent.Label.Render(dot)
 		}
-		// Single line: ● [Agent] description  model | turn N | in/out/cache | tool | last msg
-		label := m.styles.Agent.Label.Render(dot) + " " + m.styles.Agent.Label.Render("[Agent]") + " " + a.Description
+		descStyle := dimmed
+		if !done {
+			descStyle = m.styles.Agent.Label
+		}
+		label := dot + " " + descStyle.Render("[Agent]") + " " + descStyle.Render(a.Description)
 		var meta []string
 		if a.Model != "" {
 			meta = append(meta, a.Model)
@@ -1573,20 +1603,30 @@ func (m *Model) agentBarView() string {
 			}
 			meta = append(meta, strings.Join(parts, " "))
 		}
-		if a.ToolCall != "" {
+		if !done && a.ToolCall != "" {
 			meta = append(meta, a.ToolCall)
-		}
-		if a.LastMsg != "" {
-			meta = append(meta, a.LastMsg)
 		}
 		if len(meta) > 0 {
 			label += "  " + dimmed.Render(strings.Join(meta, " | "))
 		}
 		b.WriteString(ansi.Truncate(label, w, "…"))
-	}
-	if overflow > 0 {
+		// Line 2: streaming text or done summary
 		b.WriteByte('\n')
-		b.WriteString(dimmed.Render(fmt.Sprintf("  +%d more", overflow)))
+		var msg string
+		if done {
+			if a.Status == "completed" {
+				msg = completed.Render("done")
+			} else {
+				msg = dimmed.Render("failed")
+			}
+		} else {
+			msg = a.LastMsg
+			if msg == "" {
+				msg = "…"
+			}
+			msg = dimmed.Render(msg)
+		}
+		b.WriteString(ansi.Truncate("  "+msg, w, "…"))
 	}
 	return b.String()
 }

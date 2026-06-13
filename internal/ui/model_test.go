@@ -468,8 +468,15 @@ func TestSubAgentRunBarTracksLifecycle(t *testing.T) {
 
 	m.applyEvent(protocol.SubAgentCompletedEvent{ID: "agent-1", Description: "Exploring UI"})
 	view = stripAnsi(m.agentBarView())
+	// After completion, agent bar shows ✓ with "done" briefly before TTL purge.
+	if !strings.Contains(view, "✓") || !strings.Contains(view, "done") {
+		t.Fatalf("completed sub-agent should show ✓ done:\n%s", view)
+	}
+	// Simulate TTL expiry by setting DoneAt far in the past.
+	m.runningAgents[0].DoneAt = time.Now().Add(-agentDoneTTL - time.Second)
+	view = stripAnsi(m.agentBarView())
 	if strings.Contains(view, "Exploring UI") {
-		t.Fatalf("completed sub-agent still rendered:\n%s", view)
+		t.Fatalf("completed sub-agent should be purged after TTL:\n%s", view)
 	}
 }
 
