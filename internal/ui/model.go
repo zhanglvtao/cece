@@ -19,6 +19,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -1505,18 +1506,23 @@ func (m *Model) removeRunningAgent(id string) {
 	}
 }
 
+const maxAgentBarAgents = 3
+
 func (m *Model) agentBarHeight() int {
 	if len(m.runningAgents) == 0 {
 		return 0
 	}
-	h := 0
-	for _, a := range m.runningAgents {
-		h++ // main line
-		if a.LastMsg != "" {
-			h++ // assistant message line
-		}
+	n := len(m.runningAgents)
+	if n > maxAgentBarAgents {
+		n = maxAgentBarAgents
 	}
-	h += (len(m.runningAgents) - 1) * 2 // blank line between agents
+	// Each agent renders as one line; +1 for the "+N more" overflow line if needed.
+	h := n
+	if len(m.runningAgents) > maxAgentBarAgents {
+		h++
+	}
+	// Blank line between agents
+	h += (n - 1) * 1
 	return h
 }
 
@@ -1525,17 +1531,27 @@ func (m *Model) agentBarView() string {
 		return ""
 	}
 	dimmed := m.styles.Agent.Done
+	w := m.width
+	if w < 10 {
+		w = 10
+	}
 	var b strings.Builder
-	for i, a := range m.runningAgents {
+	show := m.runningAgents
+	overflow := 0
+	if len(show) > maxAgentBarAgents {
+		overflow = len(show) - maxAgentBarAgents
+		show = show[:maxAgentBarAgents]
+	}
+	for i, a := range show {
 		if i > 0 {
-			b.WriteString("\n\n")
+			b.WriteByte('\n')
 		}
 		// Blinking spinner dot: ● / ○
 		dot := "●"
 		if m.statusFrame%4 >= 2 {
 			dot = "○"
 		}
-		// Line 1: ● [Agent] description  model | turn N | in XK out XK cache XK
+		// Single line: ● [Agent] description  model | turn N | in/out/cache | tool | last msg
 		label := m.styles.Agent.Label.Render(dot) + " " + m.styles.Agent.Label.Render("[Agent]") + " " + a.Description
 		var meta []string
 		if a.Model != "" {
@@ -1557,18 +1573,20 @@ func (m *Model) agentBarView() string {
 			}
 			meta = append(meta, strings.Join(parts, " "))
 		}
+		if a.ToolCall != "" {
+			meta = append(meta, a.ToolCall)
+		}
+		if a.LastMsg != "" {
+			meta = append(meta, a.LastMsg)
+		}
 		if len(meta) > 0 {
 			label += "  " + dimmed.Render(strings.Join(meta, " | "))
 		}
-		if a.ToolCall != "" {
-			label += "  " + dimmed.Render(a.ToolCall)
-		}
-		b.WriteString(label)
-		// Line 2: last assistant message
-		if a.LastMsg != "" {
-			b.WriteByte('\n')
-			b.WriteString("  " + dimmed.Render(a.LastMsg))
-		}
+		b.WriteString(ansi.Truncate(label, w, "…"))
+	}
+	if overflow > 0 {
+		b.WriteByte('\n')
+		b.WriteString(dimmed.Render(fmt.Sprintf("  +%d more", overflow)))
 	}
 	return b.String()
 }
