@@ -129,6 +129,17 @@ func (t *transcript) ensureThinking() int {
 	return t.currentThinking
 }
 
+// hideCompletedThinking collapses all done thinking blocks so they
+// don't clutter the transcript after the model's visible output starts.
+func (t *transcript) hideCompletedThinking() {
+	for i := range t.blocks {
+		if t.blocks[i].kind == blockThinking && t.blocks[i].done {
+			t.blocks[i].text = ""
+			t.markDirty(i)
+		}
+	}
+}
+
 func (t *transcript) apply(event protocol.Event) {
 	switch e := event.(type) {
 	case protocol.UserMessageAdded:
@@ -192,6 +203,9 @@ func (t *transcript) apply(event protocol.Event) {
 		t.markDirty(idx)
 		t.currentThinking = -1
 	case protocol.AssistantStarted:
+		// Hide all completed thinking blocks — once the model starts
+		// producing visible output, the thinking content is stale.
+		t.hideCompletedThinking()
 		t.currentAssistant = t.append(blockAssistant, "cece", "")
 	case protocol.AssistantDelta:
 		idx := t.ensureAssistant()
@@ -509,6 +523,8 @@ func (t *transcript) renderOrderIndices() []int {
 		if t.blocks[i].kind == blockThinking && !t.blocks[i].done {
 			activeThinkingIdx = i
 			hasActiveThinking = true
+		} else if t.blocks[i].kind == blockThinking && t.blocks[i].done && t.blocks[i].text == "" {
+			// Skip collapsed thinking blocks.
 		} else {
 			rest = append(rest, i)
 		}
@@ -550,6 +566,8 @@ func (t *transcript) renderOrder() []transcriptBlock {
 	for i := range t.blocks {
 		if t.blocks[i].kind == blockThinking && !t.blocks[i].done {
 			activeThinking = &t.blocks[i]
+		} else if t.blocks[i].kind == blockThinking && t.blocks[i].done && t.blocks[i].text == "" {
+			// Skip collapsed thinking blocks.
 		} else {
 			rest = append(rest, t.blocks[i])
 		}
@@ -656,6 +674,9 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		if block.quietOk {
 			check := lipgloss.NewStyle().Foreground(theme.Green).Render("✓")
 			return renderLabel() + " " + check
+		}
+		if block.kind == blockThinking && block.done {
+			return ""
 		}
 		return renderLabel()
 	}
