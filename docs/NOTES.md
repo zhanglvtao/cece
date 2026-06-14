@@ -1,5 +1,18 @@
 # CC 开发过程中遇到的问题
 
+## Plan Mode 空计划审批问题（2026-06-14 已修复）
+
+### 问题现象
+Agent 在 Plan Mode 中没有写出有效计划时调用 `ExitPlanMode`，UI 仍然弹出空计划审批，导致用户被要求批准一个不存在的 Plan。
+
+### 根因
+审批事件在工具执行前由 `InteractionGate` 发出。旧逻辑只要看到 `ExitPlanMode` 就发送 `PlanApprovalRequested`，没有先确认 `plan_file` 是否存在且内容非空。虽然 `ExitPlanMode` 工具执行阶段会拒绝空文件，但用户已经先看到了空审批弹窗。
+
+### 修复
+将“是否有可审批 Plan”的校验前移到 `InteractionGate`：只有读取到非空 plan 内容时才发审批事件；空文件、缺失文件或无效路径不弹审批，直接让 `ExitPlanMode` 执行并返回明确错误，保持 Plan Mode。
+
+---
+
 ## Edit 工具 Tab 匹配问题（2026-06-03 已修复）
 
 ### 问题现象

@@ -298,6 +298,29 @@ func TestPlanModeRemindersUseSystemReminderTags(t *testing.T) {
 	}
 }
 
+func TestExitPlanModeRejectsEmptyPlanFile(t *testing.T) {
+	state := NewPlanModeState()
+	state.SetProjectDir(t.TempDir())
+	state.Enter()
+
+	planFile := filepath.Join(state.PlansDir(), "empty.md")
+	if err := os.WriteFile(planFile, []byte("\n\t  \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	input, _ := json.Marshal(map[string]string{"plan_file": planFile})
+	result := NewExitPlanMode(state).Run(context.Background(), input, nil)
+	if !result.IsError {
+		t.Fatalf("IsError = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "is empty") {
+		t.Fatalf("content = %q, want empty plan error", result.Content)
+	}
+	if state.Mode() != PermissionModePlan {
+		t.Fatalf("mode = %q, want plan", state.Mode())
+	}
+}
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 func TestRegistryGet(t *testing.T) {
