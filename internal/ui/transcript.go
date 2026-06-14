@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -33,6 +34,10 @@ type transcriptBlock struct {
 	quietOk    bool   // quiet tool completed successfully — render inline ✓
 	toolName   string // set for blockTool, used for quiet-tool suppression
 	toolParams string // set for blockTool, parameter text rendered after [Name] without highlight
+
+	// Thinking block timing
+	startedAt time.Time    // when ThinkingStarted was received
+	duration  time.Duration // elapsed time when ThinkingCompleted
 
 	// Incremental rendering: dirty=true means this block needs re-render.
 	dirty       bool
@@ -129,15 +134,24 @@ func (t *transcript) ensureThinking() int {
 	return t.currentThinking
 }
 
-// hideCompletedThinking collapses all done thinking blocks so they
-// don't clutter the transcript after the model's visible output starts.
-func (t *transcript) hideCompletedThinking() {
-	for i := range t.blocks {
-		if t.blocks[i].kind == blockThinking && t.blocks[i].done {
-			t.blocks[i].text = ""
-			t.markDirty(i)
-		}
+// formatThinkingFooter returns a muted footer line for a completed thinking block
+// showing the elapsed time, e.g. "Thought for 3s".
+func formatThinkingFooter(block transcriptBlock) string {
+	if !block.done || block.duration == 0 {
+		return ""
 	}
+	d := block.duration
+	var s string
+	switch {
+	case d < time.Second:
+		s = "<1s"
+	case d < time.Minute:
+		s = fmt.Sprintf("%.0fs", d.Seconds())
+	default:
+		s = fmt.Sprintf("%.1fm", d.Minutes())
+	}
+	footerStyle := lipgloss.NewStyle().Foreground(theme.FgMuted).Faint(true)
+	return footerStyle.Render("Thought for " + s)
 }
 
 func (t *transcript) apply(event protocol.Event) {
@@ -189,7 +203,9 @@ func (t *transcript) apply(event protocol.Event) {
 			t.appendDone(blockInfo, "cache", strings.Join(cacheParts, " "))
 		}
 	case protocol.ThinkingStarted:
-		t.currentThinking = t.append(blockThinking, "thinking", "")
+		idx := t.append(blockThinking, "thinking", "")
+		t.blocks[idx].startedAt = time.Now()
+		t.currentThinking = idx
 	case protocol.ThinkingDelta:
 		idx := t.ensureThinking()
 		t.blocks[idx].text += e.Text
@@ -199,13 +215,13 @@ func (t *transcript) apply(event protocol.Event) {
 		if e.Text != "" {
 			t.blocks[idx].text = e.Text
 		}
+		if !t.blocks[idx].startedAt.IsZero() {
+			t.blocks[idx].duration = time.Since(t.blocks[idx].startedAt)
+		}
 		t.blocks[idx].done = true
 		t.markDirty(idx)
 		t.currentThinking = -1
 	case protocol.AssistantStarted:
-		// Hide all completed thinking blocks — once the model starts
-		// producing visible output, the thinking content is stale.
-		t.hideCompletedThinking()
 		t.currentAssistant = t.append(blockAssistant, "cece", "")
 	case protocol.AssistantDelta:
 		idx := t.ensureAssistant()
@@ -516,21 +532,13 @@ func (t *transcript) hasDirtyBlocks() bool {
 }
 
 func (t *transcript) renderOrderIndices() []int {
-	var activeThinkingIdx int
-	hasActiveThinking := false
 	var rest []int
 	for i := range t.blocks {
-		if t.blocks[i].kind == blockThinking && !t.blocks[i].done {
-			activeThinkingIdx = i
-			hasActiveThinking = true
-		} else if t.blocks[i].kind == blockThinking && t.blocks[i].done && t.blocks[i].text == "" {
-			// Skip collapsed thinking blocks.
-		} else {
-			rest = append(rest, i)
+		if t.blocks[i].kind == blockThinking && t.blocks[i].done && t.blocks[i].text == "" {
+			// Skip collapsed thinking blocks with no content.
+			continue
 		}
-	}
-	if hasActiveThinking {
-		return append(rest, activeThinkingIdx)
+		rest = append(rest, i)
 	}
 	return rest
 }
@@ -539,7 +547,28 @@ func (t *transcript) renderBlockIncremental(block transcriptBlock, width int, st
 	if block.kind == blockAssistant && !block.done && block.text != "" {
 		return t.renderStreamingAssistant(block, width, sty)
 	}
+	if block.kind == blockThinking && !block.done && block.text != "" {
+		return t.renderStreamingThinking(block, width, sty)
+	}
 	return renderBlock(block, width, sty)
+}
+
+func (t *transcript) renderStreamingThinking(block transcriptBlock, width int, sty Styles) string {
+	label := block.title
+	if label == "" {
+		label = string(block.kind)
+	}
+	label += " ..."
+	lbl := labelStyleForKind(block.kind, sty)
+	text := strings.TrimRight(block.text, "\n")
+
+	renderer := getThinkingMarkdownRenderer(width)
+	if renderer == nil {
+		return renderBlock(block, width, sty)
+	}
+	rendered := t.streamingMD.Render(text, width, renderer)
+
+	return lbl.Render("["+label+"]") + "\n" + indent(rendered, "  ")
 }
 
 func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, sty Styles) string {
@@ -561,19 +590,12 @@ func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, 
 }
 
 func (t *transcript) renderOrder() []transcriptBlock {
-	var activeThinking *transcriptBlock
 	var rest []transcriptBlock
 	for i := range t.blocks {
-		if t.blocks[i].kind == blockThinking && !t.blocks[i].done {
-			activeThinking = &t.blocks[i]
-		} else if t.blocks[i].kind == blockThinking && t.blocks[i].done && t.blocks[i].text == "" {
-			// Skip collapsed thinking blocks.
-		} else {
-			rest = append(rest, t.blocks[i])
+		if t.blocks[i].kind == blockThinking && t.blocks[i].done && t.blocks[i].text == "" {
+			continue
 		}
-	}
-	if activeThinking != nil {
-		return append(rest, *activeThinking)
+		rest = append(rest, t.blocks[i])
 	}
 	return rest
 }
@@ -659,10 +681,16 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		}
 	}
 	text := strings.TrimRight(block.text, "\n")
-	if block.kind == blockThinking {
-		text = renderThinkingPreview(text)
-	}
 	lbl := labelStyleForKind(block.kind, sty)
+	// Thinking blocks: render as Markdown with subdued palette + optional footer.
+	if block.kind == blockThinking {
+		rendered := renderMarkdownThinking(text, width)
+		footer := formatThinkingFooter(block)
+		if footer != "" {
+			rendered = rendered + "\n" + footer
+		}
+		return lbl.Render("["+label+"]") + "\n" + indent(rendered, "  ")
+	}
 	// For tool blocks, render [Name] highlighted and params plain.
 	renderLabel := func() string {
 		if block.kind == blockTool && block.toolParams != "" {
@@ -674,9 +702,6 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		if block.quietOk {
 			check := lipgloss.NewStyle().Foreground(theme.Green).Render("✓")
 			return renderLabel() + " " + check
-		}
-		if block.kind == blockThinking && block.done {
-			return ""
 		}
 		return renderLabel()
 	}
@@ -690,22 +715,7 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	if block.kind == blockTool {
 		text = renderDiffText(text)
 	}
-	// Dimmed text for thinking blocks.
-	if block.kind == blockThinking {
-		dimmed := sty.Chat.LabelThinking
-		return lbl.Render("["+label+"]") + "\n" + indent(dimmed.Render(text), "  ")
-	}
 	return renderLabel() + "\n" + indent(text, "  ")
-}
-
-func renderThinkingPreview(text string) string {
-	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-	if len(lines) <= 20 {
-		return text
-	}
-	preview := append([]string{}, lines[:16]...)
-	preview = append(preview, fmt.Sprintf("... %d lines hidden ...", len(lines)-17))
-	return strings.Join(preview, "\n")
 }
 
 func formatDryRun(e protocol.RequestDryRunEvent) string {

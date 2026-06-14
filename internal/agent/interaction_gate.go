@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/zhanglvtao/cece/internal/tool"
 )
@@ -68,16 +69,19 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 		return nil
 	}
 
-	// ExitPlanMode always requires explicit user approval, even when
-	// combined with other read-only / mode-effect tools.
+	// ExitPlanMode requires explicit user approval only when there is a
+	// non-empty plan to review. Empty/missing plans are not approvable; let the
+	// tool execute and return its validation error to the agent.
 	if hasExitPlanMode(calls) {
-		planContent, planFile := exitPlanModePreview(calls)
-		events <- PlanApprovalRequested{
-			PlanContent: planContent,
-			PlanFile:    planFile,
-		}
-		if err := g.wait(ctx); err != nil {
-			return err
+		planContent, planFile, ok := exitPlanModePreview(calls)
+		if ok {
+			events <- PlanApprovalRequested{
+				PlanContent: planContent,
+				PlanFile:    planFile,
+			}
+			if err := g.wait(ctx); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -232,7 +236,7 @@ func (g *InteractionGate) isPlansDirOnlyWrites(calls []ApiToolUseBlock) bool {
 	return hasWrite
 }
 
-func exitPlanModePreview(calls []ApiToolUseBlock) (planContent, planFile string) {
+func exitPlanModePreview(calls []ApiToolUseBlock) (planContent, planFile string, ok bool) {
 	for _, tc := range calls {
 		if tc.Name != tool.ExitPlanModeToolName {
 			continue
@@ -242,15 +246,18 @@ func exitPlanModePreview(calls []ApiToolUseBlock) (planContent, planFile string)
 		}
 		if json.Unmarshal(tc.Input, &args) == nil && args.PlanFile != "" {
 			planFile = filepath.Base(args.PlanFile)
-			abs, _ := filepath.Abs(args.PlanFile)
-			data, err := os.ReadFile(abs)
+			abs, err := filepath.Abs(args.PlanFile)
 			if err == nil {
-				planContent = string(data)
+				data, readErr := os.ReadFile(abs)
+				if readErr == nil {
+					planContent = string(data)
+					ok = strings.TrimSpace(planContent) != ""
+				}
 			}
 		}
 		break
 	}
-	return planContent, planFile
+	return planContent, planFile, ok
 }
 
 func parseAskUserQuestionCalls(calls []ApiToolUseBlock) []tool.Question {

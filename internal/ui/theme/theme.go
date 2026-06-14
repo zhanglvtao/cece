@@ -31,4 +31,17 @@ const (
 	MdNumber   = "#7aa2f7" // Blue — number literals
 	MdDeleted  = "#f7768e" // Coral red — deleted text
 	MdInserted = "#9ece6a" // Yellow-green — inserted text
+
+	// Thinking block colors — subdued palette that clearly distinguishes
+	// thinking content from the assistant's main output.
+	MdThinkHeading  = "#5b6499" // Dimmed blue-gray — thinking headings
+	MdThinkLink     = "#5b6499" // Dimmed blue-gray — thinking links
+	MdThinkCode     = "#6b7394" // Muted blue — thinking inline code
+	MdThinkCodeBg   = "#13141c" // Darker navy — thinking code block bg
+	MdThinkMuted    = "#3b3f5c" // Deep muted — thinking dimmed elements
+	MdThinkKeyword  = "#7b7fa8" // Faded lavender — thinking keywords
+	MdThinkString   = "#8b7a4a" // Faded gold — thinking strings
+	MdThinkNumber   = "#5b6499" // Dimmed blue — thinking numbers
+	MdThinkDeleted  = "#7b4a52" // Faded coral — thinking deleted
+	MdThinkInserted = "#5a7a4a" // Faded green — thinking inserted
 )
