@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"sort"
+
 	"github.com/zhanglvtao/cece/internal/skill"
 	"github.com/zhanglvtao/cece/internal/ui/picker"
 )
@@ -19,6 +21,7 @@ var builtinSlashCommands = []struct {
 	{"/plan", "View latest plan"},
 	{"/dryrun", "Preview full request"},
 	{"/skills", "List available skills"},
+	{"/view", "View file content"},
 	{"/mcp", "Manage MCP servers"},
 	{"/tool", "List registered tools"},
 	{"/exit", "Exit without generating title"},
@@ -56,10 +59,61 @@ func (p *SlashPopup) SetSkills(skills []*skill.Skill) {
 	p.entries = entries
 }
 
-// buildPicker creates the internal picker with the current entries.
-func (p *SlashPopup) buildPicker() {
-	items := make([]any, len(p.entries))
-	for i, e := range p.entries {
+// matchPriority returns a sort priority for a slashEntry against a query.
+// Lower value = higher priority. -1 means no match.
+//
+//	0 = command prefix match (e.g. query "vi" matches "/view")
+//	1 = command contains match (non-prefix)
+//	2 = description prefix match
+//	3 = description contains match (non-prefix)
+func matchPriority(e slashEntry, q string) int {
+	if q == "" {
+		return 0
+	}
+	if hasPrefixFold(e.command, q) {
+		return 0
+	}
+	if containsFold(e.command, q) {
+		return 1
+	}
+	if hasPrefixFold(e.description, q) {
+		return 2
+	}
+	if containsFold(e.description, q) {
+		return 3
+	}
+	return -1
+}
+
+// filterAndSort filters entries by query and sorts by match priority.
+// Entries with the same priority keep their original order (stable).
+func filterAndSort(entries []slashEntry, q string) []slashEntry {
+	type indexed struct {
+		entry    slashEntry
+		priority int
+		origIdx  int
+	}
+	var matched []indexed
+	for i, e := range entries {
+		p := matchPriority(e, q)
+		if p >= 0 {
+			matched = append(matched, indexed{entry: e, priority: p, origIdx: i})
+		}
+	}
+	sort.SliceStable(matched, func(i, j int) bool {
+		return matched[i].priority < matched[j].priority
+	})
+	result := make([]slashEntry, len(matched))
+	for i, m := range matched {
+		result[i] = m.entry
+	}
+	return result
+}
+
+// buildPicker creates the internal picker with the given (pre-filtered & sorted) entries.
+func (p *SlashPopup) buildPicker(entries []slashEntry) {
+	items := make([]any, len(entries))
+	for i, e := range entries {
 		items[i] = e
 	}
 	pk := picker.New("", items, slashPopupMaxHeight, func(item any, selected bool) string {
@@ -71,16 +125,15 @@ func (p *SlashPopup) buildPicker() {
 		return styledPickerItem(p.styles.Picker.Cursor, p.styles.Picker.Item, p.styles.Picker.SelectedItem, text, selected)
 	})
 	pk.SetCompact(true)
-	pk.SetFilterFn(func(item any, q string) bool {
-		e := item.(slashEntry)
-		return containsAny(e, q)
-	})
 	p.picker = pk
 }
 
-// containsAny does simple substring matching on a slashEntry.
-func containsAny(e slashEntry, q string) bool {
-	return containsFold(e.command, q) || containsFold(e.description, q)
+// hasPrefixFold reports whether s starts with prefix, case-insensitive.
+func hasPrefixFold(s, prefix string) bool {
+	if len(prefix) > len(s) {
+		return false
+	}
+	return stringsEqualFold(s[:len(prefix)], prefix)
 }
 
 func containsFold(s, substr string) bool {
@@ -122,8 +175,8 @@ func stringsEqualFold(a, b string) bool {
 // Open shows the popup with the given query filter.
 func (p *SlashPopup) Open(query string) {
 	p.open = true
-	p.buildPicker()
-	p.picker.SetFilter(query)
+	filtered := filterAndSort(p.entries, query)
+	p.buildPicker(filtered)
 }
 
 // Close hides the popup.
@@ -170,7 +223,8 @@ func (p *SlashPopup) UpdateFilter(query string) {
 	if p.picker == nil {
 		return
 	}
-	p.picker.SetFilter(query)
+	filtered := filterAndSort(p.entries, query)
+	p.buildPicker(filtered)
 }
 
 // View renders the popup as plain lines.
