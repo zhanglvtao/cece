@@ -31,15 +31,16 @@ type ResponsesRequest struct {
 }
 
 type ResponsesInputItem struct {
-	Type      string `json:"type"`
-	ID        string `json:"id,omitempty"`
-	Role      string `json:"role,omitempty"`
-	Content   any    `json:"content,omitempty"`
-	CallID    string `json:"call_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Output    any    `json:"output,omitempty"`
-	Status    string `json:"status,omitempty"`
+	Type      string                 `json:"type"`
+	ID        string                 `json:"id,omitempty"`
+	Role      string                 `json:"role,omitempty"`
+	Content   any                    `json:"content,omitempty"`
+	CallID    string                 `json:"call_id,omitempty"`
+	Name      string                 `json:"name,omitempty"`
+	Arguments string                 `json:"arguments,omitempty"`
+	Output    any                    `json:"output,omitempty"`
+	Status    string                 `json:"status,omitempty"`
+	Summary   []ResponsesSummaryItem `json:"summary,omitempty"` // for reasoning items
 }
 
 type AidenMsg struct {
@@ -188,7 +189,34 @@ func serializeResponsesMessage(m agent.Message) []ResponsesInputItem {
 				})
 			}
 		}
-		return items
+		// Insert reasoning items before function_call items.
+		// Responses API requires reasoning items to be present when
+		// their associated function_call items are sent back.
+		var reasoningItems []ResponsesInputItem
+		for _, cb := range m.ContentBlocks {
+			if cb.Type == agent.ApiThinkingContentType && cb.Thinking != nil && cb.Thinking.ID != "" {
+				var summary []ResponsesSummaryItem
+				if cb.Thinking.SummaryText != "" {
+					summary = []ResponsesSummaryItem{{Type: "summary_text", Text: cb.Thinking.SummaryText}}
+				}
+				reasoningItems = append(reasoningItems, ResponsesInputItem{
+					Type:    "reasoning",
+					ID:      cb.Thinking.ID,
+					Summary: summary,
+				})
+			}
+		}
+		// Splice reasoning items before function_call items.
+		// Find the splice point: right after the assistant message item.
+		spliceIdx := 1 // always at least one message item
+		if len(items) == 0 {
+			spliceIdx = 0
+		}
+		result := make([]ResponsesInputItem, 0, len(items)+len(reasoningItems))
+		result = append(result, items[:spliceIdx]...)
+		result = append(result, reasoningItems...)
+		result = append(result, items[spliceIdx:]...)
+		return result
 	}
 
 	text := m.Content
@@ -227,7 +255,8 @@ func serializeMessage(m agent.Message) AidenMsg {
 		msg.Content = assistantText(m)
 		// Aiden API requires the content field to be present even for
 		// tool-only assistant messages. Use a space as minimal valid content.
-		if msg.Content == "" && len(msg.ToolCalls) > 0 {
+		// Cover all empty content cases: pure thinking, no tool calls, etc.
+		if msg.Content == "" {
 			msg.Content = " "
 		}
 		return msg

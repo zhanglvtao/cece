@@ -29,10 +29,10 @@ func (m *Model) taskBarView() string {
 	if len(m.tasks) == 0 {
 		return ""
 	}
-	return renderTaskBar(m.tasks, m.width, m.statusFrame, m.styles)
+	return renderTaskBar(m.tasks, m.width, m.statusFrame, m.styles, m.busy)
 }
 
-func renderTaskBar(tasks []protocol.TodoItem, width int, frame int, styles Styles) string {
+func renderTaskBar(tasks []protocol.TodoItem, width int, frame int, styles Styles, busy bool) string {
 	sorted := make([]protocol.TodoItem, len(tasks))
 	copy(sorted, tasks)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -49,7 +49,7 @@ func renderTaskBar(tasks []protocol.TodoItem, width int, frame int, styles Style
 		overflow = len(sorted) - maxTaskBarLines
 	}
 	for _, t := range show {
-		icon := taskStatusIcon(t.Status, frame)
+		icon := taskStatusIcon(t.Status, frame, busy)
 		text := t.Content
 		if t.Status == "in_progress" && t.ActiveForm != "" {
 			text = t.ActiveForm
@@ -92,11 +92,14 @@ func taskStyleFromStatus(status string, s Styles) lipgloss.Style {
 	}
 }
 
-func taskStatusIcon(status string, frame int) string {
+func taskStatusIcon(status string, frame int, busy bool) string {
 	switch status {
 	case "pending":
 		return "□"
 	case "in_progress":
+		if !busy {
+			return "■"
+		}
 		if frame%4 < 2 {
 			return "■"
 		}

@@ -96,17 +96,19 @@ type ResponsesUsage struct {
 }
 
 type parserState struct {
-	messageStarted    bool
-	thinkingOpen      bool
-	thinkingIndex     int
-	reasoningOpen     bool
-	reasoningIndex    int
-	reasoningSeen     bool
-	toolCallsSeen     bool
-	activeToolIndices map[int]bool
-	textBlockStarted  bool
-	terminalChunkSeen bool
-	doneEmitted       bool
+	messageStarted       bool
+	thinkingOpen         bool
+	thinkingIndex        int
+	reasoningOpen        bool
+	reasoningIndex       int
+	reasoningSeen        bool
+	reasoningProviderID  string // cached from output_item.added for stop events
+	reasoningSummaryText string // cached from output_item.added for stop events
+	toolCallsSeen        bool
+	activeToolIndices    map[int]bool
+	textBlockStarted     bool
+	terminalChunkSeen    bool
+	doneEmitted          bool
 }
 
 func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
@@ -177,10 +179,14 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 			}
 		}
 		if state.reasoningOpen {
+			rid := state.reasoningProviderID
+			rtext := state.reasoningSummaryText
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_stop",
-				Index:      state.reasoningIndex,
-				IsThinking: true,
+				EventType:           "content_block_stop",
+				Index:               state.reasoningIndex,
+				IsThinking:          true,
+				ThinkingProviderID:  rid,
+				ThinkingSummaryText: rtext,
 			}
 		}
 		for idx := range state.activeToolIndices {
@@ -237,10 +243,14 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 			delete(state.activeToolIndices, event.OutputIndex)
 		}
 		if event.Item.Type == "reasoning" && state.reasoningOpen {
+			rid := state.reasoningProviderID
+			rtext := state.reasoningSummaryText
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_stop",
-				Index:      state.reasoningIndex,
-				IsThinking: true,
+				EventType:           "content_block_stop",
+				Index:               state.reasoningIndex,
+				IsThinking:          true,
+				ThinkingProviderID:  rid,
+				ThinkingSummaryText: rtext,
 			}
 			state.reasoningOpen = false
 		}
@@ -314,16 +324,24 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 			state.reasoningOpen = true
 			state.reasoningIndex = event.OutputIndex
 			state.reasoningSeen = true
-			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_start",
-				Index:      event.OutputIndex,
-				IsThinking: true,
-			}
+			state.reasoningProviderID = event.Item.ID
+			summaryText := ""
 			if len(event.Item.Summary) > 0 {
+				summaryText = event.Item.Summary[0].Text
+			}
+			state.reasoningSummaryText = summaryText
+			out <- agent.ApiStreamEvent{
+				EventType:           "content_block_start",
+				Index:               event.OutputIndex,
+				IsThinking:          true,
+				ThinkingProviderID:  event.Item.ID,
+				ThinkingSummaryText: summaryText,
+			}
+			if summaryText != "" {
 				out <- agent.ApiStreamEvent{
 					EventType:     "content_block_delta",
 					Detail:        "thinking_delta",
-					ThinkingDelta: event.Item.Summary[0].Text,
+					ThinkingDelta: summaryText,
 					Index:         event.OutputIndex,
 				}
 			}
@@ -351,10 +369,14 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 		}
 	case "response.reasoning_text.done":
 		if state.reasoningOpen {
+			rid := state.reasoningProviderID
+			rtext := state.reasoningSummaryText
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_stop",
-				Index:      state.reasoningIndex,
-				IsThinking: true,
+				EventType:           "content_block_stop",
+				Index:               state.reasoningIndex,
+				IsThinking:          true,
+				ThinkingProviderID:  rid,
+				ThinkingSummaryText: rtext,
 			}
 			state.reasoningOpen = false
 		}
@@ -369,10 +391,14 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 		}
 	case "response.reasoning_summary_text.done":
 		if state.reasoningOpen {
+			rid := state.reasoningProviderID
+			rtext := state.reasoningSummaryText
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_stop",
-				Index:      state.reasoningIndex,
-				IsThinking: true,
+				EventType:           "content_block_stop",
+				Index:               state.reasoningIndex,
+				IsThinking:          true,
+				ThinkingProviderID:  rid,
+				ThinkingSummaryText: rtext,
 			}
 			state.reasoningOpen = false
 		}
@@ -385,10 +411,14 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 		state.activeToolIndices = nil
 		hadReasoning := state.reasoningOpen
 		if state.reasoningOpen {
+			rid := state.reasoningProviderID
+			rtext := state.reasoningSummaryText
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_stop",
-				Index:      state.reasoningIndex,
-				IsThinking: true,
+				EventType:           "content_block_stop",
+				Index:               state.reasoningIndex,
+				IsThinking:          true,
+				ThinkingProviderID:  rid,
+				ThinkingSummaryText: rtext,
 			}
 			state.reasoningOpen = false
 		}

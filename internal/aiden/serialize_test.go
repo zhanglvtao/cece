@@ -231,8 +231,21 @@ func TestSerializeAssistantThinkingOnlyUsesEmptyContent(t *testing.T) {
 	if len(result) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(result))
 	}
-	if result[0].Content != "" {
-		t.Fatalf("expected assistant content empty, got %q", result[0].Content)
+	// Content is set to " " (space) to meet Aiden API requirement that content field must exist
+	if result[0].Content != " " {
+		t.Fatalf("expected assistant content ' ' (space placeholder for API), got %q", result[0].Content)
+	}
+	// Verify JSON contains content field even when there's no visible text
+	data, err := json.Marshal(result[0])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := parsed["content"]; !ok {
+		t.Fatalf("content field missing from JSON: %s", string(data))
 	}
 }
 

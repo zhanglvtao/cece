@@ -128,7 +128,8 @@ func extractRequestID(resp *http.Response) string {
 func (c *Client) Stream(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
 	projectedMessages := agent.ProjectMessagesForRequest(messages)
 	if usesResponsesAPI(c.model) {
-		return c.streamResponses(ctx, projectedMessages, system, tools, maxTokens)
+		// Responses API needs reasoning items preserved for stateful back-and-forth
+		return c.streamResponses(ctx, messages, system, tools, maxTokens)
 	}
 
 	payload := ChatCompletionRequest{

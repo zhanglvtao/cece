@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -59,6 +60,8 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 	turnStart := time.Now()
 	reason := "user"
 	var toolResultNames []string
+	consecutiveEmptyResponses := 0
+	const maxEmptyRetries = 3
 	for {
 		messages = r.applyToolUseFallback(messages, plan.System)
 		r.deps.IncrementAPICalls()
@@ -122,18 +125,33 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		// tool calls, no thinking), the API may have silently dropped the
 		// output. Don't persist an empty assistant message — it causes
 		// consecutive user messages on the next turn, which confuses the
-		// model. Instead, inject a retry nudge.
+		// model. Instead, inject a retry nudge and continue the loop.
 		if resp.textContent == "" && len(resp.toolCalls) == 0 && len(resp.thinkingBlocks) == 0 {
+			consecutiveEmptyResponses++
+			if consecutiveEmptyResponses >= maxEmptyRetries {
+				slog.Warn("model returned empty response too many times — stopping",
+					"consecutive_empty", consecutiveEmptyResponses,
+					"stop_reason", resp.stopReason,
+				)
+				events <- RunFailed{Err: fmt.Errorf("model returned empty response %d consecutive times", consecutiveEmptyResponses)}
+				return
+			}
 			slog.Warn("model returned empty response — injecting retry nudge",
 				"stop_reason", resp.stopReason,
 				"input_tokens", resp.inputTokens,
 				"output_tokens", resp.outputTokens,
+				"attempt", consecutiveEmptyResponses,
 			)
-			assistant = Message{
+			nudge := Message{
 				Role:    AssistantRole,
 				Content: "[Empty response — retrying]",
 			}
+			r.deps.AppendMessage(nudge)
+			r.deps.PersistMessage(ctx, nudge)
+			messages = r.deps.HistorySnapshot()
+			continue
 		}
+		consecutiveEmptyResponses = 0
 
 		r.deps.AppendMessage(assistant)
 		r.deps.PersistMessage(ctx, assistant)

@@ -18,6 +18,7 @@ type Styles struct {
 		LabelSystem    lipgloss.Style
 		LabelPlan      lipgloss.Style
 		LabelInfo      lipgloss.Style
+		LabelView      lipgloss.Style
 	}
 	Input struct {
 		Textarea textarea.Styles
@@ -87,6 +88,7 @@ func DefaultStyles() Styles {
 	s.Chat.LabelSystem = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Chat.LabelPlan = lipgloss.NewStyle().Foreground(theme.Blue)
 	s.Chat.LabelInfo = lipgloss.NewStyle().Foreground(theme.FgMuted)
+	s.Chat.LabelView = lipgloss.NewStyle().Foreground(theme.Primary)
 
 	inputBase := lipgloss.NewStyle()
 	s.Input.Textarea = textarea.Styles{

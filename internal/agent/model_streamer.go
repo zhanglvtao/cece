@@ -90,6 +90,8 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 	var textBuf strings.Builder
 	var thinkingBuf strings.Builder
 	var thinkingIndex int = -1         // index of the current thinking block, -1 = none
+	var thinkingProviderID string       // provider ID from content_block_start (e.g. rs_...)
+	var thinkingSummaryText string      // initial summary text from content_block_start
 	var redactedThinkingIndex int = -1 // index of the current redacted_thinking block, -1 = none
 	var toolInputStates map[int]*toolCallState
 	assistantStarted := false
@@ -220,6 +222,8 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		// Thinking block assembly
 		if chunk.EventType == "content_block_start" && chunk.IsThinking {
 			thinkingIndex = chunk.Index
+			thinkingProviderID = chunk.ThinkingProviderID
+			thinkingSummaryText = chunk.ThinkingSummaryText
 			thinkingBuf.Reset()
 			emitModelEvent(ch, ThinkingStarted{Index: chunk.Index})
 		}
@@ -233,13 +237,19 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		if chunk.EventType == "content_block_stop" && thinkingIndex >= 0 && chunk.Index == thinkingIndex {
 			fullThinking := thinkingBuf.String()
 			sig := chunk.ThinkingSignature
+			pid := thinkingProviderID
+			stext := thinkingSummaryText
 			thinkingIndex = -1
+			thinkingProviderID = ""
+			thinkingSummaryText = ""
 			thinkingBuf.Reset()
 			resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
 				Type: ApiThinkingContentType,
 				Thinking: &ApiThinkingBlock{
-					Text:      fullThinking,
-					Signature: sig,
+					ID:          pid,
+					Text:        fullThinking,
+					Signature:   sig,
+					SummaryText: stext,
 				},
 			})
 			emitModelEvent(ch, ThinkingCompleted{Text: fullThinking, Signature: sig})

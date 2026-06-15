@@ -62,8 +62,10 @@ type ApiContentBlock struct {
 }
 
 type ApiThinkingBlock struct {
-	Text      string `json:"thinking,omitempty"`
-	Signature string `json:"signature"`
+	ID          string `json:"id,omitempty"`          // provider item ID (e.g. Responses API rs_...)
+	Text        string `json:"thinking,omitempty"`
+	Signature   string `json:"signature"`
+	SummaryText string `json:"summary_text,omitempty"` // initial summary for Responses API reasoning items
 }
 
 func (cb ApiContentBlock) AsToolResult() (*ApiToolResultBlock, bool) {
@@ -111,10 +113,12 @@ type ApiStreamEvent struct {
 	Index              int    // content block index
 
 	// Thinking block fields (from content_block_start type="thinking" + thinking_delta)
-	IsThinking         bool   // true when content_block_start has type "thinking"
-	ThinkingDelta      string // text from thinking_delta
-	ThinkingSignature  string // signature from content_block_stop
-	IsRedactedThinking bool   // true when content_block_start has type "redacted_thinking"
+	IsThinking           bool   // true when content_block_start has type "thinking"
+	ThinkingDelta        string // text from thinking_delta
+	ThinkingSignature    string // signature from content_block_stop
+	ThinkingProviderID   string // provider ID for reasoning item (e.g. Responses API rs_...)
+	ThinkingSummaryText  string // initial summary text for reasoning item
+	IsRedactedThinking   bool   // true when content_block_start has type "redacted_thinking"
 }
 
 type SystemPrompt struct {

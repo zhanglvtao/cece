@@ -23,6 +23,7 @@ const (
 	blockError     blockKind = "error"
 	blockPlan      blockKind = "plan"
 	blockInfo      blockKind = "info"
+	blockView      blockKind = "view"
 )
 
 type transcriptBlock struct {
@@ -645,6 +646,8 @@ func labelStyleForKind(kind blockKind, sty Styles) lipgloss.Style {
 		return sty.Chat.LabelSystem
 	case blockPlan:
 		return sty.Chat.LabelPlan
+	case blockView:
+		return sty.Chat.LabelView
 	case blockInfo:
 		return sty.Chat.LabelInfo
 	default:
@@ -689,6 +692,11 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		if footer != "" {
 			rendered = rendered + "\n" + footer
 		}
+		return lbl.Render("["+label+"]") + "\n" + indent(rendered, "  ")
+	}
+	// View blocks: render file content as markdown or syntax-highlighted code.
+	if block.kind == blockView {
+		rendered := renderViewContent(text, block.toolParams, width)
 		return lbl.Render("["+label+"]") + "\n" + indent(rendered, "  ")
 	}
 	// For tool blocks, render [Name] highlighted and params plain.
@@ -834,4 +842,20 @@ func appendErrorContext(errMsg string) string {
 		b.WriteString(lp)
 	}
 	return b.String()
+}
+
+// renderViewContent renders file content for the /view command.
+// If lang is "markdown", returns glamour-rendered markdown directly.
+// Otherwise wraps the content in a code fence with the given language
+// so glamour's Chroma syntax highlighting produces colored output.
+func renderViewContent(text string, lang string, width int) string {
+	if text == "" {
+		return ""
+	}
+	if lang == "markdown" {
+		return renderMarkdown(text, width)
+	}
+	// Wrap in code fence for syntax highlighting via Chroma.
+	fenced := "```" + lang + "\n" + text + "\n```"
+	return renderMarkdown(fenced, width)
 }

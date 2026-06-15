@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,11 @@ type updateAvailableMsg struct {
 	latest  string
 }
 type vimFinishedMsg struct{}
+type viewFileMsg struct {
+	path    string
+	content string
+	err     error
+}
 
 // Sender submits user input to the runtime.
 type Sender interface {
@@ -129,6 +135,7 @@ type Model struct {
 	viewportGotoBottom      bool // when dirty, whether to pin viewport to bottom
 	lastViewportWidth       int  // track width changes for refresh
 	scrollToPlanBlock       bool // scroll viewport to plan block's first line after PlanApprovalRequested
+	viewMode               bool // true when file popup is in /view mode (Enter reads file, not inserts path)
 }
 
 func NewModel(sender Sender, modelName string, projectDir string, contextWindow ...int) Model {
@@ -292,7 +299,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewportDirty = true
 		return m, nil
 	case statusSpinnerTickMsg:
-		if !m.statusShowsSpinner() && !m.hasInProgressTask() && len(m.runningAgents) == 0 {
+		if !m.statusShowsSpinner() && !(m.busy && m.hasInProgressTask()) && len(m.runningAgents) == 0 {
 			m.statusSpinnerActive = false
 			return m, nil
 		}
@@ -345,6 +352,21 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case vimFinishedMsg:
 		m.viewportDirty = true
+		return m, nil
+	case viewFileMsg:
+		if msg.err != nil {
+			m.transcript.appendDone(blockError, "view error", msg.err.Error())
+			m.status = "View error"
+		} else {
+			lang := langFromPath(msg.path)
+			title := "view: " + filepath.Base(msg.path)
+			idx := m.transcript.append(blockView, title, msg.content)
+			m.transcript.blocks[idx].toolParams = lang
+			m.transcript.blocks[idx].done = true
+			m.status = "View: " + filepath.Base(msg.path)
+		}
+		m.viewportDirty = true
+		m.viewportGotoBottom = true
 		return m, nil
 	}
 
@@ -862,7 +884,7 @@ func (m *Model) statusShowsSpinner() bool {
 }
 
 func (m *Model) ensureStatusSpinner() tea.Cmd {
-	if !m.statusShowsSpinner() && !m.hasInProgressTask() && len(m.runningAgents) == 0 {
+	if !m.statusShowsSpinner() && !(m.busy && m.hasInProgressTask()) && len(m.runningAgents) == 0 {
 		m.statusSpinnerActive = false
 		return nil
 	}
@@ -997,6 +1019,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if fileCmd := m.checkFilePopup(msg); fileCmd != nil {
 		return m, tea.Batch(cmd, fileCmd)
 	}
+	if viewCmd := m.checkViewFilePopup(msg); viewCmd != nil {
+		return m, tea.Batch(cmd, viewCmd)
+	}
 
 	return m, cmd
 }
@@ -1015,11 +1040,36 @@ func (m *Model) handleSlashPopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "tab", "enter":
 		if cmd, ok := m.slashPopup.SelectedCommand(); ok {
+			if cmd == "/view" {
+				m.viewMode = true
+				m.insertSlashCompletion(cmd)
+				m.slashPopup.Close()
+				// Open file popup for project root with empty filter.
+				vspec := parseViewSpec(m.input.Value(), m.projectDir)
+				if !vspec.Active {
+					// No args yet — open with empty spec to browse all files.
+					vspec = atSpec{Active: true, AbsRoot: m.projectDir, FileName: ""}
+				}
+				return m, m.filePopup.Open(vspec)
+			}
 			m.insertSlashCompletion(cmd)
 			m.slashPopup.Close()
 		}
 		return m, nil
 	case "space":
+		// If committed command is /view, open file popup.
+		spec := parseSlashSpec(m.input.Value())
+		if spec.Active && spec.Command == "/view" {
+			m.viewMode = true
+			m.slashPopup.Close()
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			vspec := parseViewSpec(m.input.Value(), m.projectDir)
+			if !vspec.Active {
+				vspec = atSpec{Active: true, AbsRoot: m.projectDir, FileName: ""}
+			}
+			return m, tea.Batch(cmd, m.filePopup.Open(vspec))
+		}
 		m.slashPopup.Close()
 		// Fall through to insert space into textarea.
 	}
@@ -1088,9 +1138,20 @@ func (m *Model) handleFilePopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "esc":
 		m.filePopup.Close()
+		m.viewMode = false
 		return m, nil
 	case "tab", "enter":
 		if path, ok := m.filePopup.SelectedFile(); ok {
+			if m.viewMode {
+				m.filePopup.Close()
+				m.viewMode = false
+				m.input.Reset()
+				absPath := path
+				if !filepath.IsAbs(absPath) {
+					absPath = filepath.Join(m.projectDir, path)
+				}
+				return m, viewFileCmd(absPath)
+			}
 			m.insertFileCompletion(path)
 			m.filePopup.Close()
 		}
@@ -1098,6 +1159,7 @@ func (m *Model) handleFilePopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+o":
 		if path, ok := m.filePopup.SelectedFile(); ok {
 			m.filePopup.Close()
+			m.viewMode = false
 			absPath := path
 			if !filepath.IsAbs(absPath) {
 				absPath = filepath.Join(m.projectDir, path)
@@ -1117,6 +1179,22 @@ func (m *Model) handleFilePopupKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.input, cmd = m.input.Update(msg)
 
 	// Update popup filter or close if no longer matching.
+	if m.viewMode {
+		spec := parseSlashSpec(m.input.Value())
+		if !spec.Active || spec.Command != "/view" {
+			m.filePopup.Close()
+			m.viewMode = false
+			return m, cmd
+		}
+		vspec := parseViewSpec(m.input.Value(), m.projectDir)
+		if !vspec.Active {
+			vspec = atSpec{Active: true, AbsRoot: m.projectDir, FileName: ""}
+		}
+		if loadCmd := m.filePopup.UpdateFilter(vspec); loadCmd != nil {
+			return m, tea.Batch(cmd, loadCmd)
+		}
+		return m, cmd
+	}
 	spec := parseAtSpec(m.input.Value(), m.projectDir)
 	if !spec.Active {
 		m.filePopup.Close()
@@ -1145,6 +1223,22 @@ func (m *Model) checkFilePopup(msg tea.KeyPressMsg) tea.Cmd {
 			m.filePopup.Close()
 		} else {
 			return m.filePopup.UpdateFilter(spec)
+		}
+	}
+	return nil
+}
+
+// checkViewFilePopup opens the file popup when the user types /view followed by a space.
+func (m *Model) checkViewFilePopup(msg tea.KeyPressMsg) tea.Cmd {
+	if msg.String() == "space" && !m.filePopup.Active() && !m.slashPopup.Active() {
+		spec := parseSlashSpec(m.input.Value())
+		if spec.Active && spec.Command == "/view" && !m.viewMode {
+			m.viewMode = true
+			vspec := parseViewSpec(m.input.Value(), m.projectDir)
+			if !vspec.Active {
+				vspec = atSpec{Active: true, AbsRoot: m.projectDir, FileName: ""}
+			}
+			return m.filePopup.Open(vspec)
 		}
 	}
 	return nil
@@ -1296,6 +1390,21 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 			m.status = "Loading tools"
 		}
 		return nil
+	case "/view":
+		path := strings.TrimSpace(spec.Args)
+		if path == "" {
+			m.viewMode = true
+			m.input.SetValue("/view ")
+			m.input.CursorEnd()
+			vspec := atSpec{Active: true, AbsRoot: m.projectDir, FileName: ""}
+			return m.filePopup.Open(vspec)
+		}
+		// Direct path: resolve and read the file
+		absPath := path
+		if !filepath.IsAbs(absPath) {
+			absPath = filepath.Join(m.projectDir, path)
+		}
+		return viewFileCmd(absPath)
 	case "/dryrun":
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.DryRunRequestAction{Input: spec.Args})
@@ -1439,6 +1548,95 @@ func gitBranch(dir string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// langFromPath returns the language name for a file path, used for syntax highlighting.
+func langFromPath(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".md", ".markdown":
+		return "markdown"
+	case ".go":
+		return "go"
+	case ".py":
+		return "python"
+	case ".rs":
+		return "rust"
+	case ".js":
+		return "javascript"
+	case ".ts":
+		return "typescript"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".toml":
+		return "toml"
+	case ".html":
+		return "html"
+	case ".css":
+		return "css"
+	case ".sh":
+		return "bash"
+	case ".sql":
+		return "sql"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".cc", ".cxx", ".hpp":
+		return "cpp"
+	case ".java":
+		return "java"
+	case ".rb":
+		return "ruby"
+	default:
+		return ""
+	}
+}
+
+// viewFileCmd reads a file and returns a viewFileMsg.
+func viewFileCmd(absPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := os.ReadFile(absPath)
+		if err != nil {
+			return viewFileMsg{path: absPath, err: err}
+		}
+		return viewFileMsg{path: absPath, content: string(data)}
+	}
+}
+
+// parseViewSpec extracts the file query from a "/view <path>" input.
+func parseViewSpec(input, projectDir string) atSpec {
+	spec := parseSlashSpec(input)
+	if !spec.Active || spec.Command != "/view" || spec.Args == "" {
+		return atSpec{}
+	}
+
+	query := spec.Args
+	baseDir, fileName := "", query
+	if slashIdx := strings.LastIndex(query, "/"); slashIdx >= 0 {
+		baseDir = query[:slashIdx+1]
+		fileName = query[slashIdx+1:]
+	}
+
+	isAbs := strings.HasPrefix(query, "~/") || strings.HasPrefix(query, "/")
+	absRoot := projectDir
+	if isAbs {
+		expanded := expandHome(baseDir)
+		if expanded != "" {
+			absRoot = expanded
+		}
+	} else if baseDir != "" {
+		absRoot = filepath.Join(projectDir, baseDir)
+	}
+
+	return atSpec{
+		Active:   true,
+		Query:    query,
+		BaseDir:  baseDir,
+		FileName: fileName,
+		AbsRoot:  absRoot,
+		IsAbs:    isAbs,
+	}
 }
 
 // ── Running Agent tracking ──────────────────────────────────────────────────
