@@ -139,7 +139,18 @@ func (m *EngineMediator) Do(action protocol.Action) {
 // ── B-class command implementations ────────────────────────────────────────
 
 func (m *EngineMediator) switchModel(a protocol.SwitchModelAction) {
-	// If Protocol/APIKey are missing, try to resolve via listAllModelsFn
+	// If ConfigName is set and credentials are missing, try providerResolver first.
+	if a.ConfigName != "" && a.APIKey == "" && m.providerResolver != nil {
+		apiKey, baseURL, authMode, authHelper, resolvedProto := m.providerResolver(a.ConfigName)
+		if apiKey != "" {
+			a.APIKey = apiKey
+			a.BaseURL = baseURL
+			a.AuthMode = authMode
+			a.AuthHelper = authHelper
+			a.Protocol = resolvedProto
+		}
+	}
+	// If Protocol/APIKey are still missing, try to resolve via listAllModelsFn
 	if a.Protocol == "" && m.listAllModelsFn != nil {
 		if models, err := m.listAllModelsFn(context.Background()); err == nil {
 			for _, mi := range models {
