@@ -326,7 +326,6 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		ProviderResolver: providerResolver,
 		CreateClientFn:   createClientFn,
 		ListAllModelsFn:  listAllModelsFn,
-		ProbeModelFn:     buildProbeModelFn(cfg, createClientFn),
 		ContextWindowFor: cfg.ContextWindowFor,
 		ModelClientFor:   modelClientFor,
 		LightClientFn:    lightClientFn,
@@ -465,35 +464,5 @@ func buildListAllModelsFn(cfg config.Config) runtime.ListAllModelsFn {
 			return nil, errors.New("no models available from any provider")
 		}
 		return allModels, nil
-	}
-}
-
-// buildProbeModelFn returns a closure that probes a model ID across all providers.
-// For each provider it creates a temporary client and calls GetModelInfo(modelID).
-// Returns the first match with full provider credentials.
-func buildProbeModelFn(cfg config.Config, createClientFn func(string, string, string, string, string, string, string) agent.ModelClient) func(ctx context.Context, modelID string) (protocol.ModelInfo, bool) {
-	return func(ctx context.Context, modelID string) (protocol.ModelInfo, bool) {
-		for _, p := range cfg.Providers {
-			tmpClient := createClientFn(p.Protocol, p.APIKey, modelID, p.BaseURL, p.AuthMode, p.AuthHelper, "")
-			if probe, ok := tmpClient.(interface {
-				GetModelInfo(context.Context) (agent.ModelInfo, error)
-			}); ok {
-				if info, err := probe.GetModelInfo(ctx); err == nil {
-					return protocol.ModelInfo{
-						ID:               info.ID,
-						DisplayName:      info.DisplayName,
-						MaxContextWindow: info.MaxContextWindow,
-						Provider:         p.Name,
-						APIKey:           p.APIKey,
-						BaseURL:          p.BaseURL,
-						AuthMode:         p.AuthMode,
-						AuthHelper:       p.AuthHelper,
-						Protocol:         p.Protocol,
-						ConfigName:       "",
-					}, true
-				}
-			}
-		}
-		return protocol.ModelInfo{}, false
 	}
 }

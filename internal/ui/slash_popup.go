@@ -12,7 +12,7 @@ const slashPopupMaxHeight = 8
 var builtinSlashCommands = []struct {
 	cmd, desc string
 }{
-	{"/model", "Switch model (provider:model_id)"},
+	{"/model", "Switch model"},
 	{"/resume", "Resume a session"},
 	{"/clear", "Clear conversation history"},
 	{"/compact", "Compress conversation history"},

@@ -1338,9 +1338,6 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 		}
 		return func() tea.Msg { return tea.Quit() }
 	case "/model":
-		if spec.HasArgs {
-			return m.handleModelDirectSwitch(spec.Args)
-		}
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.ListModelsAction{})
 			m.status = "Loading models"
@@ -1430,33 +1427,6 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 	}
 	m.status = formatSlashUnknown(spec.Command)
 	return nil
-}
-
-func (m *Model) handleModelDirectSwitch(args string) tea.Cmd {
-	provider, modelID := parseModelArg(args)
-	if modelID == "" {
-		m.status = "Usage: /model provider:model_id"
-		return nil
-	}
-	if actor, ok := m.sender.(Actor); ok {
-		actor.Do(protocol.SwitchModelAction{
-			Model:      modelID,
-			ConfigName: provider,
-		})
-		m.modelName = modelID
-		m.statusBar.UpdateModel(modelID)
-		m.status = "Switching model"
-	}
-	return nil
-}
-
-func parseModelArg(args string) (provider, modelID string) {
-	args = strings.TrimSpace(args)
-	idx := strings.Index(args, ":")
-	if idx < 0 {
-		return "", args
-	}
-	return args[:idx], args[idx+1:]
 }
 
 func (m *Model) queueInput(input string) {

@@ -46,11 +46,6 @@ type ListAllModelsFn = func(ctx context.Context) ([]protocol.ModelInfo, error)
 // ContextWindowFn maps a model ID to its context window (tokens).
 type ContextWindowFn = func(model string) int
 
-// ProbeModelFn probes a model ID across providers by calling GetModelInfo on
-// each provider's client. It returns the first provider that confirms the model
-// exists, along with the model metadata and provider credentials.
-type ProbeModelFn = func(ctx context.Context, modelID string) (protocol.ModelInfo, bool)
-
 // LightModelClientFn returns a lightweight client for auxiliary tasks
 // like title generation. nil → fall back to the primary client.
 type LightModelClientFn = func() agent.ModelClient
@@ -78,7 +73,6 @@ type Options struct {
 	ProviderResolver ProviderResolverFn
 	CreateClientFn   CreateClientFn
 	ListAllModelsFn  ListAllModelsFn
-	ProbeModelFn     ProbeModelFn     // probe model across providers without listing all
 	ContextWindowFor ContextWindowFn // used by Engine.ContextWindowFor
 	ModelClientFor   func(model string) agent.ModelClient
 	LightClientFn    LightModelClientFn
@@ -200,7 +194,7 @@ func Build(opts Options) (*Bundle, error) {
 		}
 	}
 
-	mediator := engine.NewEngineMediator(eng, opts.Store, resolveFn, createFn, listFn, opts.MCPManager, opts.LightClientFn, opts.ProbeModelFn)
+	mediator := engine.NewEngineMediator(eng, opts.Store, resolveFn, createFn, listFn, opts.MCPManager, opts.LightClientFn)
 
 	// Inject sub-agent runtime factory with full Mediator wiring.
 	eng.SetSubAgentFactory(&subAgentFactory{
@@ -208,7 +202,6 @@ func Build(opts Options) (*Bundle, error) {
 		createClientFn:   createFn,
 		providerResolver: resolveFn,
 		listAllModelsFn:  listFn,
-		probeModelFn:     opts.ProbeModelFn,
 		mcpManager:       opts.MCPManager,
 		lightClientFn:    opts.LightClientFn,
 		contextWindowFor: opts.ContextWindowFor,
@@ -238,7 +231,6 @@ type subAgentFactory struct {
 	createClientFn   CreateClientFn
 	providerResolver ProviderResolverFn
 	listAllModelsFn  ListAllModelsFn
-	probeModelFn     ProbeModelFn
 	mcpManager       *mcp.Manager
 	lightClientFn    LightModelClientFn
 	contextWindowFor ContextWindowFn
@@ -304,7 +296,7 @@ func (f *subAgentFactory) NewSubAgentRuntime(ctx context.Context, cfg engine.Sub
 	subRegistry.Register(tool.NewPrune(subEng.PruneHandler()))
 
 	// Build sub Mediator for switch_model support
-	subMediator := engine.NewEngineMediator(subEng, f.store, f.providerResolver, f.createClientFn, f.listAllModelsFn, f.mcpManager, f.lightClientFn, f.probeModelFn)
+	subMediator := engine.NewEngineMediator(subEng, f.store, f.providerResolver, f.createClientFn, f.listAllModelsFn, f.mcpManager, f.lightClientFn)
 
 	// Create runtime with cancellable context
 	subCtx, cancel := context.WithCancel(ctx)
