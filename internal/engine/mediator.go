@@ -25,6 +25,7 @@ type EngineMediator struct {
 	providerResolver   func(configName string) (apiKey, baseURL, authMode, authHelper, protocol string)
 	createClientFn     func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient
 	listAllModelsFn    func(ctx context.Context) ([]protocol.ModelInfo, error)
+	probeModelFn       func(ctx context.Context, modelID string) (protocol.ModelInfo, bool)
 	mcpManager         *mcp.Manager
 	lightModelClientFn func() agent.ModelClient // returns lightweight model client, nil = fallback to current client
 	bgWg               sync.WaitGroup           // tracks background goroutines for graceful shutdown
@@ -38,6 +39,7 @@ func NewEngineMediator(
 	listAllModelsFn func(context.Context) ([]protocol.ModelInfo, error),
 	mcpManager *mcp.Manager,
 	lightModelClientFn func() agent.ModelClient,
+	probeModelFn func(context.Context, string) (protocol.ModelInfo, bool),
 ) *EngineMediator {
 	return &EngineMediator{
 		Engine:             eng,
@@ -45,6 +47,7 @@ func NewEngineMediator(
 		providerResolver:   providerResolver,
 		createClientFn:     createClientFn,
 		listAllModelsFn:    listAllModelsFn,
+		probeModelFn:       probeModelFn,
 		mcpManager:         mcpManager,
 		lightModelClientFn: lightModelClientFn,
 	}
@@ -150,7 +153,21 @@ func (m *EngineMediator) switchModel(a protocol.SwitchModelAction) {
 			a.Protocol = resolvedProto
 		}
 	}
-	// If Protocol/APIKey are still missing, try to resolve via listAllModelsFn
+	// If no provider specified, probe each provider's GetModelInfo for the model.
+	if a.ConfigName == "" && a.APIKey == "" && m.probeModelFn != nil {
+		if mi, ok := m.probeModelFn(context.Background(), a.Model); ok {
+			if mi.MaxContextWindow > 0 && a.MaxContextWindow <= 0 {
+				a.MaxContextWindow = mi.MaxContextWindow
+			}
+			a.APIKey = mi.APIKey
+			a.BaseURL = mi.BaseURL
+			a.AuthMode = mi.AuthMode
+			a.AuthHelper = mi.AuthHelper
+			a.Protocol = mi.Protocol
+			a.ConfigName = mi.ConfigName
+		}
+	}
+	// If Protocol/APIKey are still missing, fallback to listAllModelsFn
 	if a.Protocol == "" && m.listAllModelsFn != nil {
 		if models, err := m.listAllModelsFn(context.Background()); err == nil {
 			for _, mi := range models {
