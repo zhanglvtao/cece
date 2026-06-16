@@ -15,18 +15,14 @@ class DockerInstance:
         self,
         instance_id: str,
         cece_bin: str,
-        model: str,
-        api_key: str,
-        base_url: str = "https://api.anthropic.com",
-        protocol: str = "anthropic",
+        model: str = "deepseek-v4-pro",
+        config_path: str = "~/.cece/settings.json",
         image_tag: str = "latest",
     ):
         self.instance_id = instance_id
         self.cece_bin = Path(cece_bin).resolve()
         self.model = model
-        self.api_key = api_key
-        self.base_url = base_url
-        self.protocol = protocol
+        self.config_path = Path(config_path).expanduser()
 
         docker_id = instance_id.replace("__", "_1776_")
         self.image = f"docker.io/swebench/sweb.eval.x86_64.{docker_id}:{image_tag}".lower()
@@ -66,22 +62,29 @@ class DockerInstance:
             check=True,
         )
 
-        # Write settings.json
-        settings = {
-            "provider": {
-                "model": self.model,
-                "maxTokens": 16384,
-                "providers": [{
-                    "name": "api",
-                    "protocol": self.protocol,
-                    "apiKey": self.api_key,
-                    "baseURL": self.base_url,
-                }],
-            },
-            "defaultMode": {"mode": "auto-accept"},
-            "yolo": {"enabled": True},
-        }
-        self._write_file("/testbed/.cece/settings.json", json.dumps(settings, indent=2))
+        # Write settings.json — copy host config, override model & mode
+        host_config = json.loads(self.config_path.read_text())
+        host_config["provider"]["model"] = self.model
+        host_config["defaultMode"] = {"mode": "auto-accept"}
+        host_config["yolo"] = {"enabled": True}
+
+        # Only keep providers with static apiKey — containers don't have host CLI tools.
+        providers = host_config.get("provider", {}).get("providers", [])
+        filtered = []
+        for p in providers:
+            # Normalize legacy key names
+            key = p.get("apiKey") or p.get("apikey") or p.get("APIKey", "")
+            if key and p.get("authMode", "apikey") != "bearer":
+                p["apiKey"] = key
+                p.pop("apikey", None)
+                p.pop("APIKey", None)
+                p.pop("authHelper", None)
+                filtered.append(p)
+        host_config["provider"]["providers"] = filtered
+        if not host_config["provider"]["providers"]:
+            raise RuntimeError("No static-apiKey provider found in config — cannot run in container")
+
+        self._write_file("/testbed/.cece/settings.json", json.dumps(host_config, indent=2))
 
         # Write SYSTEM.md
         from swebench.prompt import TEMPLATE
@@ -102,8 +105,9 @@ class DockerInstance:
         return self._exec(cmd, workdir=workdir, capture=True)
 
     def get_patch(self) -> str:
-        """Get git diff of all changes in the container."""
+        """Get git diff of source changes only (exclude .cece/ artifacts)."""
         self._exec(["git", "add", "-A"], workdir="/testbed")
+        self._exec(["git", "reset", ".cece/"], workdir="/testbed")
         return self._exec(
             ["git", "--no-pager", "diff", "--cached", "--binary", "--no-ext-diff"],
             workdir="/testbed",

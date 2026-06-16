@@ -4,9 +4,9 @@ Usage:
     python -m swebench.runner \\
         --dataset princeton-nlp/SWE-bench_Lite \\
         --split test \\
-        --model claude-sonnet-4-6 \\
-        --cece-bin ./cece \\
-        --api-key $ANTHROPIC_API_KEY \\
+        --model deepseek-v4-pro \\
+        --config ~/.cece/settings.json \\
+        --cece-bin ./bin/cece \\
         --max-workers 4 \\
         --timeout 600 \\
         --predictions-path ./predictions.jsonl
@@ -43,9 +43,7 @@ def run_instance(
     instance: dict[str, Any],
     cece_bin: str,
     model: str,
-    api_key: str,
-    base_url: str,
-    protocol: str,
+    config_path: str,
     timeout: int,
     predictions_path: Path,
 ) -> dict[str, Any]:
@@ -66,9 +64,7 @@ def run_instance(
         instance_id=instance_id,
         cece_bin=cece_bin,
         model=model,
-        api_key=api_key,
-        base_url=base_url,
-        protocol=protocol,
+        config_path=config_path,
     )
 
     try:
@@ -83,7 +79,6 @@ def run_instance(
     exit_status = "error"
 
     try:
-        # Start cece engine inside container
         proc = subprocess.Popen(
             ["docker", "exec", "-i", docker.container_name, "/usr/local/bin/cece", "engine", "--project-dir", "/testbed"],
             stdin=subprocess.PIPE,
@@ -104,10 +99,7 @@ def run_instance(
 
         exit_status = result["exit_status"]
         stats = result["stats"]
-
-        # Extract patch
         patch = docker.get_patch()
-
         driver.close()
 
     except subprocess.TimeoutExpired:
@@ -123,25 +115,13 @@ def run_instance(
         except Exception:
             pass
 
-    # Save prediction
     if patch.strip():
-        save_result(
-            predictions_path,
-            instance_id,
-            f"cece/{model}",
-            patch,
-            stats=stats,
-        )
+        save_result(predictions_path, instance_id, f"cece/{model}", patch, stats=stats)
         print(f"[done] {instance_id} — {exit_status} | patch:{len(patch)}b | {_format_stats(stats)}")
     else:
         print(f"[fail] {instance_id} — {exit_status} | empty patch")
 
-    return {
-        "instance_id": instance_id,
-        "status": exit_status,
-        "patch_size": len(patch),
-        "stats": stats,
-    }
+    return {"instance_id": instance_id, "status": exit_status, "patch_size": len(patch), "stats": stats}
 
 
 def _format_stats(stats: Optional[dict]) -> str:
@@ -177,25 +157,18 @@ def main():
     parser.add_argument("--dataset", default="princeton-nlp/SWE-bench_Lite", help="HuggingFace dataset name")
     parser.add_argument("--split", default="test", help="Dataset split")
     parser.add_argument("--instance-id", help="Run a single instance (overrides --dataset)")
-    parser.add_argument("--model", required=True, help="Model name")
+    parser.add_argument("--model", default="deepseek-v4-pro", help="Model name")
+    parser.add_argument("--config", default="~/.cece/settings.json", help="Path to cece settings.json")
     parser.add_argument("--cece-bin", required=True, help="Path to cece binary (linux/amd64)")
-    parser.add_argument("--api-key", help="API key (default: $ANTHROPIC_API_KEY)")
-    parser.add_argument("--base-url", default="https://api.anthropic.com", help="API base URL")
-    parser.add_argument("--protocol", default="anthropic", help="Provider protocol")
     parser.add_argument("--max-workers", type=int, default=4, help="Max parallel workers")
     parser.add_argument("--timeout", type=int, default=600, help="Timeout per instance (seconds)")
     parser.add_argument("--predictions-path", default="./predictions.jsonl", help="Output predictions file")
     parser.add_argument("--slice", help="Slice instances (e.g. ':10' for first 10)")
     args = parser.parse_args()
 
-    api_key = args.api_key or os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        sys.exit("Set --api-key or $ANTHROPIC_API_KEY")
-
     predictions_path = Path(args.predictions_path).resolve()
 
     if args.instance_id:
-        # Single instance — minimal dataset
         instances = [{
             "instance_id": args.instance_id,
             "base_commit": "HEAD",
@@ -207,22 +180,23 @@ def main():
             instances = eval(f"instances[{args.slice}]")
 
     print(f"Running {len(instances)} instances, workers={args.max_workers}, timeout={args.timeout}s")
+    print(f"Model: {args.model}  Config: {args.config}")
     print(f"Predictions → {predictions_path}")
 
     if args.max_workers <= 1:
         results = []
         for inst in instances:
             results.append(run_instance(
-                inst, args.cece_bin, args.model, api_key,
-                args.base_url, args.protocol, args.timeout, predictions_path,
+                inst, args.cece_bin, args.model, args.config,
+                args.timeout, predictions_path,
             ))
     else:
         with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
             futures = {
                 executor.submit(
                     run_instance,
-                    inst, args.cece_bin, args.model, api_key,
-                    args.base_url, args.protocol, args.timeout, predictions_path,
+                    inst, args.cece_bin, args.model, args.config,
+                    args.timeout, predictions_path,
                 ): inst["instance_id"]
                 for inst in instances
             }
@@ -230,7 +204,6 @@ def main():
             for future in as_completed(futures):
                 results.append(future.result())
 
-    # Summary
     done = sum(1 for r in results if r["status"] == "completed")
     skipped = sum(1 for r in results if r["status"] == "skipped")
     failed = len(results) - done - skipped
