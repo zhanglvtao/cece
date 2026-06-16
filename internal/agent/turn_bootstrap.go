@@ -151,7 +151,7 @@ func (b *TurnBootstrap) turnDeps() TurnDeps {
 		TryAutoCompact:     eng.TryAutoCompact,
 		HistorySnapshot:    eng.HistorySnapshot,
 		IncrementAPICalls:  eng.IncrementAPICalls,
-		IncrementToolCount: eng.IncrementToolCount,
+		RecordToolExecution: eng.RecordToolExecution,
 		UpdateCacheTokens:  eng.UpdateCacheTokens,
 		ContextWindow:      eng.ContextWindow(),
 	}

@@ -262,6 +262,23 @@ func TestSlashModelAndSkill(t *testing.T) {
 	}
 }
 
+func TestDoubleSlashSendsPlainInput(t *testing.T) {
+	sender := newRecordingSender()
+	m := NewModel(sender, "sonnet", "/tmp")
+	m.input.SetValue("//")
+	_, cmd := m.handleKey(keyMsg("enter"))
+	if cmd == nil {
+		t.Fatal("expected submit command")
+	}
+	_ = cmd()
+	if len(sender.inputs) != 1 || sender.inputs[0] != "//" {
+		t.Fatalf("inputs = %v, want [//]", sender.inputs)
+	}
+	if got := m.StatusForTest(); got == "Unknown command: //" {
+		t.Fatalf("status = %q, should not be treated as slash command", got)
+	}
+}
+
 func TestBusyInputQueuesAction(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")
@@ -437,6 +454,40 @@ func TestStatusRendersAboveInput(t *testing.T) {
 	}
 	if strings.Contains(view[metricsIdx:], "Ready") {
 		t.Fatalf("bottom metrics bar should not contain status")
+	}
+}
+
+func TestHeaderBarSeparatedFromViewport(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
+
+	view := stripAnsi(m.View().Content)
+	lines := strings.Split(view, "\n")
+	headerIdx := -1
+	sepIdx := -1
+	viewportIdx := -1
+	for i, line := range lines {
+		if headerIdx < 0 && strings.Contains(line, "API ✓0") {
+			headerIdx = i
+			continue
+		}
+		if headerIdx >= 0 && sepIdx < 0 && strings.TrimSpace(line) != "" && strings.Trim(line, "─") == "" {
+			sepIdx = i
+			continue
+		}
+		if sepIdx >= 0 && viewportIdx < 0 && strings.Contains(line, "Cece ready. Type a message and press Enter.") {
+			viewportIdx = i
+			break
+		}
+	}
+	if headerIdx < 0 {
+		t.Fatalf("missing header bar in view:\n%s", view)
+	}
+	if sepIdx != headerIdx+1 {
+		t.Fatalf("expected separator immediately after header; headerIdx=%d sepIdx=%d\n%s", headerIdx, sepIdx, view)
+	}
+	if viewportIdx <= sepIdx {
+		t.Fatalf("expected viewport content after separator; sepIdx=%d viewportIdx=%d\n%s", sepIdx, viewportIdx, view)
 	}
 }
 

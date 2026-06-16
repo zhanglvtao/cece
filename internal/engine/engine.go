@@ -72,7 +72,8 @@ type Engine struct {
 	totalInputTokens           int                                  // cumulative input tokens across turns
 	totalOutputTokens          int                                  // cumulative output tokens across turns
 	apiCalls                   int                                  // cumulative API call count
-	toolCounts                 map[string]int                       // cumulative tool execution counts
+	toolCounts                 map[string]int                       // cumulative tool execution counts (success + failure)
+	failedToolCounts           map[string]int                       // cumulative tool failure counts
 	turnCount                  int                                  // cumulative conversation turn count
 	cacheReadTokens            int                                  // cumulative cache read tokens
 	cacheCreationTokens        int                                  // cumulative cache creation tokens
@@ -98,7 +99,8 @@ func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, max
 		yolo:       yolo,
 		maxTokens:  maxTokens,
 		inputQueue: &userInputQueue{},
-		toolCounts: make(map[string]int),
+		toolCounts:       make(map[string]int),
+		failedToolCounts: make(map[string]int),
 		subAgents:  make(map[string]*AgentRuntime),
 		eventCh:    make(chan protocol.Event, 4096),
 	}
@@ -1240,14 +1242,21 @@ func (e *Engine) TryAutoCompact(ctx context.Context) bool {
 	return true
 }
 
-// IncrementToolCount increments the tool execution counter for the given tool.
-func (e *Engine) IncrementToolCount(name string) {
+// RecordToolExecution records a tool execution, incrementing both the total
+// count and the failure count when isError is true.
+func (e *Engine) RecordToolExecution(name string, isError bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.toolCounts == nil {
 		e.toolCounts = make(map[string]int)
 	}
+	if e.failedToolCounts == nil {
+		e.failedToolCounts = make(map[string]int)
+	}
 	e.toolCounts[name]++
+	if isError {
+		e.failedToolCounts[name]++
+	}
 }
 
 // UpdateCacheTokens updates cumulative cache token counts.
@@ -1271,9 +1280,14 @@ func (e *Engine) statusBarSnapshotLocked() session.StatusBarSnapshot {
 	for k, v := range e.toolCounts {
 		tc[k] = v
 	}
+	fc := make(map[string]int, len(e.failedToolCounts))
+	for k, v := range e.failedToolCounts {
+		fc[k] = v
+	}
 	return session.StatusBarSnapshot{
 		APICalls:            e.apiCalls,
 		ToolCounts:          tc,
+		ToolFailedCounts:    fc,
 		CacheReadTokens:     e.cacheReadTokens,
 		CacheCreationTokens: e.cacheCreationTokens,
 		TurnCount:           e.turnCount,
@@ -1296,6 +1310,14 @@ func (e *Engine) SetStatusBarState(sb session.StatusBarSnapshot) {
 	e.cacheReadTokens = sb.CacheReadTokens
 	e.cacheCreationTokens = sb.CacheCreationTokens
 	e.turnCount = sb.TurnCount
+	if sb.ToolFailedCounts != nil {
+		e.failedToolCounts = make(map[string]int, len(sb.ToolFailedCounts))
+		for k, v := range sb.ToolFailedCounts {
+			e.failedToolCounts[k] = v
+		}
+	} else {
+		e.failedToolCounts = make(map[string]int)
+	}
 }
 
 // toolCountsSnapshot returns a copy of the tool counts map (thread-safe).
@@ -1310,6 +1332,31 @@ func (e *Engine) toolCountsSnapshot() map[string]int {
 		tc[k] = v
 	}
 	return tc
+}
+
+// SessionStats returns cumulative session statistics for external drivers.
+func (e *Engine) SessionStats() protocol.SessionStats {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	success := make(map[string]int, len(e.toolCounts))
+	for k, v := range e.toolCounts {
+		success[k] = v - e.failedToolCounts[k]
+	}
+	failed := make(map[string]int, len(e.failedToolCounts))
+	for k, v := range e.failedToolCounts {
+		failed[k] = v
+	}
+	return protocol.SessionStats{
+		TurnCount:           e.turnCount,
+		APICalls:            e.apiCalls,
+		TotalInputTokens:    e.totalInputTokens,
+		TotalOutputTokens:   e.totalOutputTokens,
+		CacheReadTokens:     e.cacheReadTokens,
+		CacheCreationTokens: e.cacheCreationTokens,
+		LastInputTokens:     e.lastInputTokens,
+		ToolSuccessCounts:   success,
+		ToolFailedCounts:    failed,
+	}
 }
 
 // LoadHistory replaces the conversation history from loaded messages.

@@ -131,6 +131,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		m.goBackground(func() { m.disconnectMCP(a.Name) })
 	case protocol.ListToolsAction:
 		m.goBackground(m.listTools)
+	case protocol.StatsAction:
+		m.Engine.EmitEvent(protocol.StatsEvent{Stats: m.Engine.SessionStats()})
 	case protocol.DryRunRequestAction:
 		m.Engine.DryRunRequest(a.Input)
 	}

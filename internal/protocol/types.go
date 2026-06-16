@@ -107,6 +107,19 @@ const (
 	PermissionModePlan       PermissionMode = "plan"
 )
 
+// SessionStats holds cumulative session statistics for external drivers.
+type SessionStats struct {
+	TurnCount           int            `json:"turn_count"`
+	APICalls            int            `json:"api_calls"`
+	TotalInputTokens    int            `json:"total_input_tokens"`
+	TotalOutputTokens   int            `json:"total_output_tokens"`
+	CacheReadTokens     int            `json:"cache_read_tokens"`
+	CacheCreationTokens int            `json:"cache_creation_tokens"`
+	LastInputTokens     int            `json:"last_input_tokens"`
+	ToolSuccessCounts   map[string]int `json:"tool_success_counts"`
+	ToolFailedCounts    map[string]int `json:"tool_failed_counts"`
+}
+
 // SessionInfo holds session metadata for UI display.
 type SessionInfo struct {
 	ID        string    `json:"id"`

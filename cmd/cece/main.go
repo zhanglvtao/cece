@@ -46,6 +46,7 @@ type runtimeMetadata struct {
 	contextWindow int
 	defaultMode   string
 	debug         bool
+	enabledSkills []string
 }
 
 func createClient(pc config.ProviderConfig, model string, configName string) agent.ModelClient {
@@ -65,6 +66,12 @@ func createClient(pc config.ProviderConfig, model string, configName string) age
 		}
 		return c
 	case "aiden":
+		c := aiden.NewClient(pc.APIKey, model, pc.BaseURL)
+		if pc.AuthHelper != "" {
+			c.SetAuthHelper(pc.AuthHelper)
+		}
+		return c
+	case "bytedance":
 		c := aiden.NewClient(pc.APIKey, model, pc.BaseURL)
 		if pc.AuthHelper != "" {
 			c.SetAuthHelper(pc.AuthHelper)
@@ -178,7 +185,9 @@ func runTUI(projectDir string) int {
 	model := ui.NewModel(client, meta.model, projectDir)
 	model.SetDefaultMode(meta.defaultMode)
 	model.SetSessions(session.NewFileStore(projectDir))
-	model.SetSkillStore(skill.NewStore(skill.DiscoverAll(projectDir)))
+	skillStore := skill.NewStore(skill.DiscoverAll(projectDir))
+	skillStore.SetEnabled(meta.enabledSkills)
+	model.SetSkillStore(skillStore)
 
 	program := tea.NewProgram(&model)
 	if _, err := program.Run(); err != nil {
@@ -232,6 +241,7 @@ func loadMetadata(projectDir string) (runtimeMetadata, error) {
 		contextWindow: cfg.ContextWindowFor(cfg.Model),
 		defaultMode:   cfg.DefaultMode,
 		debug:         cfg.Debug,
+		enabledSkills: cfg.EnabledSkills,
 	}, nil
 }
 

@@ -30,7 +30,7 @@ type TurnDeps struct {
 	HistorySnapshot      func() []Message
 	ResetQuestionAnswers func()
 	IncrementAPICalls    func()
-	IncrementToolCount   func(name string)
+	RecordToolExecution  func(name string, isError bool)
 	UpdateCacheTokens    func(read, creation int)
 	ContextWindow        int
 }
@@ -199,8 +199,9 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		}
 
 		toolResults := r.toolExecutor.ExecuteBatch(ctx, resp.toolCalls, events)
-		for _, tc := range resp.toolCalls {
-			r.deps.IncrementToolCount(tc.Name)
+		for i, tc := range resp.toolCalls {
+			isErr := i < len(toolResults) && toolResults[i].ToolResult != nil && toolResults[i].ToolResult.IsError
+			r.deps.RecordToolExecution(tc.Name, isErr)
 		}
 		toolResultNames = make([]string, len(resp.toolCalls))
 		for i, tc := range resp.toolCalls {

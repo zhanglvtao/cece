@@ -36,7 +36,7 @@ type TurnEngine interface {
 
 	// Status bar tracking (Engine is the single source of truth)
 	IncrementAPICalls()
-	IncrementToolCount(name string)
+	RecordToolExecution(name string, isError bool)
 	UpdateCacheTokens(read, creation int)
 
 	// Question answers

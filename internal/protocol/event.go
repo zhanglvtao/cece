@@ -476,3 +476,10 @@ type ToolInfo struct {
 	Description string
 	Source      string // "builtin" or "mcp:<server>"
 }
+
+// StatsEvent is the response to StatsAction, carrying cumulative session statistics.
+type StatsEvent struct {
+	Stats SessionStats
+}
+
+func (StatsEvent) isEvent() {}

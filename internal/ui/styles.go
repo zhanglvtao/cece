@@ -53,6 +53,8 @@ type Styles struct {
 		Context   lipgloss.Style
 		Tokens    lipgloss.Style
 		Calls     lipgloss.Style
+		Ok        lipgloss.Style // ✓ green
+		Fail      lipgloss.Style // ✗ red
 		Tool      lipgloss.Style // default / unclassified tools + MCP
 		ToolFile  lipgloss.Style // file ops: Read, Write, Edit, Glob, Grep, Bash
 		ToolWeb   lipgloss.Style // web ops: WebFetch, WebSearch
@@ -140,6 +142,8 @@ func DefaultStyles() Styles {
 	s.Status.Context = lipgloss.NewStyle().Foreground(theme.Blue)
 	s.Status.Tokens = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	s.Status.Ok = lipgloss.NewStyle().Foreground(theme.Green)
+	s.Status.Fail = lipgloss.NewStyle().Foreground(theme.Red)
 	s.Status.Tool = lipgloss.NewStyle().Foreground(theme.Yellow)
 	s.Status.ToolFile = lipgloss.NewStyle().Foreground(theme.Green)    // file ops
 	s.Status.ToolWeb = lipgloss.NewStyle().Foreground(theme.Magenta)   // web ops

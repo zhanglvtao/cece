@@ -55,6 +55,7 @@ var actionKinds = map[string]func() protocol.Action{
 	"connect_mcp":           func() protocol.Action { return &protocol.ConnectMCPAction{} },
 	"disconnect_mcp":        func() protocol.Action { return &protocol.DisconnectMCPAction{} },
 	"list_tools":            func() protocol.Action { return &protocol.ListToolsAction{} },
+	"stats":                 func() protocol.Action { return &protocol.StatsAction{} },
 }
 
 var eventKinds = map[string]func() protocol.Event{
@@ -108,6 +109,7 @@ var eventKinds = map[string]func() protocol.Event{
 	"subagent_completed":        func() protocol.Event { return &protocol.SubAgentCompletedEvent{} },
 	"subagent_failed":           func() protocol.Event { return &protocol.SubAgentFailedEvent{} },
 	"tools_listed":              func() protocol.Event { return &protocol.ToolsListedEvent{} },
+	"stats":                     func() protocol.Event { return &protocol.StatsEvent{} },
 }
 
 var actionKindByType = map[reflect.Type]string{}
@@ -256,6 +258,8 @@ func derefAction(a protocol.Action) protocol.Action {
 		return *v
 	case *protocol.ListToolsAction:
 		return *v
+	case *protocol.StatsAction:
+		return *v
 	default:
 		return a
 	}
@@ -360,6 +364,8 @@ func derefEvent(ev protocol.Event) protocol.Event {
 	case *protocol.SubAgentFailedEvent:
 		return *v
 	case *protocol.ToolsListedEvent:
+		return *v
+	case *protocol.StatsEvent:
 		return *v
 	default:
 		return ev

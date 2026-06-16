@@ -176,3 +176,8 @@ func (DisconnectMCPAction) isAction() {}
 type ListToolsAction struct{}
 
 func (ListToolsAction) isAction() {}
+
+// StatsAction requests cumulative session statistics.
+type StatsAction struct{}
+
+func (StatsAction) isAction() {}

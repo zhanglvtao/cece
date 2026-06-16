@@ -29,6 +29,8 @@ const (
 	modalMaxHeight       = 14
 )
 
+var statusSpinnerFrames = []rune{'-', '\\', '|', '/'}
+
 type globalEventMsg struct{ events []protocol.Event }
 type inputErrorMsg struct{ err error }
 type statusSpinnerTickMsg struct{}
@@ -59,6 +61,8 @@ type Eventer interface {
 }
 
 type layoutState struct {
+	headerBar  string
+	headerBarH int
 	titleBar   string
 	titleBarH  int
 	modal      string
@@ -119,6 +123,7 @@ type Model struct {
 	slashPopup *SlashPopup
 	filePopup  *FilePopup
 	statusBar  *StatusBar
+	headerBar  *HeaderBar
 
 	sessions                session.Store
 	currentSessionID        string
@@ -159,8 +164,9 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 	sb := NewStatusBar()
 	sb.UpdateMode(string(protocol.PermissionModeDefault))
 	sb.UpdateModel(modelName)
-	sb.UpdateStatus("Ready", false)
 	sb.UpdateContext(0, cw)
+
+	hb := NewHeaderBar()
 
 	return Model{
 		sender:        sender,
@@ -178,6 +184,7 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 		viewport:      viewport.New(viewport.WithWidth(80), viewport.WithHeight(20)),
 		input:         input,
 		statusBar:     sb,
+		headerBar:     hb,
 		historyIndex:  -1,
 	}
 }
@@ -304,7 +311,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusFrame++
-		m.statusBar.TickStatusSpinner()
 		return m, statusSpinnerTickCmd()
 	case filesLoadedMsg:
 		m.filePopup.OnFilesLoaded(msg.root)
@@ -418,7 +424,6 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.busy = true
 		m.status = "Requesting"
 		m.requestStartTime = time.Now()
-		m.statusBar.SetAPICalls(e.APICalls)
 		if e.ContextWindow > 0 && e.ContextWindow != m.contextWindow {
 			logger.Info("UI: contextWindow synced from ModelRequestStarted", "old", m.contextWindow, "new", e.ContextWindow)
 			m.contextWindow = e.ContextWindow
@@ -435,12 +440,14 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.requestStartTime = time.Time{}
 		m.status = errorStatus("Failed")
 		m.streamHeadline = ""
+		m.headerBar.IncrementTurn(false)
+		m.headerBar.IncrementAPI(false)
 	case protocol.TurnCompleted:
 		m.busy = false
 		m.requestStartTime = time.Time{}
 		m.status = "Ready"
 		m.streamHeadline = ""
-		m.statusBar.IncrementTurnCount()
+		m.headerBar.IncrementTurn(true)
 		if e.ContextWindow > 0 && e.ContextWindow != m.contextWindow {
 			logger.Info("UI: contextWindow synced from TurnCompleted", "old", m.contextWindow, "new", e.ContextWindow)
 			m.contextWindow = e.ContextWindow
@@ -454,7 +461,9 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.ToolCallCompleted:
 		// tool count is set from ToolExecCompleted
 	case protocol.ToolExecCompleted:
-		m.statusBar.SetToolCounts(e.ToolCounts)
+		m.headerBar.IncrementTool(e.Name, !e.Result.IsError)
+	case protocol.StreamCompleted:
+		m.headerBar.IncrementAPI(true)
 	case protocol.ToolCallsReady:
 		m.openToolConfirm(e.Calls)
 		m.status = "Confirm tools"
@@ -505,7 +514,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 				logger.Info("UI: contextWindow changed by SessionLoadedEvent", "old", m.contextWindow, "new", e.ContextWindow)
 				m.contextWindow = e.ContextWindow
 			}
-			m.statusBar.Restore(e.APICalls, e.ToolCounts, e.CacheReadTokens, e.CacheCreationTokens, e.TurnCount)
+			m.headerBar.Restore(e.APICalls, e.ToolCounts, e.CacheReadTokens, e.TurnCount)
 			if len(e.InputHistory) > 0 {
 				m.history = e.InputHistory
 				m.historyIndex = -1
@@ -528,7 +537,6 @@ func (m *Model) applyEvent(event protocol.Event) {
 			m.transcript.appendDone(blockInfo, "compact", e.Summary)
 			m.transcript.contextUsed = e.TokensAfter
 		}
-		m.statusBar.ResetToolCounts()
 	case protocol.TruncatedToolResultsEvent:
 		m.status = fmt.Sprintf("Truncated %d tool results, %dK→%dK tokens",
 			e.TruncatedCount,
@@ -537,7 +545,6 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.status = fmt.Sprintf("Pruned %d turns, %dK→%dK tokens",
 			e.PrunedTurns,
 			(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
-		m.statusBar.ResetToolCounts()
 	case protocol.ContextNudgedEvent:
 		m.status = fmt.Sprintf("Context nudge: %d%% used, %d turns since compact", e.ContextPct, e.TurnsSinceCompact)
 
@@ -570,15 +577,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.markAgentDone(e.ID, "failed")
 		m.status = errorStatus(fmt.Sprintf("● %s failed: %s", e.Description, e.Error))
 	}
-	// Sync all status bar data from model state.
+	// Sync status bar and header bar data from model state.
 	m.statusBar.UpdateMode(string(m.mode))
-	m.statusBar.UpdateStatus(m.status, m.busy)
-	m.statusBar.UpdateTokens(m.transcript.inputTokens, m.transcript.outputTokens)
-	if m.contextWindow != m.statusBar.contextWindow {
-		logger.Info("UI: contextWindow mismatch before UpdateContext sync", "model.cw", m.contextWindow, "statusBar.cw", m.statusBar.contextWindow)
-	}
 	m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
-	m.statusBar.UpdateCache(m.transcript.cacheReadTokens, m.transcript.cacheCreationTokens)
+	m.headerBar.UpdateTokens(m.transcript.inputTokens, m.transcript.outputTokens, m.transcript.cacheReadTokens)
 	m.refreshViewport(m.viewportGotoBottom || eventPinsViewportToBottom(event))
 	m.viewportGotoBottom = false
 	if m.scrollToPlanBlock {
@@ -613,6 +615,10 @@ func (m *Model) View() tea.View {
 	sep := m.styles.Status.Separator.Render(strings.Repeat("─", max(m.width, 0)))
 	ls := m.measureLayout()
 	sections := []string{}
+	// Header bar at very top: stats
+	if ls.headerBar != "" {
+		sections = append(sections, ls.headerBar, sep)
+	}
 	// Title bar at top: session title + id
 	if ls.titleBar != "" {
 		sections = append(sections, ls.titleBar, sep)
@@ -664,6 +670,9 @@ func (m *Model) View() tea.View {
 		// Place cursor at the inline text input line inside the question modal.
 		cur := &tea.Cursor{}
 		cur.Y = m.viewport.Height() + ls.modalH - 1
+		if ls.headerBarH > 0 {
+			cur.Y += ls.headerBarH + 1
+		}
 		if ls.titleBarH > 0 {
 			cur.Y += ls.titleBarH + 1
 		}
@@ -671,6 +680,9 @@ func (m *Model) View() tea.View {
 		view.Cursor = cur
 	} else if cur := m.input.Cursor(); cur != nil {
 		rowsAboveInput := m.viewport.Height()
+		if ls.headerBarH > 0 {
+			rowsAboveInput += ls.headerBarH + 1
+		}
 		if ls.titleBarH > 0 {
 			rowsAboveInput += ls.titleBarH + 1
 		}
@@ -702,6 +714,8 @@ func (m *Model) View() tea.View {
 
 func (m *Model) measureLayout() layoutState {
 	ls := layoutState{separatorH: 1}
+	ls.headerBar = m.headerBarView()
+	ls.headerBarH = renderedHeight(ls.headerBar)
 	ls.titleBar = m.titleBarView()
 	ls.titleBarH = renderedHeight(ls.titleBar)
 	ls.modal = m.modalView()
@@ -722,6 +736,9 @@ func (m *Model) measureLayout() layoutState {
 	ls.statusH = m.statusBar.Height()
 
 	chromeH := ls.inputH + ls.statusH
+	if ls.headerBarH > 0 {
+		chromeH += ls.headerBarH + ls.separatorH
+	}
 	if ls.titleBarH > 0 {
 		chromeH += ls.titleBarH + ls.separatorH
 	}
@@ -872,11 +889,15 @@ func (m *Model) titleBarView() string {
 	if m.currentSessionID == "" {
 		return ""
 	}
-	sid := "sid:" + m.currentSessionID
+	sid := "session-id:" + m.currentSessionID
 	if m.currentSessionTitle != "" {
 		return m.styles.TitleBar.Render(m.currentSessionTitle + " · " + sid)
 	}
 	return m.styles.TitleBar.Render(sid)
+}
+
+func (m *Model) headerBarView() string {
+	return m.headerBar.Render(m.width)
 }
 
 func (m *Model) statusShowsSpinner() bool {
@@ -1317,7 +1338,8 @@ func (m *Model) handleSend() tea.Cmd {
 	m.input.Reset()
 	m.addHistory(input)
 	m.viewport.GotoBottom()
-	if strings.HasPrefix(strings.TrimLeft(input, " \t"), "/") {
+	spec := parseSlashSpec(input)
+	if spec.Valid() && spec.StartIdx == 0 {
 		return m.handleSlashCommand(input)
 	}
 	if m.busy {

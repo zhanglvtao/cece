@@ -77,6 +77,7 @@ var protocols = []protocolOption{
 	{id: "anthropic"},
 	{id: "codebase"},
 	{id: "aiden"},
+	{id: "bytedance"},
 }
 
 var modes = []modeOption{
@@ -514,7 +515,12 @@ func (m SetupModel) handleSelect(value string) (tea.Model, tea.Cmd) {
 	switch m.step {
 	case stepProtocol:
 		m.col.protocol = value
-		m.step = stepBaseURL
+		if value == "bytedance" {
+			m.col.baseURL = "https://aiden-aiproxy.bytedance.net"
+			m.step = stepAPIKey
+		} else {
+			m.step = stepBaseURL
+		}
 		m.textInput = ""
 	case stepModel:
 		if value == "__custom__" {
