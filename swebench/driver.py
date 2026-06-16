@@ -47,7 +47,12 @@ class CeceDriver:
     def get_stats(self) -> Optional[dict]:
         """Request and receive session statistics."""
         self.send({"type": "action", "kind": "stats"})
-        return self._wait_for_kind("stats", timeout=10)
+        payload = self._wait_for_kind("stats", timeout=10)
+        if payload:
+            # Go struct serializes StatsEvent{Stats: SessionStats{...}}
+            # which produces payload: {"Stats": {...}}
+            return payload.get("Stats", payload)
+        return None
 
     def events(self):
         """Iterate over JSONL events from engine stdout."""
