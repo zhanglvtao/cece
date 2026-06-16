@@ -385,8 +385,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // ApplyEventForTest applies a protocol event directly to the model. For testing only.
+// It calls resize() after applyEvent so that viewport state is immediately
+// consistent (production code defers viewport refresh to View()).
 func (m *Model) ApplyEventForTest(event protocol.Event) {
 	m.applyEvent(event)
+	m.resize()
 }
 
 func (m *Model) applyEvent(event protocol.Event) {
@@ -581,14 +584,9 @@ func (m *Model) applyEvent(event protocol.Event) {
 	m.statusBar.UpdateMode(string(m.mode))
 	m.statusBar.UpdateContext(m.transcript.contextUsed, m.contextWindow)
 	m.headerBar.UpdateTokens(m.transcript.inputTokens, m.transcript.outputTokens, m.transcript.cacheReadTokens)
-	m.refreshViewport(m.viewportGotoBottom || eventPinsViewportToBottom(event))
-	m.viewportGotoBottom = false
-	if m.scrollToPlanBlock {
-		m.scrollToPlanBlock = false
-		m.viewport.SetContent(m.transcript.render(m.width, m.styles))
-		if offset, found := m.transcript.lastPlanOffset(m.width, m.styles); found {
-			m.viewport.SetYOffset(offset)
-		}
+	m.viewportDirty = true
+	if eventPinsViewportToBottom(event) {
+		m.viewportGotoBottom = true
 	}
 }
 
@@ -801,6 +799,13 @@ func (m *Model) resize() {
 func (m *Model) refreshViewport(gotoBottom bool) {
 	atBottom := m.viewport.AtBottom()
 	m.viewport.SetContent(m.transcript.render(m.width, m.styles))
+	if m.scrollToPlanBlock {
+		m.scrollToPlanBlock = false
+		if offset, found := m.transcript.lastPlanOffset(m.width, m.styles); found {
+			m.viewport.SetYOffset(offset)
+			return
+		}
+	}
 	if gotoBottom || atBottom {
 		m.viewport.GotoBottom()
 	}

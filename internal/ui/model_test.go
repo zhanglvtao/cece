@@ -36,11 +36,11 @@ func (s *recordingSender) Events() <-chan protocol.Event { return s.events }
 
 func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
-	m.applyEvent(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: "hi"}})
-	m.applyEvent(protocol.AssistantStarted{})
-	m.applyEvent(protocol.AssistantDelta{Text: "hello"})
-	m.applyEvent(protocol.AssistantDelta{Text: " there"})
-	m.applyEvent(protocol.TurnCompleted{})
+	m.ApplyEventForTest(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: "hi"}})
+	m.ApplyEventForTest(protocol.AssistantStarted{})
+	m.ApplyEventForTest(protocol.AssistantDelta{Text: "hello"})
+	m.ApplyEventForTest(protocol.AssistantDelta{Text: " there"})
+	m.ApplyEventForTest(protocol.TurnCompleted{})
 
 	if m.busy {
 		t.Fatal("busy = true after TurnCompleted")
@@ -54,7 +54,7 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 func TestToolConfirmDispatchesActions(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")
-	m.applyEvent(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit", Input: json.RawMessage(`{"file":"a.go"}`)}}})
+	m.ApplyEventForTest(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit", Input: json.RawMessage(`{"file":"a.go"}`)}}})
 	if m.modal.kind != modalConfirmTools {
 		t.Fatalf("modal = %v, want confirm tools", m.modal.kind)
 	}
@@ -63,7 +63,7 @@ func TestToolConfirmDispatchesActions(t *testing.T) {
 		t.Fatalf("last action = %T, want ConfirmAction", sender.actions[len(sender.actions)-1])
 	}
 
-	m.applyEvent(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
+	m.ApplyEventForTest(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
 	m.handleModalKey(keyMsg("shift+tab"))
 	if m.modal.active() {
 		t.Fatal("modal should be closed after enabling auto-accept")
@@ -82,7 +82,7 @@ func TestToolConfirmDispatchesActions(t *testing.T) {
 		t.Fatalf("last action = %T, want ConfirmAction", sender.actions[len(sender.actions)-1])
 	}
 
-	m.applyEvent(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
+	m.ApplyEventForTest(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
 	m.handleModalKey(keyMsg("n"))
 	if _, ok := sender.actions[len(sender.actions)-1].(protocol.RejectToolCallsAction); !ok {
 		t.Fatalf("last action = %T, want RejectToolCallsAction", sender.actions[len(sender.actions)-1])
@@ -92,7 +92,7 @@ func TestToolConfirmDispatchesActions(t *testing.T) {
 func TestPlanApprovalDispatchesActions(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")
-	m.applyEvent(protocol.PlanApprovalRequested{PlanFile: "plan.md", PlanContent: "# Plan"})
+	m.ApplyEventForTest(protocol.PlanApprovalRequested{PlanFile: "plan.md", PlanContent: "# Plan"})
 	if m.modal.kind != modalApprovePlan {
 		t.Fatalf("modal = %v, want approve plan", m.modal.kind)
 	}
@@ -105,7 +105,7 @@ func TestPlanApprovalDispatchesActions(t *testing.T) {
 		t.Fatalf("last action = %T, want ApprovePlanAction", sender.actions[len(sender.actions)-1])
 	}
 
-	m.applyEvent(protocol.PlanApprovalRequested{PlanFile: "plan.md"})
+	m.ApplyEventForTest(protocol.PlanApprovalRequested{PlanFile: "plan.md"})
 	m.handleModalKey(keyMsg("n"))
 	if _, ok := sender.actions[len(sender.actions)-1].(protocol.RejectPlanAction); !ok {
 		t.Fatalf("last action = %T, want RejectPlanAction", sender.actions[len(sender.actions)-1])
@@ -118,7 +118,7 @@ func TestPlanApprovalDispatchesActions(t *testing.T) {
 func TestQuestionModalBuildsAnswerAction(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")
-	m.applyEvent(protocol.QuestionAsked{Questions: []protocol.Question{{
+	m.ApplyEventForTest(protocol.QuestionAsked{Questions: []protocol.Question{{
 		Question: "Pick one",
 		Options:  []protocol.QuestionOption{{Label: "A"}, {Label: "B"}},
 	}}})
@@ -137,7 +137,7 @@ func TestQuestionModalBuildsAnswerAction(t *testing.T) {
 func TestPlanApprovalShiftTabAutoAccept(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")
-	m.applyEvent(protocol.PlanApprovalRequested{PlanFile: "plan.md", PlanContent: "# Plan"})
+	m.ApplyEventForTest(protocol.PlanApprovalRequested{PlanFile: "plan.md", PlanContent: "# Plan"})
 	m.handleModalKey(keyMsg("shift+tab"))
 	if m.modal.active() {
 		t.Fatal("modal should be closed after shift+tab")
@@ -160,7 +160,7 @@ func TestPlanApprovalShiftTabAutoAccept(t *testing.T) {
 func TestQuestionShiftTabAutoAnswer(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")
-	m.applyEvent(protocol.QuestionAsked{Questions: []protocol.Question{
+	m.ApplyEventForTest(protocol.QuestionAsked{Questions: []protocol.Question{
 		{Question: "Pick one", Options: []protocol.QuestionOption{{Label: "A"}, {Label: "B"}}},
 		{Question: "Pick another", Options: []protocol.QuestionOption{{Label: "X"}, {Label: "Y"}}},
 	}})
@@ -187,7 +187,7 @@ func TestQuestionShiftTabAutoAnswer(t *testing.T) {
 func TestModelPickerDispatchesSwitchModel(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "old", "/tmp")
-	m.applyEvent(protocol.ModelsLoadedEvent{Models: []protocol.ModelInfo{
+	m.ApplyEventForTest(protocol.ModelsLoadedEvent{Models: []protocol.ModelInfo{
 		{ID: "old", DisplayName: "Old"},
 		{ID: "new", DisplayName: "New", MaxContextWindow: 123, Provider: "p", Protocol: "aiden"},
 	}})
@@ -208,7 +208,7 @@ func TestModelPickerDispatchesSwitchModel(t *testing.T) {
 
 func TestSessionLoadedRebuildsTranscript(t *testing.T) {
 	m := NewModel(nil, "old", "/tmp")
-	m.applyEvent(protocol.SessionLoadedEvent{
+	m.ApplyEventForTest(protocol.SessionLoadedEvent{
 		SessionID:     "sess1",
 		Model:         "new",
 		ContextWindow: 200,
@@ -297,7 +297,7 @@ func TestViewportPreservesManualScrollDuringStreaming(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 60, Height: 10})
 	for i := 0; i < 12; i++ {
-		m.applyEvent(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: strings.Repeat("old message\n", 3)}})
+		m.ApplyEventForTest(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: strings.Repeat("old message\n", 3)}})
 	}
 	if !m.viewport.AtBottom() {
 		t.Fatal("viewport should follow initial transcript to bottom")
@@ -309,7 +309,7 @@ func TestViewportPreservesManualScrollDuringStreaming(t *testing.T) {
 		t.Fatalf("test setup failed: offset=%d atBottom=%v", before, m.viewport.AtBottom())
 	}
 
-	m.applyEvent(protocol.AssistantDelta{Text: strings.Repeat("streaming update\n", 4)})
+	m.ApplyEventForTest(protocol.AssistantDelta{Text: strings.Repeat("streaming update\n", 4)})
 	if got := m.viewport.YOffset(); got != before {
 		t.Fatalf("streaming forced viewport offset from %d to %d", before, got)
 	}
@@ -319,7 +319,7 @@ func TestViewportScrollKeysMoveByLineAndPage(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 80, Height: 10})
 	for i := 0; i < 12; i++ {
-		m.applyEvent(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: strings.Repeat("old message\n", 3)}})
+		m.ApplyEventForTest(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: strings.Repeat("old message\n", 3)}})
 	}
 	bottom := m.viewport.YOffset()
 	if bottom == 0 {
@@ -351,7 +351,7 @@ func TestViewportCtrlDownUsesModifiersEvenWithDraftInput(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 60, Height: 10})
 	for i := 0; i < 12; i++ {
-		m.applyEvent(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: strings.Repeat("old message\n", 3)}})
+		m.ApplyEventForTest(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: strings.Repeat("old message\n", 3)}})
 	}
 	m.viewport.ScrollUp(3)
 	before := m.viewport.YOffset()
@@ -368,7 +368,7 @@ func TestViewportCtrlDownUsesModifiersEvenWithDraftInput(t *testing.T) {
 
 func TestPopupAllowsViewportMouseWheelScroll(t *testing.T) {
 	m := newScrollableModel(t)
-	m.applyEvent(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
+	m.ApplyEventForTest(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
 	if !m.modal.active() {
 		t.Fatal("test setup failed: modal is not active")
 	}
@@ -382,7 +382,7 @@ func TestPopupAllowsViewportMouseWheelScroll(t *testing.T) {
 
 func TestPopupAllowsViewportModifierScrollKeys(t *testing.T) {
 	m := newScrollableModel(t)
-	m.applyEvent(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
+	m.ApplyEventForTest(protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "1", Name: "Edit"}}})
 	if !m.modal.active() {
 		t.Fatal("test setup failed: modal is not active")
 	}
@@ -424,7 +424,7 @@ func TestModelSyncsModeToStatusBar(t *testing.T) {
 		t.Fatalf("default mode statusbar column = %q, want %q", parts[0], "plan ✎")
 	}
 
-	m.applyEvent(protocol.ModeChangedEvent{Mode: protocol.PermissionModeAutoAccept, Message: "Auto-accept mode"})
+	m.ApplyEventForTest(protocol.ModeChangedEvent{Mode: protocol.PermissionModeAutoAccept, Message: "Auto-accept mode"})
 	got = stripAnsi(m.statusBar.Render(120))
 	parts = strings.Split(got, " | ")
 	if parts[0] != "auto-accept ✓" {
@@ -495,7 +495,7 @@ func TestSubAgentRunBarTracksLifecycle(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
 
-	m.applyEvent(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
+	m.ApplyEventForTest(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
 	view := stripAnsi(m.agentBarView())
 	if !strings.Contains(view, "Agent] Exploring UI") {
 		t.Fatalf("running sub-agent label not rendered:\n%s", view)
@@ -505,19 +505,19 @@ func TestSubAgentRunBarTracksLifecycle(t *testing.T) {
 	}
 
 	// Activity updates: agent bar still just shows the label line
-	m.applyEvent(protocol.SubAgentActivityEvent{ID: "agent-1", Activity: "Read /tmp/file.go"})
+	m.ApplyEventForTest(protocol.SubAgentActivityEvent{ID: "agent-1", Activity: "Read /tmp/file.go"})
 	view = stripAnsi(m.agentBarView())
 	if !strings.Contains(view, "Agent] Exploring UI") {
 		t.Fatalf("running sub-agent still rendered after activity:\n%s", view)
 	}
 
-	m.applyEvent(protocol.SubAgentActivityEvent{ID: "agent-1", Activity: "Edit /tmp/file.go"})
+	m.ApplyEventForTest(protocol.SubAgentActivityEvent{ID: "agent-1", Activity: "Edit /tmp/file.go"})
 	view = stripAnsi(m.agentBarView())
 	if !strings.Contains(view, "Agent] Exploring UI") {
 		t.Fatalf("running sub-agent still rendered after 2nd activity:\n%s", view)
 	}
 
-	m.applyEvent(protocol.SubAgentCompletedEvent{ID: "agent-1", Description: "Exploring UI"})
+	m.ApplyEventForTest(protocol.SubAgentCompletedEvent{ID: "agent-1", Description: "Exploring UI"})
 	view = stripAnsi(m.agentBarView())
 	// After completion, agent bar shows ✓ with "done" briefly before TTL purge.
 	if !strings.Contains(view, "✓") || !strings.Contains(view, "done") {
@@ -534,7 +534,7 @@ func TestSubAgentRunBarTracksLifecycle(t *testing.T) {
 func TestCancelTurnClearsRunningSubAgents(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")
-	m.applyEvent(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
+	m.ApplyEventForTest(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
 
 	m.cancelTurn("Cancelled")
 
@@ -604,7 +604,7 @@ func TestViewLineCountStableWithQueuedInput(t *testing.T) {
 func TestViewLineCountStableWithRunningAgent(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 80, Height: 18})
-	m.applyEvent(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
+	m.ApplyEventForTest(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "Exploring UI"})
 
 	before := viewLineCountForTest(&m)
 	m.update(statusSpinnerTickMsg{})
@@ -645,7 +645,7 @@ func newScrollableModel(t *testing.T) Model {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 60, Height: 10})
 	for i := 0; i < 12; i++ {
-		m.applyEvent(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: strings.Repeat("old message\n", 3)}})
+		m.ApplyEventForTest(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: strings.Repeat("old message\n", 3)}})
 	}
 	if bottom := m.viewport.YOffset(); bottom == 0 {
 		t.Fatal("test setup failed: transcript is not scrollable")
@@ -779,7 +779,7 @@ func TestChineseInputDoesNotTriggerEnter(t *testing.T) {
 func TestChineseInputInModalTextMode(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")
-	m.applyEvent(protocol.QuestionAsked{Questions: []protocol.Question{{
+	m.ApplyEventForTest(protocol.QuestionAsked{Questions: []protocol.Question{{
 		Question: "Pick one",
 		Options:  []protocol.QuestionOption{{Label: "A"}, {Label: "B"}},
 	}}})
@@ -817,7 +817,7 @@ func TestChineseInputInModalTextMode(t *testing.T) {
 
 func TestPasteInModalTextMode(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
-	m.applyEvent(protocol.QuestionAsked{Questions: []protocol.Question{{
+	m.ApplyEventForTest(protocol.QuestionAsked{Questions: []protocol.Question{{
 		Question: "Pick one",
 		Options:  []protocol.QuestionOption{{Label: "A"}},
 	}}})
@@ -892,7 +892,7 @@ func TestSlashDryRunDispatchesAction(t *testing.T) {
 
 func TestDryRunEventRendersRequestLayers(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
-	m.applyEvent(protocol.RequestDryRunEvent{
+	m.ApplyEventForTest(protocol.RequestDryRunEvent{
 		Input:                "preview",
 		MaxTokens:            100,
 		EstimatedInputTokens: 42,
