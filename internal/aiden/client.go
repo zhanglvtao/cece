@@ -170,7 +170,9 @@ func (c *Client) streamResponses(ctx context.Context, messages []agent.Message, 
 		Input:           SerializeResponsesInput(messages),
 		Stream:          true,
 		MaxOutputTokens: maxTokens,
-		ReasoningEffort: c.reasoningEffort,
+	}
+	if c.reasoningEffort != "" {
+		payload.Reasoning = &ResponsesReasoning{Effort: c.reasoningEffort}
 	}
 
 	if len(tools) > 0 {

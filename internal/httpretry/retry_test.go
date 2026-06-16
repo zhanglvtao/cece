@@ -15,15 +15,21 @@ func TestRetryableStatusCodes(t *testing.T) {
 		code     int
 		expected bool
 	}{
-		{429, true},
+		{200, false},
+		{201, false},
+		{204, false},
+		{301, false}, // redirects are not transient
+		{400, false}, // permanent client errors — must not retry
+		{401, false},
+		{403, false},
+		{404, false},
+		{408, true}, // request timeout — transient
+		{422, false},
+		{429, true}, // rate limited — transient
+		{500, true}, // server errors — transient
 		{502, true},
 		{503, true},
 		{504, true},
-		{400, false},
-		{401, false},
-		{403, false},
-		{500, false},
-		{200, false},
 	}
 	for _, tt := range tests {
 		resp := &http.Response{StatusCode: tt.code}
@@ -31,6 +37,15 @@ func TestRetryableStatusCodes(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("RetryableStatusCodes(%d) = %v, want %v", tt.code, got, tt.expected)
 		}
+	}
+}
+
+func TestRetryableStatusCodes_ContextErrorsNotRetryable(t *testing.T) {
+	if RetryableStatusCodes(nil, context.Canceled) {
+		t.Fatal("context canceled should not be retryable")
+	}
+	if RetryableStatusCodes(nil, context.DeadlineExceeded) {
+		t.Fatal("context deadline exceeded should not be retryable")
 	}
 }
 
@@ -100,20 +115,21 @@ func TestDo_ExhaustsRetries(t *testing.T) {
 		return http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
 	}
 
-	_, err := Do(context.Background(), http.DefaultClient, makeReq, Options{MaxAttempts: 3, BaseDelay: 1 * time.Millisecond})
+	_, err := Do(context.Background(), http.DefaultClient, makeReq, Options{BaseDelay: 1 * time.Millisecond})
 	if err == nil {
 		t.Fatal("expected error after exhausting retries")
 	}
-	if calls.Load() != 3 {
-		t.Errorf("expected 3 calls, got %d", calls.Load())
+	if calls.Load() != 5 {
+		t.Errorf("expected 5 calls, got %d", calls.Load())
 	}
 }
 
-func TestDo_DoesNotRetryOn400(t *testing.T) {
+func TestDo_DoesNotRetry400(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.WriteHeader(400)
+		w.Write([]byte(`{"error":"invalid_request"}`))
 	}))
 	defer server.Close()
 
@@ -121,13 +137,16 @@ func TestDo_DoesNotRetryOn400(t *testing.T) {
 		return http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
 	}
 
-	resp, err := Do(context.Background(), http.DefaultClient, makeReq, Options{MaxAttempts: 3, BaseDelay: 1 * time.Millisecond})
+	resp, err := Do(context.Background(), http.DefaultClient, makeReq, Options{BaseDelay: 1 * time.Millisecond})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("expected response, not error: %v", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("expected status 400, got %d", resp.StatusCode)
+	}
 	if calls.Load() != 1 {
-		t.Errorf("400 should not be retried, got %d calls", calls.Load())
+		t.Errorf("expected exactly 1 call (no retry for 400), got %d", calls.Load())
 	}
 }
 

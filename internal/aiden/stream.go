@@ -61,12 +61,13 @@ type ResponsesEvent struct {
 }
 
 type ResponsesOutputItem struct {
-	Type      string                 `json:"type"`
-	ID        string                 `json:"id"`
-	CallID    string                 `json:"call_id"`
-	Name      string                 `json:"name"`
-	Arguments string                 `json:"arguments"`
-	Summary   []ResponsesSummaryItem `json:"summary"`
+	Type              string                 `json:"type"`
+	ID                string                 `json:"id"`
+	CallID            string                 `json:"call_id"`
+	Name              string                 `json:"name"`
+	Arguments         string                 `json:"arguments"`
+	Summary           []ResponsesSummaryItem `json:"summary"`
+	EncryptedContent  string                 `json:"encrypted_content"`
 }
 
 type ResponsesSummaryItem struct {
@@ -336,6 +337,7 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 				IsThinking:          true,
 				ThinkingProviderID:  event.Item.ID,
 				ThinkingSummaryText: summaryText,
+				ThinkingEncryptedContent: event.Item.EncryptedContent,
 			}
 			if summaryText != "" {
 				out <- agent.ApiStreamEvent{

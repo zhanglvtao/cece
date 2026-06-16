@@ -27,20 +27,27 @@ type ResponsesRequest struct {
 	MaxOutputTokens int                  `json:"max_output_tokens,omitempty"`
 	Stream          bool                 `json:"stream"`
 	Tools           []ResponsesTool      `json:"tools,omitempty"`
-	ReasoningEffort string               `json:"reasoning_effort,omitempty"`
+	Reasoning       *ResponsesReasoning  `json:"reasoning,omitempty"`
+}
+
+// ResponsesReasoning is the nested reasoning object for the Responses API.
+// The API expects { "reasoning": { "effort": "medium" } }.
+type ResponsesReasoning struct {
+	Effort string `json:"effort,omitempty"`
 }
 
 type ResponsesInputItem struct {
-	Type      string                 `json:"type"`
-	ID        string                 `json:"id,omitempty"`
-	Role      string                 `json:"role,omitempty"`
-	Content   any                    `json:"content,omitempty"`
-	CallID    string                 `json:"call_id,omitempty"`
-	Name      string                 `json:"name,omitempty"`
-	Arguments string                 `json:"arguments,omitempty"`
-	Output    any                    `json:"output,omitempty"`
-	Status    string                 `json:"status,omitempty"`
-	Summary   []ResponsesSummaryItem `json:"summary,omitempty"` // for reasoning items
+	Type             string                 `json:"type"`
+	ID               string                 `json:"id,omitempty"`
+	Role             string                 `json:"role,omitempty"`
+	Content          any                    `json:"content,omitempty"`
+	CallID           string                 `json:"call_id,omitempty"`
+	Name             string                 `json:"name,omitempty"`
+	Arguments        string                 `json:"arguments,omitempty"`
+	Output           any                    `json:"output,omitempty"`
+	Status           string                 `json:"status,omitempty"`
+	Summary          []ResponsesSummaryItem `json:"summary,omitempty"`               // for reasoning items
+	EncryptedContent string                 `json:"encrypted_content,omitempty"`     // for reasoning items
 }
 
 type AidenMsg struct {
@@ -200,9 +207,10 @@ func serializeResponsesMessage(m agent.Message) []ResponsesInputItem {
 					summary = []ResponsesSummaryItem{{Type: "summary_text", Text: cb.Thinking.SummaryText}}
 				}
 				reasoningItems = append(reasoningItems, ResponsesInputItem{
-					Type:    "reasoning",
-					ID:      cb.Thinking.ID,
-					Summary: summary,
+					Type:             "reasoning",
+					ID:               cb.Thinking.ID,
+					Summary:          summary,
+					EncryptedContent: cb.Thinking.EncryptedContent,
 				})
 			}
 		}

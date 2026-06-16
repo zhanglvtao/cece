@@ -62,10 +62,11 @@ type ApiContentBlock struct {
 }
 
 type ApiThinkingBlock struct {
-	ID          string `json:"id,omitempty"`          // provider item ID (e.g. Responses API rs_...)
-	Text        string `json:"thinking,omitempty"`
-	Signature   string `json:"signature"`
-	SummaryText string `json:"summary_text,omitempty"` // initial summary for Responses API reasoning items
+	ID               string `json:"id,omitempty"`               // provider item ID (e.g. Responses API rs_...)
+	Text             string `json:"thinking,omitempty"`
+	Signature        string `json:"signature"`
+	SummaryText      string `json:"summary_text,omitempty"`      // initial summary for Responses API reasoning items
+	EncryptedContent string `json:"encrypted_content,omitempty"` // encrypted reasoning content for Responses API round-trip
 }
 
 func (cb ApiContentBlock) AsToolResult() (*ApiToolResultBlock, bool) {
@@ -118,6 +119,7 @@ type ApiStreamEvent struct {
 	ThinkingSignature    string // signature from content_block_stop
 	ThinkingProviderID   string // provider ID for reasoning item (e.g. Responses API rs_...)
 	ThinkingSummaryText  string // initial summary text for reasoning item
+	ThinkingEncryptedContent string // encrypted reasoning content from Responses API (required for round-trip)
 	IsRedactedThinking   bool   // true when content_block_start has type "redacted_thinking"
 }
 

@@ -274,7 +274,7 @@ func TestStreamSetsBearerAuth(t *testing.T) {
 
 func TestStreamHandlesAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, `{"error":{"message":"model not found","type":"invalid_request_error"}}`)
 	}))
 	defer server.Close()
@@ -286,10 +286,10 @@ func TestStreamHandlesAPIError(t *testing.T) {
 		nil, 100,
 	)
 	if err == nil {
-		t.Fatal("expected error for 500 response")
+		t.Fatal("expected error for 400 response")
 	}
-	if !strings.Contains(err.Error(), "500") {
-		t.Errorf("expected error to contain '500', got %v", err)
+	if !strings.Contains(err.Error(), "400") {
+		t.Errorf("expected error to contain '400', got %v", err)
 	}
 	if !strings.Contains(err.Error(), "model not found") {
 		t.Errorf("expected error to contain 'model not found', got %v", err)
@@ -474,8 +474,8 @@ func TestStreamNoRetryOnNon401Error(t *testing.T) {
 	var callCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&callCount, 1)
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, `{"error":{"message":"internal error","type":"server_error"}}`)
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, `{"error":{"message":"bad request","type":"invalid_request_error"}}`)
 	}))
 	defer server.Close()
 
@@ -488,9 +488,9 @@ func TestStreamNoRetryOnNon401Error(t *testing.T) {
 		nil, 100,
 	)
 	if err == nil {
-		t.Fatal("expected error for 500 response")
+		t.Fatal("expected error for 400 response")
 	}
 	if atomic.LoadInt32(&callCount) != 1 {
-		t.Errorf("expected exactly 1 call for non-401 error, got %d", callCount)
+		t.Errorf("expected exactly 1 call for non-401 client error, got %d", callCount)
 	}
 }

@@ -92,6 +92,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 	var thinkingIndex int = -1         // index of the current thinking block, -1 = none
 	var thinkingProviderID string       // provider ID from content_block_start (e.g. rs_...)
 	var thinkingSummaryText string      // initial summary text from content_block_start
+	var thinkingEncryptedContent string // encrypted reasoning content from Responses API
 	var redactedThinkingIndex int = -1 // index of the current redacted_thinking block, -1 = none
 	var toolInputStates map[int]*toolCallState
 	assistantStarted := false
@@ -224,6 +225,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			thinkingIndex = chunk.Index
 			thinkingProviderID = chunk.ThinkingProviderID
 			thinkingSummaryText = chunk.ThinkingSummaryText
+			thinkingEncryptedContent = chunk.ThinkingEncryptedContent
 			thinkingBuf.Reset()
 			emitModelEvent(ch, ThinkingStarted{Index: chunk.Index})
 		}
@@ -239,17 +241,20 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			sig := chunk.ThinkingSignature
 			pid := thinkingProviderID
 			stext := thinkingSummaryText
+			econtent := thinkingEncryptedContent
 			thinkingIndex = -1
 			thinkingProviderID = ""
 			thinkingSummaryText = ""
+			thinkingEncryptedContent = ""
 			thinkingBuf.Reset()
 			resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
 				Type: ApiThinkingContentType,
 				Thinking: &ApiThinkingBlock{
-					ID:          pid,
-					Text:        fullThinking,
-					Signature:   sig,
-					SummaryText: stext,
+					ID:               pid,
+					Text:             fullThinking,
+					Signature:        sig,
+					SummaryText:      stext,
+					EncryptedContent: econtent,
 				},
 			})
 			emitModelEvent(ch, ThinkingCompleted{Text: fullThinking, Signature: sig})

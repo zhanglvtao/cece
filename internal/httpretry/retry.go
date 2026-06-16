@@ -2,6 +2,7 @@ package httpretry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,32 +12,38 @@ import (
 )
 
 const (
-	defaultMaxAttempts    = 3
+	defaultMaxAttempts    = 5
 	defaultBaseDelay      = 1 * time.Second
 	defaultMaxDelay       = 10 * time.Second
 	defaultAuthRetries    = 2
 	defaultAuthRetryDelay = 1 * time.Second
 )
 
-// retryableStatusCodes are HTTP status codes that indicate a transient error
-// worth retrying.
-var retryableStatusCodes = map[int]bool{
-	429: true, // rate limit
-	502: true, // bad gateway
-	503: true, // service unavailable
-	504: true, // gateway timeout
+// transientStatusCodes are HTTP status codes worth retrying (transient failures).
+var transientStatusCodes = map[int]bool{
+	http.StatusRequestTimeout:      true, // 408
+	http.StatusTooManyRequests:     true, // 429
+	http.StatusInternalServerError: true, // 500
+	http.StatusBadGateway:          true, // 502
+	http.StatusServiceUnavailable:  true, // 503
+	http.StatusGatewayTimeout:      true, // 504
 }
 
 // ShouldRetry determines whether an HTTP response should be retried.
 // Return true to retry, false to give up.
 type ShouldRetry func(resp *http.Response, err error) bool
 
-// RetryableStatusCodes returns true for transient HTTP status codes (429, 502, 503, 504).
+// RetryableStatusCodes returns true for transient failures only:
+// network errors, 408/429, and 5xx server errors.
+// 4xx client errors (400/401/403/404/422) are permanent and must not be retried.
 func RetryableStatusCodes(resp *http.Response, err error) bool {
 	if err != nil {
-		return true
+		return !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 	}
-	return retryableStatusCodes[resp.StatusCode]
+	if resp == nil {
+		return false
+	}
+	return transientStatusCodes[resp.StatusCode]
 }
 
 // Options configures retry behavior.
@@ -150,8 +157,25 @@ func DoWithAuthRefresh(ctx context.Context, httpClient *http.Client, makeRequest
 		authRetryDelay = defaultAuthRetryDelay
 	}
 
+	requestOpts := opts
+	requestOpts.ShouldRetry = func(resp *http.Response, err error) bool {
+		if err != nil {
+			return RetryableStatusCodes(resp, err)
+		}
+		if resp == nil {
+			return false
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			return false
+		}
+		if opts.ShouldRetry != nil {
+			return opts.ShouldRetry(resp, err)
+		}
+		return RetryableStatusCodes(resp, err)
+	}
+
 	for authAttempt := 0; authAttempt <= maxAuthRetries; authAttempt++ {
-		resp, err := Do(ctx, httpClient, makeRequest, opts)
+		resp, err := Do(ctx, httpClient, makeRequest, requestOpts)
 		if err != nil {
 			return nil, err
 		}

@@ -499,3 +499,85 @@ func TestSerializeJSONRoundTrip(t *testing.T) {
 		t.Fatalf("expected assistant text 'hi', got %v", content)
 	}
 }
+
+func TestSerializeResponsesReasoningIncludesEncryptedContent(t *testing.T) {
+	msgs := []agent.Message{
+		{
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{
+					Type: agent.ApiThinkingContentType,
+					Thinking: &agent.ApiThinkingBlock{
+						ID:               "rs_abc123",
+						SummaryText:      "Let me think about this",
+						EncryptedContent: "ENC_BLOB_DATA_HERE",
+					},
+				},
+				{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
+						ID:         "call_1",
+						ProviderID: "fc_1",
+						Name:       "Read",
+						Input:      json.RawMessage(`{"file_path":"/tmp/x"}`),
+					},
+				},
+			},
+		},
+	}
+
+	items := SerializeResponsesInput(msgs)
+	if len(items) < 2 {
+		t.Fatalf("expected at least 2 items, got %d", len(items))
+	}
+
+	// Find the reasoning item
+	var reasoning *ResponsesInputItem
+	for i := range items {
+		if items[i].Type == "reasoning" {
+			reasoning = &items[i]
+			break
+		}
+	}
+	if reasoning == nil {
+		t.Fatal("no reasoning item found in serialized output")
+	}
+	if reasoning.EncryptedContent != "ENC_BLOB_DATA_HERE" {
+		t.Errorf("encrypted_content = %q, want ENC_BLOB_DATA_HERE", reasoning.EncryptedContent)
+	}
+	if reasoning.ID != "rs_abc123" {
+		t.Errorf("reasoning ID = %q, want rs_abc123", reasoning.ID)
+	}
+}
+
+func TestResponsesRequestReasoningFieldFormat(t *testing.T) {
+	// Verify the reasoning field is serialized as {"reasoning":{"effort":"..."}}
+	// not the flat reasoning_effort string (which causes 400 on OpenAI Responses API).
+	req := ResponsesRequest{
+		Model: "gpt-5.5-paygo",
+		Reasoning: &ResponsesReasoning{Effort: "medium"},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Must NOT have flat reasoning_effort
+	if _, hasFlat := parsed["reasoning_effort"]; hasFlat {
+		t.Fatalf("BUG: reasoning_effort field present in JSON: %s", string(data))
+	}
+
+	// Must have nested reasoning object
+	reasoning, ok := parsed["reasoning"].(map[string]any)
+	if !ok {
+		t.Fatalf("reasoning field is not an object: %s", string(data))
+	}
+	if reasoning["effort"] != "medium" {
+		t.Errorf("reasoning.effort = %v, want medium", reasoning["effort"])
+	}
+}
