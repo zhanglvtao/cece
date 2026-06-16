@@ -53,3 +53,30 @@ LLM 的 tokenization 对空白字符不敏感，特别是：
 
 ### 缓解
 Edit 工具的 fuzzy matching cascade 逐步尝试多种标准化策略，增加容错。但更好的方案是从源头减少歧义（如 Read 输出改用无歧义分隔符）。
+
+---
+
+## TUI 对话过长后卡死（2026-06-16 已修复）
+
+### 问题现象
+Cece TUI 在对话轮次增多、内容变长后会逐渐卡顿，最终完全卡死无法操作。
+
+### 根因
+
+**每事件全量 viewport 刷新**：`applyEvent()` 末尾无条件调用 `refreshViewport()`，而 `refreshViewport()` 做全量 `transcript.render()` + `viewport.SetContent()`。当 `globalEventMsg` 批量处理 8+ 个事件时，每个事件触发一次全量渲染——8+ 次 glamour markdown 渲染 + viewport 内容重建。
+
+随着对话变长：
+- blocks 数量 O(n) 增长
+- 每个 dirty block 调用 `glamour.Render()`（最重操作）
+- `rendererMu` 全局互斥锁串行化
+- `viewport.SetContent()` 传入巨大字符串后 viewport 自身也要算行高
+
+O(blocks) × O(events/frame) → TUI 冻结。
+
+### 修复
+
+将 viewport 刷新从 `applyEvent()` 延迟到 `View()` → `resize()` 中。`applyEvent()` 只设 `viewportDirty = true`，真正的刷新在每帧渲染时只做一次。`scrollToPlanBlock` 逻辑合并到 `refreshViewport()` 避免重复 `SetContent()`。
+
+### 参考
+- crush 使用 per-section 缓存 + 增量 glamour render（`streamingMarkdown` stable prefix 机制）
+- bubbletea viewport 的 `SetContent` 是 O(content) 操作，越长的内容越慢
