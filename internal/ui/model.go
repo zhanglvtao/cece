@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -1438,6 +1439,8 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 			m.status = "Dry run"
 		}
 		return nil
+	case "/plan":
+		return m.openLatestPlan()
 	}
 	name := strings.TrimPrefix(spec.Command, "/")
 	if m.skillStore != nil {
@@ -1629,6 +1632,44 @@ func viewFileCmd(absPath string) tea.Cmd {
 		}
 		return viewFileMsg{path: absPath, content: string(data)}
 	}
+}
+
+// openLatestPlan finds the most recently modified .md file in .cece/plans/
+// and displays it using viewFileCmd.
+func (m *Model) openLatestPlan() tea.Cmd {
+	planDir := filepath.Join(m.projectDir, ".cece", "plans")
+	dirs, err := os.ReadDir(planDir)
+	if err != nil {
+		m.status = "No plans directory found"
+		return nil
+	}
+	type planFile struct {
+		path    string
+		modTime time.Time
+	}
+	var plans []planFile
+	for _, d := range dirs {
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+			continue
+		}
+		info, err := d.Info()
+		if err != nil {
+			continue
+		}
+		plans = append(plans, planFile{
+			path:    filepath.Join(planDir, d.Name()),
+			modTime: info.ModTime(),
+		})
+	}
+	if len(plans) == 0 {
+		m.status = "No plan files found"
+		return nil
+	}
+	sort.Slice(plans, func(i, j int) bool {
+		return plans[i].modTime.After(plans[j].modTime)
+	})
+	m.status = "Viewing latest plan"
+	return viewFileCmd(plans[0].path)
 }
 
 // parseViewSpec extracts the file query from a "/view <path>" input.
