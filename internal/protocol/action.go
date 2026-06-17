@@ -73,6 +73,13 @@ type CyclePermissionModeAction struct{}
 
 func (CyclePermissionModeAction) isAction() {}
 
+// SetEffortAction requests setting the reasoning effort level.
+type SetEffortAction struct {
+	Effort string // "low", "medium", "high", "xhigh", "auto"
+}
+
+func (SetEffortAction) isAction() {}
+
 // SetPermissionModeAction requests setting the permission mode directly.
 type SetPermissionModeAction struct {
 	Mode PermissionMode

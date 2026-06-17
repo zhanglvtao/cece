@@ -52,6 +52,7 @@ const (
 	modalSessionPicker
 	modalMCPPicker
 	modalSkillPicker
+	modalEffortPicker
 	modalRenameSession
 )
 
@@ -76,7 +77,7 @@ func (m *Model) modalHeight() int {
 	if !m.modal.active() {
 		return 0
 	}
-	if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker || m.modal.kind == modalMCPPicker || m.modal.kind == modalSkillPicker {
+	if m.modal.kind == modalModelPicker || m.modal.kind == modalSessionPicker || m.modal.kind == modalMCPPicker || m.modal.kind == modalSkillPicker || m.modal.kind == modalEffortPicker {
 		if m.modal.picker != nil {
 			return m.modal.picker.Height() + 1 // +1 for separator line
 		}
@@ -98,7 +99,7 @@ func (m *Model) modalView() string {
 		body = m.styles.Modal.Title.Render("Approve plan "+m.modal.planFile+"?") + "\n" + m.styles.Modal.Help.Render("[y/enter] default mode  [shift+tab] auto-accept  [n/esc] reject")
 	case modalQuestion:
 		body = m.questionView()
-	case modalModelPicker, modalSessionPicker, modalMCPPicker, modalSkillPicker:
+	case modalModelPicker, modalSessionPicker, modalMCPPicker, modalSkillPicker, modalEffortPicker:
 		if m.modal.picker != nil {
 			body = m.modal.picker.View()
 		}
@@ -116,7 +117,7 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleApprovePlanKey(msg)
 	case modalQuestion:
 		return m.handleQuestionKey(msg)
-	case modalModelPicker, modalSessionPicker, modalMCPPicker:
+	case modalModelPicker, modalSessionPicker, modalMCPPicker, modalEffortPicker:
 		return m.handlePickerKey(msg)
 	case modalSkillPicker:
 		return m.handleSkillPickerKey(msg)
@@ -496,6 +497,51 @@ func (m *Model) openModelPicker(models []protocol.ModelInfo) {
 		}
 	}
 	m.modal = modalState{kind: modalModelPicker, picker: p}
+}
+
+func (m *Model) openEffortPicker() {
+	type effortOption struct {
+		value       string
+		label       string
+		description string
+	}
+	options := []effortOption{
+		{"low", "low", "fast, simple tasks"},
+		{"medium", "medium", "balanced effort"},
+		{"high", "high", "routine dev work (default)"},
+		{"xhigh", "xhigh", "deep debugging, complex tasks"},
+		{"auto", "auto", "keyword-based automatic selection"},
+	}
+	items := make([]any, len(options))
+	for i, o := range options {
+		items[i] = o
+	}
+	currentEffort := m.currentEffort
+	p := picker.New("Set reasoning effort", items, modalMaxHeight, func(item any, selected bool) string {
+		o := item.(effortOption)
+		line := o.label + "  " + m.styles.Picker.Info.Render(o.description)
+		return styledPickerItem(m.styles.Picker.Cursor, m.styles.Picker.Item, m.styles.Picker.SelectedItem, line, selected)
+	})
+	p.SetHelpText("[up/down] move  [enter] select  [esc] close")
+	p.SetOnSelect(func(item any) tea.Cmd {
+		o := item.(effortOption)
+		m.currentEffort = o.value
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.SetEffortAction{Effort: o.value})
+		}
+		m.status = "Effort: " + o.value
+		return nil
+	})
+	// Pre-select current effort
+	for i, o := range options {
+		if o.value == currentEffort {
+			for j := 0; j < i; j++ {
+				p.Down()
+			}
+			break
+		}
+	}
+	m.modal = modalState{kind: modalEffortPicker, picker: p}
 }
 
 func (m *Model) handlePickerKey(msg tea.KeyPressMsg) tea.Cmd {

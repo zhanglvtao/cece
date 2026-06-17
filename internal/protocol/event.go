@@ -347,6 +347,13 @@ type ModeChangedEvent struct {
 
 func (ModeChangedEvent) isEvent() {}
 
+// EffortChangedEvent is the response to SetEffortAction.
+type EffortChangedEvent struct {
+	Effort string
+}
+
+func (EffortChangedEvent) isEvent() {}
+
 // ModeEvent is emitted at startup to report the current permission mode.
 type ModeEvent struct {
 	Mode PermissionMode

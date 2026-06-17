@@ -13,6 +13,7 @@ var builtinSlashCommands = []struct {
 	cmd, desc string
 }{
 	{"/model", "Switch model"},
+	{"/effort", "Set reasoning effort"},
 	{"/resume", "Resume a session"},
 	{"/clear", "Clear conversation history"},
 	{"/compact", "Compress conversation history"},

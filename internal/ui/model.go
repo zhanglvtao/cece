@@ -105,6 +105,7 @@ type Model struct {
 	sender Sender
 
 	modelName           string
+	currentEffort       string // current reasoning effort level
 	mode                protocol.PermissionMode
 	projectDir          string
 	workDir             string
@@ -171,6 +172,7 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 	sb := NewStatusBar()
 	sb.UpdateMode(string(protocol.PermissionModeDefault))
 	sb.UpdateModel(modelName)
+	sb.UpdateEffort("high")
 	sb.UpdateContext(0, cw)
 
 	hb := NewHeaderBar()
@@ -178,6 +180,7 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 	return Model{
 		sender:        sender,
 		modelName:     modelName,
+		currentEffort: "high",
 		mode:          protocol.PermissionModeDefault,
 		projectDir:    projectDir,
 		workDir:       filepath.Base(projectDir),
@@ -524,6 +527,9 @@ func (m *Model) applyEvent(event protocol.Event) {
 		if e.Message != "" {
 			m.transcript.appendDone(blockSystem, "mode", e.Message)
 		}
+	case protocol.EffortChangedEvent:
+		m.currentEffort = e.Effort
+		m.statusBar.UpdateEffort(e.Effort)
 	case protocol.ModeEvent:
 		m.mode = e.Mode
 	case protocol.SessionLoadedEvent:
@@ -1413,6 +1419,9 @@ func (m *Model) handleSlashCommand(input string) tea.Cmd {
 			actor.Do(protocol.ListModelsAction{})
 			m.status = "Loading models"
 		}
+		return nil
+	case "/effort":
+		m.openEffortPicker()
 		return nil
 	case "/resume":
 		m.openSessionsDialog()

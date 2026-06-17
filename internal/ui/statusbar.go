@@ -10,12 +10,13 @@ import (
 )
 
 // StatusBar holds data displayed in the bottom status line.
-// It renders as a single line: mode | model | ctx | scroll.
+// It renders as a single line: mode | model | effort | ctx | scroll.
 type StatusBar struct {
 	styles Styles
 	mode   string
 
 	modelName     string
+	effort        string
 	contextUsed   int
 	contextWindow int
 	scrollPct     int
@@ -33,6 +34,9 @@ func (sb *StatusBar) UpdateMode(mode string) { sb.mode = mode }
 
 // UpdateModel updates the model name.
 func (sb *StatusBar) UpdateModel(name string) { sb.modelName = name }
+
+// UpdateEffort updates the effort level display.
+func (sb *StatusBar) UpdateEffort(effort string) { sb.effort = effort }
 
 // UpdateContext updates the context gauge.
 func (sb *StatusBar) UpdateContext(used, window int) {
@@ -59,6 +63,11 @@ func (sb *StatusBar) Render(width int) string {
 	// model name
 	if sb.modelName != "" {
 		parts = append(parts, sb.styles.Status.Model.Render(sb.modelName))
+	}
+
+	// effort
+	if sb.effort != "" {
+		parts = append(parts, sb.styles.Status.Model.Render(sb.effort))
 	}
 
 	// context

@@ -113,6 +113,9 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		m.goBackground(m.cycleMode)
 	case protocol.SetPermissionModeAction:
 		m.setMode(a.Mode)
+	case protocol.SetEffortAction:
+		m.Engine.SetEffort(a.Effort)
+		m.Engine.EmitEvent(protocol.EffortChangedEvent{Effort: a.Effort})
 	case protocol.SetExitTargetModeAction:
 		if ps := m.Engine.PlanModeState(); ps != nil {
 			ps.SetExitTargetMode(tool.PermissionMode(a.Mode))
