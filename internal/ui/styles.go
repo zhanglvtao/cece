@@ -25,6 +25,7 @@ type Styles struct {
 		Box      lipgloss.Style
 		BoxBusy  lipgloss.Style
 		BoxIdle  lipgloss.Style
+		BoxShell lipgloss.Style
 	}
 	Modal struct {
 		Title   lipgloss.Style
@@ -117,6 +118,7 @@ func DefaultStyles() Styles {
 	s.Input.Box = lipgloss.NewStyle().Border(lipgloss.NormalBorder())
 	s.Input.BoxIdle = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(theme.FgMuted)
 	s.Input.BoxBusy = lipgloss.NewStyle().Border(lipgloss.ThickBorder()).BorderForeground(theme.Primary)
+	s.Input.BoxShell = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(theme.Yellow)
 
 	s.Modal.Title = lipgloss.NewStyle().Foreground(theme.Yellow)
 	s.Modal.Help = lipgloss.NewStyle().Foreground(theme.FgMuted)

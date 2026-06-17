@@ -135,6 +135,8 @@ func (m *EngineMediator) Do(action protocol.Action) {
 		m.Engine.EmitEvent(protocol.StatsEvent{Stats: m.Engine.SessionStats()})
 	case protocol.DryRunRequestAction:
 		m.Engine.DryRunRequest(a.Input)
+	case protocol.AppendShellResultAction:
+		m.Engine.Do(a)
 	}
 }
 

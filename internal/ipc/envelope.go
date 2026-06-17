@@ -56,6 +56,7 @@ var actionKinds = map[string]func() protocol.Action{
 	"disconnect_mcp":        func() protocol.Action { return &protocol.DisconnectMCPAction{} },
 	"list_tools":            func() protocol.Action { return &protocol.ListToolsAction{} },
 	"stats":                 func() protocol.Action { return &protocol.StatsAction{} },
+	"append_shell_result":   func() protocol.Action { return &protocol.AppendShellResultAction{} },
 }
 
 var eventKinds = map[string]func() protocol.Event{
@@ -259,6 +260,8 @@ func derefAction(a protocol.Action) protocol.Action {
 	case *protocol.ListToolsAction:
 		return *v
 	case *protocol.StatsAction:
+		return *v
+	case *protocol.AppendShellResultAction:
 		return *v
 	default:
 		return a

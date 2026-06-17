@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zhanglvtao/cece/internal/agent"
 	"github.com/zhanglvtao/cece/internal/effort"
 	"github.com/zhanglvtao/cece/internal/logger"
@@ -1680,6 +1681,8 @@ func (e *Engine) Do(action protocol.Action) {
 		}
 	case protocol.DryRunRequestAction:
 		e.DryRunRequest(a.Input)
+	case protocol.AppendShellResultAction:
+		e.appendShellResult(a)
 	}
 }
 
@@ -1691,6 +1694,26 @@ func (e *Engine) setMode(mode protocol.PermissionMode) {
 	}
 	nextMode := ps.SetMode(tool.PermissionMode(mode))
 	e.emitModeChanged(nextMode)
+}
+
+// appendShellResult appends a shell command's user message and output to the
+// conversation history. ANSI color codes are stripped from the output before
+// persisting, since they're only meaningful in TUI display.
+func (e *Engine) appendShellResult(a protocol.AppendShellResultAction) {
+	ctx := context.Background()
+	userMsg := agent.Message{Role: agent.UserRole, Content: "!" + a.Command}
+	e.AppendHistory(userMsg)
+	e.PersistMessage(ctx, userMsg)
+
+	prefix := "Shell output"
+	if a.IsError {
+		prefix = "Shell error"
+	}
+	// Strip ANSI escape codes before persisting — colors are only for TUI.
+	cleanOutput := ansi.Strip(a.Output)
+	assistantMsg := agent.Message{Role: agent.AssistantRole, Content: prefix + ":\n" + cleanOutput}
+	e.AppendHistory(assistantMsg)
+	e.PersistMessage(ctx, assistantMsg)
 }
 
 func (e *Engine) emitModeChanged(mode tool.PermissionMode) {

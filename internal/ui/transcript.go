@@ -747,11 +747,11 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		rendered := renderMarkdown(text, width)
 		return lbl.Render("["+label+"]") + "\n" + rendered
 	}
-	text = ansi.Wrap(text, max(20, width-4), "")
-	// Bash tools: no indent, no wrap — render like terminal output.
+	// Bash tools: no indent, no wrap — render like terminal output (may contain ANSI).
 	if block.kind == blockTool && isExecTool(block.toolName) {
 		return renderLabel() + "\n" + text
 	}
+	text = ansi.Wrap(text, max(20, width-4), "")
 	// Diff coloring for tool blocks that contain unified diff output.
 	if block.kind == blockTool {
 		text = renderDiffText(text)

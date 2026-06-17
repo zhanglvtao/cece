@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/rivo/uniseg"
 
 	"github.com/zhanglvtao/cece/internal/logger"
@@ -394,6 +396,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewportDirty = true
 		m.viewportGotoBottom = true
 		m.status = "Shell completed"
+		// Append to conversation history (stripped of ANSI codes).
+		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.AppendShellResultAction{
+				Command: msg.command,
+				Output:  msg.output,
+				IsError: msg.isError,
+			})
+		}
 		return m, nil
 	}
 
@@ -852,10 +862,15 @@ func (m *Model) queuedListView() string {
 
 func (m *Model) inputView() string {
 	h := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
-	return m.styles.Input.Box.
-		Width(m.width).
-		Height(h + m.styles.Input.Box.GetVerticalFrameSize()).
-		Render(m.input.View())
+	boxStyle := m.styles.Input.BoxIdle
+	if m.busy {
+		boxStyle = m.styles.Input.BoxBusy
+	}
+	// Shell mode: input starts with !
+	if strings.HasPrefix(strings.TrimSpace(m.input.Value()), "!") {
+		boxStyle = m.styles.Input.BoxShell
+	}
+	return boxStyle.Width(m.width).Height(h + boxStyle.GetVerticalFrameSize()).Render(m.input.View())
 }
 
 // formatDuration formats a duration as whole seconds: "38s", "1m2s", etc.
@@ -1601,7 +1616,8 @@ func submitCmd(sender Sender, input string) tea.Cmd {
 }
 
 // runShellCommand executes a shell command directly (without LLM) and returns
-// a shellResultMsg for display in the transcript.
+// a shellResultMsg for display in the transcript. Uses a PTY so commands
+// produce ANSI color output (e.g. ls, git diff).
 func (m *Model) runShellCommand(cmd string) tea.Cmd {
 	m.status = "Running shell"
 	start := time.Now()
@@ -1610,13 +1626,23 @@ func (m *Model) runShellCommand(cmd string) tea.Cmd {
 		defer cancel()
 		c := exec.CommandContext(ctx, "bash", "-c", cmd)
 		c.Dir = m.projectDir
-		out, err := c.CombinedOutput()
-		duration := time.Since(start)
+		// Start in a PTY so commands think they're in a terminal and emit colors.
+		ptmx, err := pty.Start(c)
+		if err != nil {
+			return shellResultMsg{command: cmd, output: err.Error(), isError: true, duration: time.Since(start)}
+		}
+		defer ptmx.Close()
+		out, _ := io.ReadAll(ptmx)
+		c.Wait()
+		exitCode := 0
+		if c.ProcessState != nil {
+			exitCode = c.ProcessState.ExitCode()
+		}
 		return shellResultMsg{
 			command:  cmd,
 			output:   string(out),
-			isError:  err != nil,
-			duration: duration,
+			isError:  exitCode != 0,
+			duration: time.Since(start),
 		}
 	}
 }

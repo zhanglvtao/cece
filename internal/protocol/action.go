@@ -181,3 +181,13 @@ func (ListToolsAction) isAction() {}
 type StatsAction struct{}
 
 func (StatsAction) isAction() {}
+
+// AppendShellResultAction appends a shell command's user message and result
+// to the conversation history. Used by the ! shell mode to keep a record.
+type AppendShellResultAction struct {
+	Command string
+	Output  string
+	IsError bool
+}
+
+func (AppendShellResultAction) isAction() {}
