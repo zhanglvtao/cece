@@ -58,7 +58,7 @@ type Engine struct {
 	rejectCh   chan struct{} // set per Input call, signals user rejection without cancel
 	yolo       bool          // auto-approve tool execution without UI confirmation
 	maxTokens  int           // configurable max output tokens
-	effort     string        // reasoning effort: "low", "high", "max", "auto"
+	effort     string        // reasoning effort: "low", "medium", "high", "xhigh", "auto"
 
 	ContextWindowFor           func(model string) int               // returns context window for a model ID
 	ModelClientFor             func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client

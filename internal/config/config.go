@@ -75,7 +75,7 @@ type Config struct {
 	Yolo                bool
 	MaxTokens           int
 	DefaultMode         string         // "default", "auto-accept", or "plan"
-	Effort              string         // reasoning effort: "low", "high", "max", "auto" (default: "high")
+	Effort              string         // reasoning effort: "low", "medium", "high", "xhigh", "auto" (default: "high")
 	ModelContextMapping map[string]int // model ID -> max context window
 	Providers           []ProviderConfig
 	MCP                 MCPs

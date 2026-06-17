@@ -4,11 +4,12 @@
 // output. Higher effort = more reasoning tokens = better results on hard
 // problems, at the cost of latency and token spend.
 //
-// Supported levels follow the de facto industry standard:
+// Supported levels (aligned with Aiden):
 //
 //	low    – fast, simple tasks (search, lookup, sub-agents)
+//	medium – balanced effort
 //	high   – default for routine dev work
-//	max    – deep debugging, complex refactoring
+//	xhigh  – deep debugging, complex refactoring
 //	auto   – keyword-based automatic selection
 package effort
 
@@ -18,14 +19,15 @@ import "strings"
 type ReasoningEffort string
 
 const (
-	Low  ReasoningEffort = "low"
-	High ReasoningEffort = "high"
-	Max  ReasoningEffort = "max"
-	Auto ReasoningEffort = "auto"
+	Low    ReasoningEffort = "low"
+	Medium ReasoningEffort = "medium"
+	High   ReasoningEffort = "high"
+	XHigh  ReasoningEffort = "xhigh"
+	Auto   ReasoningEffort = "auto"
 )
 
-// Keywords that bump reasoning effort to Max.
-var maxKeywords = []string{
+// Keywords that bump reasoning effort to XHigh.
+var xhighKeywords = []string{
 	"debug",
 	"error",
 	"bug",
@@ -45,7 +47,7 @@ var lowKeywords = []string{
 // Rules:
 //
 //   - isSubAgent → Low
-//   - input contains a max keyword → Max
+//   - input contains an xhigh keyword → XHigh
 //   - input contains a low keyword → Low
 //   - otherwise → High
 func SelectAuto(isSubAgent bool, input string) ReasoningEffort {
@@ -55,9 +57,9 @@ func SelectAuto(isSubAgent bool, input string) ReasoningEffort {
 
 	lower := strings.ToLower(input)
 
-	for _, kw := range maxKeywords {
+	for _, kw := range xhighKeywords {
 		if strings.Contains(lower, kw) {
-			return Max
+			return XHigh
 		}
 	}
 
@@ -82,7 +84,7 @@ func Resolve(effort ReasoningEffort, isSubAgent bool, input string) ReasoningEff
 // Valid reports whether v is a known effort level (including auto).
 func Valid(v string) bool {
 	switch ReasoningEffort(v) {
-	case Low, High, Max, Auto:
+	case Low, Medium, High, XHigh, Auto:
 		return true
 	default:
 		return false

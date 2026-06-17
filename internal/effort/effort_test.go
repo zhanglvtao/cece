@@ -14,7 +14,7 @@ func TestSelectAuto_SubAgent(t *testing.T) {
 	}
 }
 
-func TestSelectAuto_MaxKeywords(t *testing.T) {
+func TestSelectAuto_XHighKeywords(t *testing.T) {
 	for _, input := range []string{
 		"debug this crash",
 		"Error: timeout",
@@ -22,8 +22,8 @@ func TestSelectAuto_MaxKeywords(t *testing.T) {
 		"there is a BUG here",
 		"Debug output",
 	} {
-		if got := SelectAuto(false, input); got != Max {
-			t.Fatalf("input %q: got %q, want %q", input, got, Max)
+		if got := SelectAuto(false, input); got != XHigh {
+			t.Fatalf("input %q: got %q, want %q", input, got, XHigh)
 		}
 	}
 }
@@ -61,13 +61,16 @@ func TestResolve(t *testing.T) {
 	if got := Resolve(High, false, ""); got != High {
 		t.Fatalf("explicit high: got %q", got)
 	}
-	if got := Resolve(Max, false, ""); got != Max {
-		t.Fatalf("explicit max: got %q", got)
+	if got := Resolve(XHigh, false, ""); got != XHigh {
+		t.Fatalf("explicit xhigh: got %q", got)
+	}
+	if got := Resolve(Medium, false, ""); got != Medium {
+		t.Fatalf("explicit medium: got %q", got)
 	}
 
 	// Auto resolves
-	if got := Resolve("", false, "debug this"); got != Max {
-		t.Fatalf("empty+debug: got %q, want %q", got, Max)
+	if got := Resolve("", false, "debug this"); got != XHigh {
+		t.Fatalf("empty+debug: got %q, want %q", got, XHigh)
 	}
 	if got := Resolve(Auto, false, "search"); got != Low {
 		t.Fatalf("auto+search: got %q, want %q", got, Low)
@@ -83,12 +86,12 @@ func TestResolve(t *testing.T) {
 }
 
 func TestValid(t *testing.T) {
-	for _, v := range []string{"low", "high", "max", "auto"} {
+	for _, v := range []string{"low", "medium", "high", "xhigh", "auto"} {
 		if !Valid(v) {
 			t.Fatalf("Valid(%q) should be true", v)
 		}
 	}
-	for _, v := range []string{"", "medium", "xhigh", "off", "invalid"} {
+	for _, v := range []string{"", "max", "off", "invalid"} {
 		if Valid(v) {
 			t.Fatalf("Valid(%q) should be false", v)
 		}
