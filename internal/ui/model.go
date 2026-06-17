@@ -45,6 +45,12 @@ type viewFileMsg struct {
 	content string
 	err     error
 }
+type shellResultMsg struct {
+	command  string
+	output   string
+	isError  bool
+	duration time.Duration
+}
 
 // Sender submits user input to the runtime.
 type Sender interface {
@@ -374,6 +380,20 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.viewportDirty = true
 		m.viewportGotoBottom = true
+		return m, nil
+	case shellResultMsg:
+		result := tailLines(msg.output, 20)
+		result = strings.TrimRight(result, "\n")
+		status := formatBashStatus(msg.isError, msg.duration)
+		idx := m.transcript.append(blockTool, "shell: "+msg.command, result+"\n"+status)
+		m.transcript.blocks[idx].toolName = "Bash" // reuse Bash rendering (no indent)
+		m.transcript.blocks[idx].done = true
+		if msg.isError {
+			m.transcript.blocks[idx].err = true
+		}
+		m.viewportDirty = true
+		m.viewportGotoBottom = true
+		m.status = "Shell completed"
 		return m, nil
 	}
 
@@ -1344,6 +1364,16 @@ func (m *Model) handleSend() tea.Cmd {
 	m.input.Reset()
 	m.addHistory(input)
 	m.viewport.GotoBottom()
+	// Shell mode: !command — execute directly without LLM
+	if strings.HasPrefix(input, "!") {
+		cmd := strings.TrimPrefix(input, "!")
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			m.status = "Empty shell command"
+			return nil
+		}
+		return m.runShellCommand(cmd)
+	}
 	spec := parseSlashSpec(input)
 	if spec.Valid() && spec.StartIdx == 0 {
 		return m.handleSlashCommand(input)
@@ -1567,6 +1597,27 @@ func submitCmd(sender Sender, input string) tea.Cmd {
 			return inputErrorMsg{err: err}
 		}
 		return nil
+	}
+}
+
+// runShellCommand executes a shell command directly (without LLM) and returns
+// a shellResultMsg for display in the transcript.
+func (m *Model) runShellCommand(cmd string) tea.Cmd {
+	m.status = "Running shell"
+	start := time.Now()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		c := exec.CommandContext(ctx, "bash", "-c", cmd)
+		c.Dir = m.projectDir
+		out, err := c.CombinedOutput()
+		duration := time.Since(start)
+		return shellResultMsg{
+			command:  cmd,
+			output:   string(out),
+			isError:  err != nil,
+			duration: duration,
+		}
 	}
 }
 
