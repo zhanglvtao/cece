@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -49,6 +50,14 @@ type runtimeMetadata struct {
 	enabledSkills []string
 }
 
+// shouldUseResponsesAPI returns true for OpenAI models that should use the
+// Responses API (/v1/responses) instead of Chat Completions (/v1/chat/completions).
+// This bypasses Aiden proxy's buggy g() conversion which incorrectly marks
+// assistant text as "input_text" instead of "output_text".
+func shouldUseResponsesAPI(model string) bool {
+	return strings.HasPrefix(model, "gpt-") || strings.HasPrefix(model, "o1") || strings.HasPrefix(model, "o3") || strings.HasPrefix(model, "o4")
+}
+
 func createClient(pc config.ProviderConfig, model string, configName string) agent.ModelClient {
 	if configName == "" {
 		for _, sm := range pc.Models {
@@ -70,11 +79,17 @@ func createClient(pc config.ProviderConfig, model string, configName string) age
 		if pc.AuthHelper != "" {
 			c.SetAuthHelper(pc.AuthHelper)
 		}
+		if shouldUseResponsesAPI(model) {
+			c.SetUseResponsesAPI(true)
+		}
 		return c
 	case "bytedance":
 		c := aiden.NewClient(pc.APIKey, model, pc.BaseURL)
 		if pc.AuthHelper != "" {
 			c.SetAuthHelper(pc.AuthHelper)
+		}
+		if shouldUseResponsesAPI(model) {
+			c.SetUseResponsesAPI(true)
 		}
 		return c
 	default:

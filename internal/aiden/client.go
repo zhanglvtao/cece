@@ -26,6 +26,7 @@ type Client struct {
 	tokenCache      *auth.TokenCache
 	httpClient      *http.Client
 	reasoningEffort string
+	useResponsesAPI bool
 }
 
 func NewClient(apiKey, model, baseURL string) *Client {
@@ -43,6 +44,12 @@ func (c *Client) SetAuthHelper(helper string) {
 
 func (c *Client) SetModel(model string) { c.model = model }
 func (c *Client) Model() string         { return c.model }
+
+// SetUseResponsesAPI enables the Responses API protocol (/v1/responses) instead
+// of Chat Completions (/v1/chat/completions). This bypasses Aiden proxy's buggy
+// g() conversion function which incorrectly marks assistant text as "input_text"
+// instead of "output_text", causing 400 errors from OpenAI.
+func (c *Client) SetUseResponsesAPI(v bool) { c.useResponsesAPI = v }
 
 // SetReasoningEffort sets the reasoning effort for future requests.
 func (c *Client) SetReasoningEffort(effort string) { c.reasoningEffort = effort }
@@ -143,6 +150,53 @@ func extractRequestID(resp *http.Response) string {
 }
 
 func (c *Client) Stream(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
+	if c.useResponsesAPI {
+		return c.streamResponses(ctx, messages, system, tools, maxTokens)
+	}
+	return c.streamChatCompletions(ctx, messages, system, tools, maxTokens)
+}
+
+func (c *Client) streamResponses(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
+	projected := agent.ProjectMessagesForRequest(messages)
+	input := SerializeResponsesInput(projected, system, c.model)
+	instructions := SerializeResponsesInstructions(system)
+
+	req := ResponsesAPIRequest{
+		Model:           c.model,
+		Input:           input,
+		Instructions:    instructions,
+		Stream:          true,
+		MaxOutputTokens: maxTokens,
+		Store:           true,
+	}
+
+	if len(tools) > 0 {
+		req.Tools = ConvertResponsesTools(ConvertTools(tools))
+	}
+
+	if c.reasoningEffort != "" {
+		req.Reasoning = &ResponsesReasoning{
+			Effort:  c.reasoningEffort,
+			Summary: "concise",
+		}
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	url := strings.TrimRight(c.baseURL, "/") + "/v1/responses"
+
+	resp, err := c.doRequestWithRetry(ctx, http.MethodPost, url, body, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return DecodeResponsesStream(resp.Body), nil
+}
+
+func (c *Client) streamChatCompletions(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
 	payload := ChatCompletionRequest{
 		Model:           c.model,
 		Messages:        SerializeMessages(agent.ProjectMessagesForRequest(messages), system),
