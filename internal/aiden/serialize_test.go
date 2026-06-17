@@ -405,69 +405,6 @@ func TestSerializeEmptyToolResultContentPreservesField(t *testing.T) {
 	t.Logf("tool message content preserved as: %q (JSON: %s)", content, string(data))
 }
 
-func TestSerializeResponsesFunctionCallIncludesIDs(t *testing.T) {
-	msgs := []agent.Message{
-		{
-			Role: agent.AssistantRole,
-			ContentBlocks: []agent.ApiContentBlock{
-				{
-					Type: agent.ApiToolUseContentType,
-					ToolUse: &agent.ApiToolUseBlock{
-						ID:         "call_1",
-						ProviderID: "fc_1",
-						Name:       "Read",
-						Input:      json.RawMessage(`{"file_path":"/tmp/x"}`),
-					},
-				},
-			},
-		},
-	}
-
-	items := SerializeResponsesInput(msgs)
-	if len(items) != 2 {
-		t.Fatalf("items len = %d, want 2", len(items))
-	}
-	call := items[1]
-	if call.Type != "function_call" {
-		t.Fatalf("type = %q, want function_call", call.Type)
-	}
-	if call.ID != "fc_1" {
-		t.Fatalf("id = %q, want fc_1", call.ID)
-	}
-	if call.CallID != "call_1" {
-		t.Fatalf("call_id = %q, want call_1", call.CallID)
-	}
-}
-
-func TestSerializeResponsesFunctionCallDerivesIDForOldSessions(t *testing.T) {
-	msgs := []agent.Message{
-		{
-			Role: agent.AssistantRole,
-			ContentBlocks: []agent.ApiContentBlock{
-				{
-					Type: agent.ApiToolUseContentType,
-					ToolUse: &agent.ApiToolUseBlock{
-						ID:    "call_legacy",
-						Name:  "Read",
-						Input: json.RawMessage(`{"file_path":"/tmp/x"}`),
-					},
-				},
-			},
-		},
-	}
-
-	items := SerializeResponsesInput(msgs)
-	if len(items) != 2 {
-		t.Fatalf("items len = %d, want 2", len(items))
-	}
-	if items[1].ID != "fc_call_legacy" {
-		t.Fatalf("id = %q, want fc_call_legacy", items[1].ID)
-	}
-	if items[1].CallID != "call_legacy" {
-		t.Fatalf("call_id = %q, want call_legacy", items[1].CallID)
-	}
-}
-
 func TestSerializeJSONRoundTrip(t *testing.T) {
 	msgs := []agent.Message{
 		{Role: agent.UserRole, Content: "hi"},
@@ -500,178 +437,83 @@ func TestSerializeJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSerializeResponsesReasoningIncludesEncryptedContent(t *testing.T) {
-	msgs := []agent.Message{
+func TestMergeConsecutiveAssistant(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []agent.Message
+		want []agent.Message
+	}{
 		{
-			Role: agent.AssistantRole,
-			ContentBlocks: []agent.ApiContentBlock{
-				{
-					Type: agent.ApiThinkingContentType,
-					Thinking: &agent.ApiThinkingBlock{
-						ID:               "rs_abc123",
-						SummaryText:      "Let me think about this",
-						EncryptedContent: "ENC_BLOB_DATA_HERE",
-					},
-				},
-				{
-					Type: agent.ApiToolUseContentType,
-					ToolUse: &agent.ApiToolUseBlock{
-						ID:         "call_1",
-						ProviderID: "fc_1",
-						Name:       "Read",
-						Input:      json.RawMessage(`{"file_path":"/tmp/x"}`),
-					},
-				},
+			name: "single message",
+			in: []agent.Message{
+				{Role: agent.UserRole, Content: "hi"},
+			},
+			want: []agent.Message{
+				{Role: agent.UserRole, Content: "hi"},
+			},
+		},
+		{
+			name: "no consecutive assistant",
+			in: []agent.Message{
+				{Role: agent.UserRole, Content: "hello"},
+				{Role: agent.AssistantRole, Content: "hi"},
+				{Role: agent.UserRole, Content: "bye"},
+			},
+			want: []agent.Message{
+				{Role: agent.UserRole, Content: "hello"},
+				{Role: agent.AssistantRole, Content: "hi"},
+				{Role: agent.UserRole, Content: "bye"},
+			},
+		},
+		{
+			name: "merge two consecutive assistant messages",
+			in: []agent.Message{
+				{Role: agent.UserRole, Content: "hello"},
+				{Role: agent.AssistantRole, Content: "[Empty response — retrying]"},
+				{Role: agent.AssistantRole, Content: " ", ContentBlocks: []agent.ApiContentBlock{
+					{Type: agent.ApiToolUseContentType, ToolUse: &agent.ApiToolUseBlock{ID: "call_1", Name: "Bash", Input: json.RawMessage(`{}`)}},
+				}},
+				{Role: agent.UserRole, Content: "next"},
+			},
+			want: []agent.Message{
+				{Role: agent.UserRole, Content: "hello"},
+				{Role: agent.AssistantRole, Content: "[Empty response — retrying]\n ", ContentBlocks: []agent.ApiContentBlock{
+					{Type: agent.ApiToolUseContentType, ToolUse: &agent.ApiToolUseBlock{ID: "call_1", Name: "Bash", Input: json.RawMessage(`{}`)}},
+				}},
+				{Role: agent.UserRole, Content: "next"},
+			},
+		},
+		{
+			name: "merge three consecutive assistant messages",
+			in: []agent.Message{
+				{Role: agent.UserRole, Content: "test"},
+				{Role: agent.AssistantRole, Content: "retry"},
+				{Role: agent.AssistantRole, Content: "retry2"},
+				{Role: agent.AssistantRole, Content: "ok"},
+			},
+			want: []agent.Message{
+				{Role: agent.UserRole, Content: "test"},
+				{Role: agent.AssistantRole, Content: "retry\nretry2\nok"},
 			},
 		},
 	}
-
-	items := SerializeResponsesInput(msgs)
-	if len(items) < 2 {
-		t.Fatalf("expected at least 2 items, got %d", len(items))
-	}
-
-	// Find the reasoning item
-	var reasoning *ResponsesInputItem
-	for i := range items {
-		if items[i].Type == "reasoning" {
-			reasoning = &items[i]
-			break
-		}
-	}
-	if reasoning == nil {
-		t.Fatal("no reasoning item found in serialized output")
-	}
-	if reasoning.EncryptedContent != "ENC_BLOB_DATA_HERE" {
-		t.Errorf("encrypted_content = %q, want ENC_BLOB_DATA_HERE", reasoning.EncryptedContent)
-	}
-	if reasoning.ID != "rs_abc123" {
-		t.Errorf("reasoning ID = %q, want rs_abc123", reasoning.ID)
-	}
-}
-
-// Test: reasoning without encrypted_content still gets serialized
-// (some API implementations may not return encrypted_content).
-func TestSerializeResponsesReasoningWithoutEncryptedContent(t *testing.T) {
-	msgs := []agent.Message{
-		{
-			Role: agent.AssistantRole,
-			ContentBlocks: []agent.ApiContentBlock{
-				{
-					Type: agent.ApiThinkingContentType,
-					Thinking: &agent.ApiThinkingBlock{
-						ID:          "rs_no_enc",
-						SummaryText: "thinking without encryption",
-						// EncryptedContent is empty
-					},
-				},
-				{
-					Type: agent.ApiToolUseContentType,
-					ToolUse: &agent.ApiToolUseBlock{
-						ID:         "call_1",
-						ProviderID: "fc_1",
-						Name:       "Read",
-						Input:      json.RawMessage(`{"file_path":"/tmp/x"}`),
-					},
-				},
-			},
-		},
-	}
-
-	items := SerializeResponsesInput(msgs)
-
-	// Must have reasoning item
-	var reasoningCount, fcCount int
-	for _, item := range items {
-		switch item.Type {
-		case "reasoning":
-			reasoningCount++
-		case "function_call":
-			fcCount++
-		}
-	}
-	if reasoningCount != 1 {
-		t.Errorf("reasoning items = %d, want 1", reasoningCount)
-	}
-	if fcCount != 1 {
-		t.Errorf("function_call items = %d, want 1", fcCount)
-	}
-}
-
-// Test: thinking block with empty ID should NOT produce reasoning item
-// (this is the guard that prevents broken serialization).
-func TestSerializeResponsesThinkingWithoutIDProducesNoReasoning(t *testing.T) {
-	msgs := []agent.Message{
-		{
-			Role: agent.AssistantRole,
-			ContentBlocks: []agent.ApiContentBlock{
-				{
-					Type: agent.ApiThinkingContentType,
-					Thinking: &agent.ApiThinkingBlock{
-						// ID is empty — e.g. from Chat Completions API thinking
-						Text: "some thinking",
-					},
-				},
-				{
-					Type: agent.ApiToolUseContentType,
-					ToolUse: &agent.ApiToolUseBlock{
-						ID:   "call_1",
-						Name: "Bash",
-						Input: json.RawMessage(`{}`),
-					},
-				},
-			},
-		},
-	}
-
-	items := SerializeResponsesInput(msgs)
-
-	// Should NOT have reasoning item (no ID), but SHOULD have function_call
-	var reasoningCount, fcCount int
-	for _, item := range items {
-		switch item.Type {
-		case "reasoning":
-			reasoningCount++
-		case "function_call":
-			fcCount++
-		}
-	}
-	if reasoningCount != 0 {
-		t.Errorf("reasoning items = %d, want 0 (no ID = no reasoning item)", reasoningCount)
-	}
-	if fcCount != 1 {
-		t.Errorf("function_call items = %d, want 1", fcCount)
-	}
-}
-
-func TestResponsesRequestReasoningFieldFormat(t *testing.T) {
-	// Verify the reasoning field is serialized as {"reasoning":{"effort":"..."}}
-	// not the flat reasoning_effort string (which causes 400 on OpenAI Responses API).
-	req := ResponsesRequest{
-		Model: "gpt-5.5-paygo",
-		Reasoning: &ResponsesReasoning{Effort: "medium"},
-	}
-	data, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	// Must NOT have flat reasoning_effort
-	if _, hasFlat := parsed["reasoning_effort"]; hasFlat {
-		t.Fatalf("BUG: reasoning_effort field present in JSON: %s", string(data))
-	}
-
-	// Must have nested reasoning object
-	reasoning, ok := parsed["reasoning"].(map[string]any)
-	if !ok {
-		t.Fatalf("reasoning field is not an object: %s", string(data))
-	}
-	if reasoning["effort"] != "medium" {
-		t.Errorf("reasoning.effort = %v, want medium", reasoning["effort"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeConsecutiveAssistant(tt.in)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len: got %d, want %d", len(got), len(tt.want))
+			}
+			for i := range got {
+				if got[i].Role != tt.want[i].Role {
+					t.Errorf("[%d] role: got %q, want %q", i, got[i].Role, tt.want[i].Role)
+				}
+				if got[i].Content != tt.want[i].Content {
+					t.Errorf("[%d] content: got %q, want %q", i, got[i].Content, tt.want[i].Content)
+				}
+				if len(got[i].ContentBlocks) != len(tt.want[i].ContentBlocks) {
+					t.Errorf("[%d] content_blocks: got %d, want %d", i, len(got[i].ContentBlocks), len(tt.want[i].ContentBlocks))
+				}
+			}
+		})
 	}
 }

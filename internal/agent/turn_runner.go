@@ -142,13 +142,12 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				"output_tokens", resp.outputTokens,
 				"attempt", consecutiveEmptyResponses,
 			)
-			nudge := Message{
+			// Don't persist the nudge — it creates consecutive assistant
+			// messages that break aiden proxy's Responses API conversion.
+			messages = append(messages, Message{
 				Role:    AssistantRole,
 				Content: "[Empty response — retrying]",
-			}
-			r.deps.AppendMessage(nudge)
-			r.deps.PersistMessage(ctx, nudge)
-			messages = r.deps.HistorySnapshot()
+			})
 			continue
 		}
 		consecutiveEmptyResponses = 0
@@ -178,12 +177,13 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 
 		if err := r.interactionGate.WaitIfNeeded(ctx, resp.toolCalls, events); err != nil {
 			if errors.Is(err, WaitRejected) {
-				// User rejected: construct rejection tool_results and continue the loop.
 				if hasExitPlanMode(resp.toolCalls) {
 					events <- PlanRejected{}
-				} else {
-					events <- ToolCallsRejected{}
+					events <- AssistantCompleted{Duration: time.Since(turnStart)}
+					return
 				}
+				// User rejected: construct rejection tool_results and continue the loop.
+				events <- ToolCallsRejected{}
 				resultMsg := Message{
 					Role:          UserRole,
 					ContentBlocks: rejectToolResults(resp.toolCalls),

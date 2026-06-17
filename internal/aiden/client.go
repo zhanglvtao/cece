@@ -126,18 +126,11 @@ func extractRequestID(resp *http.Response) string {
 }
 
 func (c *Client) Stream(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
-	projectedMessages := agent.ProjectMessagesForRequest(messages)
-	if usesResponsesAPI(c.model) {
-		// Responses API needs reasoning items preserved for stateful back-and-forth
-		return c.streamResponses(ctx, messages, system, tools, maxTokens)
-	}
-
 	payload := ChatCompletionRequest{
 		Model:           c.model,
-		Messages:        SerializeMessages(projectedMessages, system),
+		Messages:        SerializeMessages(agent.ProjectMessagesForRequest(messages), system),
 		Stream:          true,
 		MaxTokens:       maxTokens,
-		StreamOptions:   &StreamOptions{IncludeUsage: true},
 		ReasoningEffort: c.reasoningEffort,
 	}
 
@@ -161,78 +154,6 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 
 	slog.Info("aiden stream connected", "status", resp.StatusCode)
 	return DecodeStreamEvent(resp.Body), nil
-}
-
-func (c *Client) streamResponses(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
-	input := SerializeResponsesInput(messages)
-	// Diagnostic: log reasoning vs function_call item counts in input.
-	// Warn if function_call items exist without matching reasoning items,
-	// which causes 400 errors from the Responses API.
-	var reasoningIDs, fcIDs []string
-	for _, item := range input {
-		switch item.Type {
-		case "reasoning":
-			reasoningIDs = append(reasoningIDs, item.ID)
-		case "function_call":
-			fcIDs = append(fcIDs, item.ID)
-		}
-	}
-	logger.Debug("responses input item counts", "reasoning", len(reasoningIDs), "function_call", len(fcIDs), "total", len(input))
-	// Log the raw messages for debugging reasoning preservation
-	for i, m := range messages {
-		if m.Role == agent.AssistantRole {
-			var thinkingIDs []string
-			for _, cb := range m.ContentBlocks {
-				if cb.Type == agent.ApiThinkingContentType && cb.Thinking != nil {
-					thinkingIDs = append(thinkingIDs, cb.Thinking.ID)
-				}
-			}
-			var toolUseIDs []string
-			for _, cb := range m.ContentBlocks {
-				if cb.Type == agent.ApiToolUseContentType && cb.ToolUse != nil {
-					toolUseIDs = append(toolUseIDs, cb.ToolUse.ProviderID)
-				}
-			}
-			if len(toolUseIDs) > 0 {
-				logger.Debug("responses assistant message content", "msg_index", i, "thinking_ids", thinkingIDs, "tool_use_provider_ids", toolUseIDs)
-			}
-		}
-	}
-	payload := ResponsesRequest{
-		Model:           c.model,
-		Instructions:    serializeSystemInstructions(system),
-		Input:           input,
-		Stream:          true,
-		MaxOutputTokens: maxTokens,
-	}
-	if c.reasoningEffort != "" {
-		payload.Reasoning = &ResponsesReasoning{Effort: c.reasoningEffort}
-	}
-
-	if len(tools) > 0 {
-		payload.Tools = ConvertResponsesTools(tools)
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	url := strings.TrimRight(c.baseURL, "/") + "/v1/responses"
-	logger.Debug("aiden responses api request", "url", url, "body", string(body))
-	slog.Info("aiden responses stream request", "url", url, "model", c.model, "input", len(payload.Input))
-
-	resp, err := c.doRequestWithRetry(ctx, http.MethodPost, url, body, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	slog.Info("aiden responses stream connected", "status", resp.StatusCode)
-	return DecodeStreamEvent(resp.Body), nil
-}
-
-func usesResponsesAPI(model string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt")
 }
 
 type aidenModel struct {
