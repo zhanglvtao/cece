@@ -3,7 +3,6 @@ package ui
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/creack/pty"
 	"github.com/rivo/uniseg"
 
 	"github.com/zhanglvtao/cece/internal/logger"
@@ -1616,8 +1614,7 @@ func submitCmd(sender Sender, input string) tea.Cmd {
 }
 
 // runShellCommand executes a shell command directly (without LLM) and returns
-// a shellResultMsg for display in the transcript. Uses a PTY so commands
-// produce ANSI color output (e.g. ls, git diff).
+// a shellResultMsg for display in the transcript.
 func (m *Model) runShellCommand(cmd string) tea.Cmd {
 	m.status = "Running shell"
 	start := time.Now()
@@ -1626,23 +1623,13 @@ func (m *Model) runShellCommand(cmd string) tea.Cmd {
 		defer cancel()
 		c := exec.CommandContext(ctx, "bash", "-c", cmd)
 		c.Dir = m.projectDir
-		// Start in a PTY so commands think they're in a terminal and emit colors.
-		ptmx, err := pty.Start(c)
-		if err != nil {
-			return shellResultMsg{command: cmd, output: err.Error(), isError: true, duration: time.Since(start)}
-		}
-		defer ptmx.Close()
-		out, _ := io.ReadAll(ptmx)
-		c.Wait()
-		exitCode := 0
-		if c.ProcessState != nil {
-			exitCode = c.ProcessState.ExitCode()
-		}
+		out, err := c.CombinedOutput()
+		duration := time.Since(start)
 		return shellResultMsg{
 			command:  cmd,
 			output:   string(out),
-			isError:  exitCode != 0,
-			duration: time.Since(start),
+			isError:  err != nil,
+			duration: duration,
 		}
 	}
 }
