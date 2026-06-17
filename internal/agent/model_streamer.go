@@ -26,10 +26,9 @@ type modelResponse struct {
 
 // toolCallState tracks incremental assembly of a tool_use block across SSE events.
 type toolCallState struct {
-	id         string
-	providerID string
-	name       string
-	input      strings.Builder
+	id    string
+	name  string
+	input strings.Builder
 }
 
 // ModelStreamRequest describes one streaming model call within an agent turn.
@@ -90,9 +89,6 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 	var textBuf strings.Builder
 	var thinkingBuf strings.Builder
 	var thinkingIndex int = -1         // index of the current thinking block, -1 = none
-	var thinkingProviderID string       // provider ID from content_block_start (e.g. rs_...)
-	var thinkingSummaryText string      // initial summary text from content_block_start
-	var thinkingEncryptedContent string // encrypted reasoning content from Responses API
 	var redactedThinkingIndex int = -1 // index of the current redacted_thinking block, -1 = none
 	var toolInputStates map[int]*toolCallState
 	assistantStarted := false
@@ -175,9 +171,8 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				toolInputStates = make(map[int]*toolCallState)
 			}
 			toolInputStates[chunk.Index] = &toolCallState{
-				id:         chunk.ToolCallID,
-				providerID: chunk.ToolCallProviderID,
-				name:       chunk.ToolCallName,
+				id:   chunk.ToolCallID,
+				name: chunk.ToolCallName,
 			}
 			emitModelEvent(ch, ToolCallStarted{
 				ID:    chunk.ToolCallID,
@@ -198,18 +193,26 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		if chunk.EventType == "content_block_stop" {
 			if ts, ok := toolInputStates[chunk.Index]; ok {
 				delete(toolInputStates, chunk.Index)
-				raw := json.RawMessage(ts.input.String())
+				inputStr := ts.input.String()
+				// Validate the accumulated JSON before storing as json.RawMessage.
+				// Truncated streams can produce invalid JSON that would fail
+				// during json.Marshal at persistence time.
+				if !json.Valid([]byte(inputStr)) {
+					logger.Warn("tool call input is not valid JSON — using empty object",
+						"name", ts.name, "id", ts.id, "raw", truncate(inputStr, 200))
+					inputStr = "{}"
+				}
+				raw := json.RawMessage(inputStr)
 				// Log suspiciously empty inputs for debugging (don't skip — let
 				// validateInput catch them so the model receives a proper error).
-				inputStr := strings.TrimSpace(ts.input.String())
-				if inputStr == "" || inputStr == "{}" || inputStr == "null" {
+				str := strings.TrimSpace(inputStr)
+				if str == "" || str == "{}" || str == "null" {
 					logger.Debug("tool call with empty input detected", "name", ts.name, "id", ts.id)
 				}
 				resp.toolCalls = append(resp.toolCalls, ApiToolUseBlock{
-					ID:         ts.id,
-					ProviderID: ts.providerID,
-					Name:       ts.name,
-					Input:      raw,
+					ID:    ts.id,
+					Name:  ts.name,
+					Input: raw,
 				})
 				emitModelEvent(ch, ToolCallCompleted{
 					ID:    ts.id,
@@ -223,11 +226,8 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		// Thinking block assembly
 		if chunk.EventType == "content_block_start" && chunk.IsThinking {
 			thinkingIndex = chunk.Index
-			thinkingProviderID = chunk.ThinkingProviderID
-			thinkingSummaryText = chunk.ThinkingSummaryText
-			thinkingEncryptedContent = chunk.ThinkingEncryptedContent
 			thinkingBuf.Reset()
-			logger.Debug("thinking block started", "index", chunk.Index, "providerID", chunk.ThinkingProviderID, "hasEncryptedContent", chunk.ThinkingEncryptedContent != "")
+			logger.Debug("thinking block started", "index", chunk.Index)
 			emitModelEvent(ch, ThinkingStarted{Index: chunk.Index})
 		}
 		if chunk.EventType == "content_block_start" && chunk.IsRedactedThinking {
@@ -240,23 +240,14 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		if chunk.EventType == "content_block_stop" && thinkingIndex >= 0 && chunk.Index == thinkingIndex {
 			fullThinking := thinkingBuf.String()
 			sig := chunk.ThinkingSignature
-			pid := thinkingProviderID
-			stext := thinkingSummaryText
-			econtent := thinkingEncryptedContent
-			logger.Debug("thinking block completed", "providerID", pid, "hasEncryptedContent", econtent != "", "textLen", len(fullThinking))
+			logger.Debug("thinking block completed", "textLen", len(fullThinking))
 			thinkingIndex = -1
-			thinkingProviderID = ""
-			thinkingSummaryText = ""
-			thinkingEncryptedContent = ""
 			thinkingBuf.Reset()
 			resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
 				Type: ApiThinkingContentType,
 				Thinking: &ApiThinkingBlock{
-					ID:               pid,
-					Text:             fullThinking,
-					Signature:        sig,
-					SummaryText:      stext,
-					EncryptedContent: econtent,
+					Text:      fullThinking,
+					Signature: sig,
 				},
 			})
 			emitModelEvent(ch, ThinkingCompleted{Text: fullThinking, Signature: sig})
