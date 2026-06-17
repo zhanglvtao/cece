@@ -287,11 +287,11 @@ func TestWriteToolCreatesDirs(t *testing.T) {
 }
 
 func TestPlanModeRemindersUseSystemReminderTags(t *testing.T) {
-	if !strings.Contains(BuildFullPlanReminder("/tmp/.cece/plans"), "<system-reminder>") {
-		t.Fatalf("full reminder = %q, want system-reminder tag", BuildFullPlanReminder("/tmp/.cece/plans"))
+	if !strings.Contains(BuildFullPlanReminder("/tmp/.cece/plans", false), "<system-reminder>") {
+		t.Fatalf("full reminder = %q, want system-reminder tag", BuildFullPlanReminder("/tmp/.cece/plans", false))
 	}
-	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans"), "<system-reminder>") {
-		t.Fatalf("sparse reminder = %q, want system-reminder tag", BuildSparsePlanReminder("/tmp/.cece/plans"))
+	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", false), "<system-reminder>") {
+		t.Fatalf("sparse reminder = %q, want system-reminder tag", BuildSparsePlanReminder("/tmp/.cece/plans", false))
 	}
 	if !strings.Contains(ExitPlanModeReminder(), "<system-reminder>") {
 		t.Fatalf("exit reminder = %q, want system-reminder tag", ExitPlanModeReminder())

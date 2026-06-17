@@ -81,14 +81,15 @@ type Options struct {
 // Build wires every cece subsystem from opts. The returned Bundle
 // owns no goroutines; Mediator.Wait() is the only blocking shutdown.
 func Build(opts Options) (*Bundle, error) {
-	planState := tool.NewPlanModeState()
-	planState.SetProjectDir(opts.ProjectDir)
-	taskList := tool.NewTaskList()
-
 	skillStore := opts.Skills
 	if skillStore == nil {
 		skillStore = skill.NewStore(nil)
 	}
+
+	planState := tool.NewPlanModeState()
+	planState.SetProjectDir(opts.ProjectDir)
+	planState.SetSkillStore(skillStore)
+	taskList := tool.NewTaskList()
 
 	registry := tool.NewRegistry(
 		tool.NewBash(),

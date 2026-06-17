@@ -109,6 +109,8 @@ func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, max
 // ── TurnEngine interface implementation ───────────────────────────────────
 
 func (e *Engine) ProjectDir() string                  { return e.projectDir }
+
+const subAgentResultPreviewMaxLen = 16000
 func (e *Engine) Assembler() *prompt.ContextAssembler { return e.assembler }
 func (e *Engine) Client() agent.ModelClient           { return e.client }
 func (e *Engine) Registry() *tool.Registry            { return e.registry }
@@ -502,12 +504,47 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 		// Wait for agent to complete
 		msg := rt.WaitCompletion(ctx)
 		result := rt.resultFromMessage(msg)
+		result = e.writeSubAgentArtifact(result, rt)
 		e.accumulateSubAgentTokens(result)
 		return result, nil
 	}
 
 	// Fallback: build bare Engine without Mediator (test / simple path)
 	return e.startSubAgentBare(ctx, cfg, agentID, parentSessionID, parentModel)
+}
+
+// writeSubAgentArtifact persists the full final result as an artifact
+// and updates the result with preview / artifact path metadata.
+func (e *Engine) writeSubAgentArtifact(result tool.AgentSubAgentResult, rt *AgentRuntime) tool.AgentSubAgentResult {
+	as, ok := e.store.(session.ArtifactStore)
+	if !ok {
+		return result
+	}
+	full := rt.finalResult
+	if full == "" {
+		full = result.Content
+	}
+	if full == "" {
+		return result
+	}
+
+	path, err := as.WriteArtifact(context.Background(), result.SessionID, "result.txt", []byte(full))
+	if err != nil {
+		slog.Warn("failed to write subagent artifact", "session", result.SessionID, "error", err)
+		return result
+	}
+
+	result.ResultPath = path
+	result.ContentFullLength = len(full)
+	if len(full) > subAgentResultPreviewMaxLen {
+		result.Content = full[:subAgentResultPreviewMaxLen]
+		result.ContentReturnedLength = subAgentResultPreviewMaxLen
+		result.ContentTruncated = true
+	} else {
+		result.Content = full
+		result.ContentReturnedLength = len(full)
+	}
+	return result
 }
 
 // startSubAgentBare builds a sub-agent Engine without Mediator.
@@ -589,6 +626,7 @@ func (e *Engine) startSubAgentBare(ctx context.Context, cfg tool.AgentSubAgentCo
 	// Wait for agent to complete
 	msg := rt.WaitCompletion(subCtx)
 	result := rt.resultFromMessage(msg)
+	result = e.writeSubAgentArtifact(result, rt)
 	e.accumulateSubAgentTokens(result)
 	return result, nil
 }
@@ -817,6 +855,9 @@ func (e *Engine) bridgeSubRuntimeEvents(rt *AgentRuntime, store session.Store, p
 		// Check max_turns limit after each model request
 		if rt.MaxTurns > 0 && rt.TurnCount >= rt.MaxTurns {
 			snap := rt.Snapshot()
+			rt.mu.Lock()
+			rt.finalResult = strings.TrimSpace(rt.msgBuf.String())
+			rt.mu.Unlock()
 			rt.Result = tool.AgentSubAgentResult{
 				AgentID:      rt.ID,
 				SessionID:    snap.SessionID,
@@ -1758,12 +1799,12 @@ func buildTurnSnapshot(history []agent.Message, user agent.Message, planState *t
 		slog.Info("plan mode injection check", "reminderType", reminderType, "plansDir", plansDir)
 		switch reminderType {
 		case "full":
-			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildFullPlanReminder(plansDir)})
+			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildFullPlanReminder(plansDir, planState.HasWritingPlanSkill())})
 			if consumePlanReminder {
 				planState.SetReminderType("sparse")
 			}
 		case "sparse":
-			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildSparsePlanReminder(plansDir)})
+			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildSparsePlanReminder(plansDir, planState.HasWritingPlanSkill())})
 		}
 	}
 	return snapshot

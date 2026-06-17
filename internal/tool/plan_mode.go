@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/zhanglvtao/cece/internal/skill"
 )
 
 const (
@@ -40,7 +42,12 @@ func planFileInfo(plansDir string) string {
 	)
 }
 
-func BuildFullPlanReminder(plansDir string) string {
+func BuildFullPlanReminder(plansDir string, hasWritingPlanSkill bool) string {
+	skillHint := ""
+	if hasWritingPlanSkill {
+		skillHint = "\n\n## Skill\n" +
+			"Use the Skill tool to load the `writing-plan` skill for plan writing guidance.\n"
+	}
 	return "<system-reminder>\n" +
 		"Plan mode is active. You MUST NOT make any edits or run non-readonly commands.\n" +
 		"You may only use Read, Grep, Glob, and Bash for read-only commands such as\n" +
@@ -83,13 +90,19 @@ func BuildFullPlanReminder(plansDir string) string {
 		"\n" +
 		"**Important:** Use ExitPlanMode to request plan approval. Do NOT ask about\n" +
 		"plan approval via text or AskUserQuestion.\n" +
+		skillHint +
 		"</system-reminder>"
 }
 
-func BuildSparsePlanReminder(plansDir string) string {
+func BuildSparsePlanReminder(plansDir string, hasWritingPlanSkill bool) string {
+	skillHint := ""
+	if hasWritingPlanSkill {
+		skillHint = " Use the Skill tool to load `writing-plan` for guidance.\n"
+	}
 	return "<system-reminder>\n" +
 		fmt.Sprintf("Plan mode still active. Read-only except plan files under %s/. DO NOT write to project root.\n", plansDir) +
 		"Continue iterative workflow. End turns with AskUserQuestion or ExitPlanMode.\n" +
+		skillHint +
 		"</system-reminder>"
 }
 
@@ -104,14 +117,15 @@ func ExitPlanModeReminder() string {
 // ── PlanModeState ───────────────────────────────────────────────────────────
 
 type PlanModeState struct {
-	mu                 sync.Mutex
-	mode               PermissionMode
-	prePlanMode        PermissionMode
-	plansDir           string // e.g. /xxx/.cece/plans
-	reminderType       string // "full" | "sparse" | ""
-	projectDir         string
-	exitTargetMode     PermissionMode // set before ApprovePlan; Exit() uses this instead of prePlanMode
-	pendingModeReminder string        // non-empty when mode changed; drained before next LLM call
+	mu                  sync.Mutex
+	mode                PermissionMode
+	prePlanMode         PermissionMode
+	plansDir            string // e.g. /xxx/.cece/plans
+	reminderType        string // "full" | "sparse" | ""
+	projectDir          string
+	exitTargetMode      PermissionMode // set before ApprovePlan; Exit() uses this instead of prePlanMode
+	pendingModeReminder string         // non-empty when mode changed; drained before next LLM call
+	skillStore          *skill.Store   // optional; used to detect writing-plan skill
 }
 
 func NewPlanModeState() *PlanModeState {
@@ -164,6 +178,24 @@ func (s *PlanModeState) SetProjectDir(dir string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.projectDir = dir
+}
+
+func (s *PlanModeState) SetSkillStore(store *skill.Store) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.skillStore = store
+}
+
+// HasWritingPlanSkill reports whether the writing-plan skill exists and is enabled.
+func (s *PlanModeState) HasWritingPlanSkill() bool {
+	if s == nil || s.skillStore == nil {
+		return false
+	}
+	sk, ok := s.skillStore.Get("writing-plan")
+	return ok && s.skillStore.IsEnabled(sk.Name)
 }
 
 // SetExitTargetMode sets the target mode for Exit() to use instead of prePlanMode.
@@ -371,7 +403,7 @@ func (t enterPlanModeTool) Run(ctx context.Context, input json.RawMessage, emitt
 	if !t.state.Enter() {
 		return Result{Content: "Already in plan mode.", IsError: true}
 	}
-	return Result{Content: BuildFullPlanReminder(t.state.PlansDir())}
+	return Result{Content: BuildFullPlanReminder(t.state.PlansDir(), t.state.HasWritingPlanSkill())}
 }
 
 // ── ExitPlanMode tool ───────────────────────────────────────────────────────
