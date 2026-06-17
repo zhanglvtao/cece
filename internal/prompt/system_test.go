@@ -42,6 +42,7 @@ func TestFormatStableSystemPromptContainsAllSections(t *testing.T) {
 	expectedSections := []string{
 		"# Identity",
 		"# Constraints",
+		"# Architecture Mindset",
 		"# Output Style",
 		"# Tool Usage",
 		"# Runtime Signals",
@@ -53,6 +54,26 @@ func TestFormatStableSystemPromptContainsAllSections(t *testing.T) {
 	for _, section := range expectedSections {
 		if !strings.Contains(got, section) {
 			t.Fatalf("missing section %q in system prompt", section)
+		}
+	}
+}
+
+func TestFormatStableSystemPromptContainsArchitectureMindset(t *testing.T) {
+	got := FormatStableSystemPrompt("")
+
+	expected := []string{
+		"systems architect",
+		"whole-system view",
+		"ownership boundaries",
+		"data flow",
+		"long-term maintenance cost",
+		"Prefer reusing and extending existing patterns",
+		"critical design decisions",
+	}
+
+	for _, value := range expected {
+		if !strings.Contains(got, value) {
+			t.Fatalf("missing architecture mindset phrase %q", value)
 		}
 	}
 }

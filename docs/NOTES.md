@@ -1,5 +1,18 @@
 # CC 开发过程中遇到的问题
 
+## System Prompt 默认值与仓库 Override 双层来源（2026-06-17）
+
+### 问题现象
+优化 cece 默认 system prompt 时，容易只修改 `internal/prompt/system.md`，但本仓运行时会优先读取根目录 `SYSTEM.md` 作为完整 override，导致产品默认行为和本仓开发体验不一致。
+
+### 根因
+`FormatStableSystemPrompt` 支持 repo-level `SYSTEM.md` 完整覆盖内置 prompt；这是有意设计，但修改默认 prompt 时必须同时识别“内置默认值”和“当前仓库 override”两条路径。
+
+### 处理
+本次同步更新 `internal/prompt/system.md` 与根目录 `SYSTEM.md`，并在测试中加入架构师定位语义断言，避免内置默认 prompt 后续退化。
+
+---
+
 ## Plan Mode 空计划审批问题（2026-06-14 已修复）
 
 ### 问题现象
