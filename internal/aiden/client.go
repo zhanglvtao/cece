@@ -91,6 +91,9 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, url string, bod
 		return req, nil
 	}
 
+	// Log request info (enough to reproduce with curl)
+	logger.Info("api request", "method", method, "url", url, "headers", redactAuthHeaders(extraHeaders, ceceUserAgent), "body", string(body))
+
 	var invalidate func()
 	if c.tokenCache != nil {
 		invalidate = c.tokenCache.Invalidate
@@ -102,6 +105,9 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, url string, bod
 	if err != nil {
 		return nil, err
 	}
+
+	// Log response info
+	logger.Info("api response", "status", resp.StatusCode, "headers", resp.Header)
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
@@ -116,6 +122,17 @@ func (c *Client) doRequestWithRetry(ctx context.Context, method, url string, bod
 	}
 
 	return resp, nil
+}
+
+// redactAuthHeaders returns a header map for logging, keeping structure but
+// masking the Authorization value so credentials don't leak into logs.
+func redactAuthHeaders(extra map[string]string, ua string) map[string]string {
+	h := map[string]string{"User-Agent": ua}
+	for k, v := range extra {
+		h[k] = v
+	}
+	h["Authorization"] = "Bearer ****"
+	return h
 }
 
 func extractRequestID(resp *http.Response) string {
@@ -144,15 +161,12 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 	}
 
 	url := strings.TrimRight(c.baseURL, "/") + "/v1/chat/completions"
-	logger.Debug("aiden api request", "url", url, "body", string(body))
-	slog.Info("aiden stream request", "url", url, "model", c.model, "messages", len(payload.Messages))
 
 	resp, err := c.doRequestWithRetry(ctx, http.MethodPost, url, body, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Info("aiden stream connected", "status", resp.StatusCode)
 	return DecodeStreamEvent(resp.Body), nil
 }
 

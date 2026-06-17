@@ -101,6 +101,16 @@ func TestPlanApprovalDispatchesActions(t *testing.T) {
 		t.Fatalf("plan content not rendered:\n%s", rendered)
 	}
 	m.handleModalKey(keyMsg("y"))
+	if len(sender.actions) < 2 {
+		t.Fatalf("actions = %d, want at least 2", len(sender.actions))
+	}
+	setMode, ok := sender.actions[len(sender.actions)-2].(protocol.SetExitTargetModeAction)
+	if !ok {
+		t.Fatalf("second last action = %T, want SetExitTargetModeAction", sender.actions[len(sender.actions)-2])
+	}
+	if setMode.Mode != protocol.PermissionModeDefault {
+		t.Fatalf("mode = %q, want default", setMode.Mode)
+	}
 	if _, ok := sender.actions[len(sender.actions)-1].(protocol.ApprovePlanAction); !ok {
 		t.Fatalf("last action = %T, want ApprovePlanAction", sender.actions[len(sender.actions)-1])
 	}

@@ -2,6 +2,8 @@ package testkit_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -75,20 +77,32 @@ func TestE2E_ConfirmTools_Reject(t *testing.T) {
 func TestE2E_PlanApproval_Reject(t *testing.T) {
 	llm := testkit.NewScriptedClient(
 		testkit.ToolUseTurn("call-1", "ExitPlanMode", `{"plan_file":"plan.md"}`),
+	// synthetic plan preview file must exist under plans dir for approval modal
 	)
 	h := testkit.NewHarness(t, llm,
 		testkit.WithYolo(false),
 		testkit.WithDefaultMode("plan"),
 	)
+	planDir := filepath.Join(h.Eng.ProjectDir(), ".cece", "plans")
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan\n\n- Do it\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	h.Send("plan something")
 	if !h.WaitForModal("approve_plan", 5*time.Second) {
-		t.Fatalf("approve_plan modal did not open")
+		events := h.EventsSnapshot()
+		t.Fatalf("approve_plan modal did not open; events=%T", events)
 	}
 	h.RejectPlan()
 
 	if !h.WaitForBusy(false, 5*time.Second) {
 		t.Fatalf("busy should be false after RejectPlan")
+	}
+	if got := llm.Calls(); got != 1 {
+		t.Fatalf("LLM calls after RejectPlan = %d, want 1", got)
 	}
 	// After reject, mode is set to plan.
 	if !h.Drv.WaitForBoolFn(func() bool {
@@ -392,14 +406,65 @@ func TestE2E_PlanApproval_Approve(t *testing.T) {
 		testkit.WithYolo(false),
 		testkit.WithDefaultMode("plan"),
 	)
+	planDir := filepath.Join(h.Eng.ProjectDir(), ".cece", "plans")
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan\n\n- Do it\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	h.Send("propose a plan")
 	if !h.WaitForModal("approve_plan", 5*time.Second) {
-		t.Fatalf("approve_plan modal did not open")
+		events := h.EventsSnapshot()
+		t.Fatalf("approve_plan modal did not open; events=%T", events)
 	}
 	h.ApprovePlan()
 
 	testkit.WaitForEvent[protocol.TurnCompleted](t, h, nil, 5*time.Second)
+	if !h.Drv.WaitForBoolFn(func() bool {
+		return h.CurrentUI().ModeForTest() == protocol.PermissionModeDefault
+	}, true, 1*time.Second) {
+		t.Fatalf("mode after ApprovePlan = %q, want default", h.CurrentUI().ModeForTest())
+	}
+	if got := llm.Calls(); got != 2 {
+		t.Fatalf("LLM calls after ApprovePlan = %d, want 2", got)
+	}
+}
+
+func TestE2E_PlanApproval_ApproveAuto(t *testing.T) {
+	llm := testkit.NewScriptedClient(
+		testkit.ToolUseTurn("p1", "ExitPlanMode", `{"plan_file":"plan.md"}`),
+		testkit.TextTurn("plan executed"),
+	)
+	h := testkit.NewHarness(t, llm,
+		testkit.WithYolo(false),
+		testkit.WithDefaultMode("plan"),
+	)
+	planDir := filepath.Join(h.Eng.ProjectDir(), ".cece", "plans")
+	if err := os.MkdirAll(planDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan\n\n- Do it\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h.Send("propose a plan")
+	if !h.WaitForModal("approve_plan", 5*time.Second) {
+		events := h.EventsSnapshot()
+		t.Fatalf("approve_plan modal did not open; events=%T", events)
+	}
+	h.ApprovePlanAuto()
+
+	testkit.WaitForEvent[protocol.TurnCompleted](t, h, nil, 5*time.Second)
+	if !h.Drv.WaitForBoolFn(func() bool {
+		return h.CurrentUI().ModeForTest() == protocol.PermissionModeAutoAccept
+	}, true, 1*time.Second) {
+		t.Fatalf("mode after ApprovePlanAuto = %q, want auto-accept", h.CurrentUI().ModeForTest())
+	}
+	if got := llm.Calls(); got != 2 {
+		t.Fatalf("LLM calls after ApprovePlanAuto = %d, want 2", got)
+	}
 }
 
 // ── Esc cancels turn ─────────────────────────────────────────────────────

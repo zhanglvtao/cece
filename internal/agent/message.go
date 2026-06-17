@@ -62,11 +62,9 @@ type ApiContentBlock struct {
 }
 
 type ApiThinkingBlock struct {
-	ID               string `json:"id,omitempty"`               // provider item ID (e.g. Responses API rs_...)
-	Text             string `json:"thinking,omitempty"`
-	Signature        string `json:"signature"`
-	SummaryText      string `json:"summary_text,omitempty"`      // initial summary for Responses API reasoning items
-	EncryptedContent string `json:"encrypted_content,omitempty"` // encrypted reasoning content for Responses API round-trip
+	ID        string `json:"id,omitempty"` // provider item ID
+	Text      string `json:"thinking,omitempty"`
+	Signature string `json:"signature"`
 }
 
 func (cb ApiContentBlock) AsToolResult() (*ApiToolResultBlock, bool) {
@@ -77,10 +75,9 @@ func (cb ApiContentBlock) AsToolResult() (*ApiToolResultBlock, bool) {
 }
 
 type ApiToolUseBlock struct {
-	ID         string          `json:"id"`
-	ProviderID string          `json:"provider_id,omitempty"`
-	Name       string          `json:"name"`
-	Input      json.RawMessage `json:"input"`
+	ID    string          `json:"id"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
 }
 
 type ApiToolResultBlock struct {
@@ -107,20 +104,16 @@ type ApiStreamEvent struct {
 	CacheReadTokens     int    // from message_start usage
 
 	// Tool call fields (from content_block_start + input_json_delta)
-	ToolCallID         string // tool_use block id / call_id
-	ToolCallProviderID string // provider-specific output item id (e.g. Responses API fc_...)
-	ToolCallName       string // tool_use block name
-	ToolCallInput      string // incremental JSON input (from input_json_delta)
-	Index              int    // content block index
+	ToolCallID    string // tool_use block id
+	ToolCallName  string // tool_use block name
+	ToolCallInput string // incremental JSON input (from input_json_delta)
+	Index         int    // content block index
 
 	// Thinking block fields (from content_block_start type="thinking" + thinking_delta)
-	IsThinking           bool   // true when content_block_start has type "thinking"
-	ThinkingDelta        string // text from thinking_delta
-	ThinkingSignature    string // signature from content_block_stop
-	ThinkingProviderID   string // provider ID for reasoning item (e.g. Responses API rs_...)
-	ThinkingSummaryText  string // initial summary text for reasoning item
-	ThinkingEncryptedContent string // encrypted reasoning content from Responses API (required for round-trip)
-	IsRedactedThinking   bool   // true when content_block_start has type "redacted_thinking"
+	IsThinking        bool   // true when content_block_start has type "thinking"
+	ThinkingDelta     string // text from thinking_delta
+	ThinkingSignature string // signature from content_block_stop
+	IsRedactedThinking bool  // true when content_block_start has type "redacted_thinking"
 }
 
 type SystemPrompt struct {

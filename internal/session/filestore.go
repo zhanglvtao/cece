@@ -310,3 +310,41 @@ func (s *FileStore) UpdateRelation(_ context.Context, sessionID string, parentID
 	sess.UpdatedAt = time.Now()
 	return s.writeMeta(sess)
 }
+
+// ── ArtifactStore ───────────────────────────────────────────────────────────
+
+func (s *FileStore) artifactPath(id, name string) string {
+	return filepath.Join(s.dir, id+"."+name)
+}
+
+// WriteArtifact writes a named artifact file for the given session.
+// The returned path is absolute and suitable for direct use with Read.
+func (s *FileStore) WriteArtifact(_ context.Context, sessionID, name string, content []byte) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return "", fmt.Errorf("create artifact dir: %w", err)
+	}
+
+	p := s.artifactPath(sessionID, name)
+	if err := os.WriteFile(p, content, 0o644); err != nil {
+		return "", fmt.Errorf("write artifact: %w", err)
+	}
+
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p, nil // best-effort: still usable
+	}
+	return abs, nil
+}
+
+// ArtifactPath returns the absolute path for a named artifact.
+func (s *FileStore) ArtifactPath(_ context.Context, sessionID, name string) (string, error) {
+	p := s.artifactPath(sessionID, name)
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p, nil
+	}
+	return abs, nil
+}

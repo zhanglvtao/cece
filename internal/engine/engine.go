@@ -455,6 +455,14 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 	agentID := fmt.Sprintf("agent-%d", e.nextSubAgentID)
 	e.mu.Unlock()
 
+	slog.Info("subagent: starting",
+		"agentID", agentID,
+		"description", cfg.Description,
+		"parentSession", parentSessionID,
+		"model", cfg.Model,
+		"maxTurns", cfg.MaxTurns,
+	)
+
 	// Try factory first (production path with full Mediator wiring)
 	if e.subAgentFactory != nil {
 		rt, err := e.subAgentFactory.NewSubAgentRuntime(ctx, SubAgentBuildConfig{
@@ -467,6 +475,7 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 			MaxTurns:          cfg.MaxTurns,
 		})
 		if err != nil {
+			slog.Error("subagent: factory failed", "agentID", agentID, "error", err)
 			e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
 			return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("sub-agent factory failed: %v", err), Err: err.Error()}, err
 		}
@@ -492,8 +501,10 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 		rt.Engine.SetEffort("low")
 
 		// Start child Engine
+		slog.Info("subagent: executing", "agentID", agentID, "sessionID", rt.SessionID)
 		if err := rt.Engine.Input(rt.Context, cfg.Prompt); err != nil {
 			rt.CancelFunc()
+			slog.Error("subagent: input failed", "agentID", agentID, "error", err)
 			e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
 			e.mu.Lock()
 			delete(e.subAgents, agentID)
@@ -506,6 +517,17 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 		result := rt.resultFromMessage(msg)
 		result = e.writeSubAgentArtifact(result, rt)
 		e.accumulateSubAgentTokens(result)
+		slog.Info("subagent: completed",
+			"agentID", agentID,
+			"status", result.Status,
+			"sessionID", result.SessionID,
+			"turns", result.TurnsUsed,
+			"inputTokens", result.InputTokens,
+			"outputTokens", result.OutputTokens,
+			"hitMaxTurns", result.HitMaxTurns,
+			"truncated", result.ContentTruncated,
+			"resultPath", result.ResultPath,
+		)
 		return result, nil
 	}
 
@@ -544,12 +566,21 @@ func (e *Engine) writeSubAgentArtifact(result tool.AgentSubAgentResult, rt *Agen
 		result.Content = full
 		result.ContentReturnedLength = len(full)
 	}
+	slog.Info("subagent: artifact written",
+		"sessionID", result.SessionID,
+		"path", path,
+		"fullLen", result.ContentFullLength,
+		"returnedLen", result.ContentReturnedLength,
+		"truncated", result.ContentTruncated,
+	)
 	return result
 }
 
 // startSubAgentBare builds a sub-agent Engine without Mediator.
 // Used when SubAgentRuntimeFactory is not injected (e.g. tests).
 func (e *Engine) startSubAgentBare(ctx context.Context, cfg tool.AgentSubAgentConfig, agentID, parentSessionID, parentModel string) (tool.AgentSubAgentResult, error) {
+	slog.Info("subagent: starting (bare)", "agentID", agentID, "description", cfg.Description)
+
 	e.mu.Lock()
 	client := e.client
 	projectDir := e.projectDir
@@ -614,8 +645,10 @@ func (e *Engine) startSubAgentBare(ctx context.Context, cfg tool.AgentSubAgentCo
 	e.emitEvent(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description})
 
 	// Start child Engine
+	slog.Info("subagent: executing (bare)", "agentID", agentID, "sessionID", rt.SessionID)
 	if err := subEng.Input(subCtx, cfg.Prompt); err != nil {
 		cancel()
+		slog.Error("subagent: input failed (bare)", "agentID", agentID, "error", err)
 		e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
 		e.mu.Lock()
 		delete(e.subAgents, agentID)
@@ -628,6 +661,17 @@ func (e *Engine) startSubAgentBare(ctx context.Context, cfg tool.AgentSubAgentCo
 	result := rt.resultFromMessage(msg)
 	result = e.writeSubAgentArtifact(result, rt)
 	e.accumulateSubAgentTokens(result)
+	slog.Info("subagent: completed (bare)",
+		"agentID", agentID,
+		"status", result.Status,
+		"sessionID", result.SessionID,
+		"turns", result.TurnsUsed,
+		"inputTokens", result.InputTokens,
+		"outputTokens", result.OutputTokens,
+		"hitMaxTurns", result.HitMaxTurns,
+		"truncated", result.ContentTruncated,
+		"resultPath", result.ResultPath,
+	)
 	return result, nil
 }
 
@@ -854,6 +898,11 @@ func (e *Engine) bridgeSubRuntimeEvents(rt *AgentRuntime, store session.Store, p
 
 		// Check max_turns limit after each model request
 		if rt.MaxTurns > 0 && rt.TurnCount >= rt.MaxTurns {
+			slog.Warn("subagent: max turns reached",
+				"agentID", rt.ID,
+				"turnCount", rt.TurnCount,
+				"maxTurns", rt.MaxTurns,
+			)
 			snap := rt.Snapshot()
 			rt.mu.Lock()
 			rt.finalResult = strings.TrimSpace(rt.msgBuf.String())

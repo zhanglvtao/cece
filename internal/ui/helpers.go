@@ -139,7 +139,7 @@ func formatToolTitleKVs(name string, raw json.RawMessage) (string, string) {
 	for _, key := range sortedKeys {
 		parts = append(parts, key+": "+formatToolTitleValue(m[key]))
 	}
-	return name, strings.Join(parts, " ")
+	return toolDisplayName(name), strings.Join(parts, " ")
 }
 
 func formatToolTitleValue(val any) string {

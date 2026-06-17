@@ -13,13 +13,6 @@ type AidenToolDef struct {
 	Parameters  map[string]any `json:"parameters"`
 }
 
-type ResponsesTool struct {
-	Type        string         `json:"type"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
-}
-
 func ConvertTools(tools []tool.Definition) []AidenTool {
 	if len(tools) == 0 {
 		return nil
@@ -33,22 +26,6 @@ func ConvertTools(tools []tool.Definition) []AidenTool {
 				Description: t.Description,
 				Parameters:  t.InputSchema,
 			},
-		})
-	}
-	return result
-}
-
-func ConvertResponsesTools(tools []tool.Definition) []ResponsesTool {
-	if len(tools) == 0 {
-		return nil
-	}
-	result := make([]ResponsesTool, 0, len(tools))
-	for _, t := range tools {
-		result = append(result, ResponsesTool{
-			Type:        "function",
-			Name:        t.Name,
-			Description: t.Description,
-			Parameters:  t.InputSchema,
 		})
 	}
 	return result

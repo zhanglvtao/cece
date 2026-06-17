@@ -9,6 +9,55 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+type toolDisplayMeta struct {
+	displayName string
+	group       int
+	order       int
+}
+
+const (
+	toolGroupFile = iota
+	toolGroupWeb
+	toolGroupAsk
+	toolGroupContext
+	toolGroupAgent
+	toolGroupPlan
+	toolGroupDefault
+)
+
+var toolDisplayMetaMap = map[string]toolDisplayMeta{
+	"Read":            {displayName: "Read", group: toolGroupFile, order: 0},
+	"Write":           {displayName: "Write", group: toolGroupFile, order: 1},
+	"Edit":            {displayName: "Edit", group: toolGroupFile, order: 2},
+	"Glob":            {displayName: "Glob", group: toolGroupFile, order: 3},
+	"Grep":            {displayName: "Grep", group: toolGroupFile, order: 4},
+	"Bash":            {displayName: "Bash", group: toolGroupFile, order: 5},
+	"WebFetch":        {displayName: "WebFetch", group: toolGroupWeb, order: 0},
+	"WebSearch":       {displayName: "WebSearch", group: toolGroupWeb, order: 1},
+	"AskUserQuestion": {displayName: "Ask", group: toolGroupAsk, order: 0},
+	"Compact":         {displayName: "Compact", group: toolGroupContext, order: 0},
+	"Trim":            {displayName: "Trim", group: toolGroupContext, order: 1},
+	"Prune":           {displayName: "Prune", group: toolGroupContext, order: 2},
+	"Truncate":        {displayName: "Truncate", group: toolGroupContext, order: 3},
+	"Agent":           {displayName: "Agent", group: toolGroupAgent, order: 0},
+	"EnterPlanMode":   {displayName: "EnterPlan", group: toolGroupPlan, order: 0},
+	"ExitPlanMode":    {displayName: "ExitPlan", group: toolGroupPlan, order: 1},
+}
+
+func toolDisplayName(name string) string {
+	if meta, ok := toolDisplayMetaMap[name]; ok && meta.displayName != "" {
+		return meta.displayName
+	}
+	return name
+}
+
+func toolMeta(name string) toolDisplayMeta {
+	if meta, ok := toolDisplayMetaMap[name]; ok {
+		return meta
+	}
+	return toolDisplayMeta{displayName: name, group: toolGroupDefault, order: 1 << 30}
+}
+
 // HeaderBar displays cumulative statistics at the top of the TUI.
 // It tracks API calls, tool calls, turns (each with success/failure counts),
 // and token usage (in/out/cache).
@@ -150,27 +199,33 @@ func (h *HeaderBar) formatToolGroup() string {
 	}
 
 	type kv struct {
-		name string
-		ok   int
-		fail int
+		name  string
+		ok    int
+		fail  int
+		meta  toolDisplayMeta
+		total int
 	}
 	sorted := make([]kv, 0, len(names))
 	for name := range names {
-		sorted = append(sorted, kv{name: name, ok: h.toolOK[name], fail: h.toolFail[name]})
+		sorted = append(sorted, kv{name: name, ok: h.toolOK[name], fail: h.toolFail[name], meta: toolMeta(name), total: h.toolOK[name] + h.toolFail[name]})
 	}
 	sort.Slice(sorted, func(i, j int) bool {
-		ti := sorted[i].ok + sorted[i].fail
-		tj := sorted[j].ok + sorted[j].fail
-		if ti == tj {
-			return sorted[i].name < sorted[j].name
+		if sorted[i].meta.group != sorted[j].meta.group {
+			return sorted[i].meta.group < sorted[j].meta.group
 		}
-		return ti > tj
+		if sorted[i].meta.order != sorted[j].meta.order {
+			return sorted[i].meta.order < sorted[j].meta.order
+		}
+		if sorted[i].total != sorted[j].total {
+			return sorted[i].total > sorted[j].total
+		}
+		return sorted[i].name < sorted[j].name
 	})
 
 	var b strings.Builder
 	for _, t := range sorted {
 		sty := h.toolStyle(t.name)
-		name := sty.Render(t.name)
+		name := sty.Render(t.meta.displayName)
 		b.WriteString(fmt.Sprintf("%s ✓%d", name, t.ok))
 		if t.fail > 0 {
 			b.WriteString(h.styles.Status.Fail.Render(fmt.Sprintf("✗%d", t.fail)))

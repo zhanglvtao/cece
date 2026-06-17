@@ -95,7 +95,7 @@ func (m *Model) modalView() string {
 	case modalConfirmTools:
 		body = m.confirmToolsView()
 	case modalApprovePlan:
-		body = m.styles.Modal.Title.Render("Approve plan "+m.modal.planFile+"?") + "\n" + m.styles.Modal.Help.Render("[y/enter] approve  [shift+tab] auto-accept  [n/esc] reject")
+		body = m.styles.Modal.Title.Render("Approve plan "+m.modal.planFile+"?") + "\n" + m.styles.Modal.Help.Render("[y/enter] default mode  [shift+tab] auto-accept  [n/esc] reject")
 	case modalQuestion:
 		body = m.questionView()
 	case modalModelPicker, modalSessionPicker, modalMCPPicker, modalSkillPicker:
@@ -178,6 +178,7 @@ func (m *Model) handleApprovePlanKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "y", "enter":
 		m.modal = modalState{}
 		if actor, ok := m.sender.(Actor); ok {
+			actor.Do(protocol.SetExitTargetModeAction{Mode: protocol.PermissionModeDefault})
 			actor.Do(protocol.ApprovePlanAction{})
 		}
 	case "shift+tab", "backtab":

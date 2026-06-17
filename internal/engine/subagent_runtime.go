@@ -92,6 +92,7 @@ type AgentRuntime struct {
 	LastMessage       string
 	lastMessage     AgentMessage
 	msgBuf          strings.Builder
+	finalResult     string // full final assistant text, captured at TurnCompleted
 	StartedAt       time.Time
 	UpdatedAt       time.Time
 	FinishedAt      time.Time
@@ -364,6 +365,9 @@ func (rt *AgentRuntime) handleEvent(ev protocol.Event) (AgentMessage, bool) {
 		rt.Result.Content = "sub-agent failed: " + v.Err
 		return AgentMessage{Kind: AgentMessageError, Status: AgentStatusFailed, Payload: map[string]any{"error": v.Err}}, true
 	case protocol.TurnCompleted:
+		rt.mu.Lock()
+		rt.finalResult = strings.TrimSpace(rt.msgBuf.String())
+		rt.mu.Unlock()
 		snap := rt.Snapshot()
 		content := snap.LastMessage
 		if strings.TrimSpace(content) == "" {

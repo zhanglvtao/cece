@@ -42,6 +42,12 @@ type AgentSubAgentResult struct {
 	HitMaxTurns  bool
 	Cancelled    bool
 	Err          string
+
+	// Artifact fields — populated when the result was persisted as an artifact.
+	ResultPath           string
+	ContentFullLength    int
+	ContentReturnedLength int
+	ContentTruncated     bool
 }
 
 type agentTool struct {
@@ -184,6 +190,11 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		return Result{Content: fmt.Sprintf("Sub-agent failed: %v", err), IsError: true}
 	}
 	if result.Cancelled || result.Err != "" {
+		slog.Warn("sub-agent cancelled or errored",
+			"agentID", result.AgentID,
+			"cancelled", result.Cancelled,
+			"err", result.Err,
+		)
 		return Result{Content: result.Content, IsError: true}
 	}
 
@@ -198,6 +209,16 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		b.WriteString("\n\n[Sub-agent hit max turns limit]")
 	}
 
+	if result.ContentTruncated {
+		b.WriteString(fmt.Sprintf("\n\nPreview truncated: %d / %d chars", result.ContentReturnedLength, result.ContentFullLength))
+		if result.ResultPath != "" {
+			b.WriteString(fmt.Sprintf("\nResult artifact: %s", result.ResultPath))
+			b.WriteString("\nUse Read with this path to inspect the full result.")
+		}
+	} else if result.ResultPath != "" {
+		b.WriteString(fmt.Sprintf("\n\nResult artifact: %s", result.ResultPath))
+	}
+
 	if result.AgentID != "" {
 		b.WriteString(fmt.Sprintf("\n\nAgent: %s", result.AgentID))
 		if result.SessionID != "" {
@@ -209,6 +230,14 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		(result.OutputTokens+999)/1000,
 		result.TurnsUsed,
 	))
+
+	slog.Info("subagent: result returned to parent",
+		"agentID", result.AgentID,
+		"sessionID", result.SessionID,
+		"truncated", result.ContentTruncated,
+		"resultPath", result.ResultPath,
+		"turns", result.TurnsUsed,
+	)
 
 	return Result{Content: b.String()}
 }

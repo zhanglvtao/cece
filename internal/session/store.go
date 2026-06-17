@@ -42,3 +42,12 @@ type Store interface {
 type RelationStore interface {
 	UpdateRelation(ctx context.Context, sessionID string, parentID string, agentID string, kind string) error
 }
+
+// ArtifactStore is an optional interface that Store implementations can
+// satisfy to write and read agent artifacts (e.g. subagent result files).
+// The returned path must be absolute and suitable for direct use with the
+// Read tool. Path strategy is entirely owned by the store implementation.
+type ArtifactStore interface {
+	WriteArtifact(ctx context.Context, sessionID, name string, content []byte) (absolutePath string, err error)
+	ArtifactPath(ctx context.Context, sessionID, name string) (absolutePath string, err error)
+}

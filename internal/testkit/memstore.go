@@ -18,6 +18,7 @@ type MemStore struct {
 	mu        sync.Mutex
 	sessions  map[string]*session.Session
 	messages  map[string][]json.RawMessage
+	artifacts map[string]map[string][]byte // sessionID -> name -> content
 	idCounter atomic.Uint64
 }
 
@@ -185,6 +186,34 @@ func (s *MemStore) SaveInputHistory(_ context.Context, sessionID string, history
 	sess.InputHistory = cp
 	sess.UpdatedAt = time.Now()
 	return nil
+}
+
+// ── ArtifactStore ───────────────────────────────────────────────────────────
+
+var memStoreArtifactDir = "/tmp/cece-artifacts"
+
+// WriteArtifact stores artifact content in memory and returns a predictable absolute path.
+func (s *MemStore) WriteArtifact(_ context.Context, sessionID, name string, content []byte) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessions[sessionID]; !ok {
+		return "", fmt.Errorf("memstore: session %s not found", sessionID)
+	}
+	cp := make([]byte, len(content))
+	copy(cp, content)
+	if s.artifacts == nil {
+		s.artifacts = make(map[string]map[string][]byte)
+	}
+	if s.artifacts[sessionID] == nil {
+		s.artifacts[sessionID] = make(map[string][]byte)
+	}
+	s.artifacts[sessionID][name] = cp
+	return memStoreArtifactDir + "/" + sessionID + "/" + name, nil
+}
+
+// ArtifactPath returns the predictable absolute path for a named artifact.
+func (s *MemStore) ArtifactPath(_ context.Context, sessionID, name string) (string, error) {
+	return memStoreArtifactDir + "/" + sessionID + "/" + name, nil
 }
 
 // Compile-time check that MemStore implements session.Store.

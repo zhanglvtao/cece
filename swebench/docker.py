@@ -62,27 +62,16 @@ class DockerInstance:
             check=True,
         )
 
-        # Write settings.json — copy host config, override model & mode
+        # Resolve authHelper tokens on host, inject into container config.
+        from swebench.auth import resolve_auth_tokens
         host_config = json.loads(self.config_path.read_text())
         host_config["provider"]["model"] = self.model
         host_config["defaultMode"] = {"mode": "auto-accept"}
         host_config["yolo"] = {"enabled": True}
+        host_config = resolve_auth_tokens(host_config)
 
-        # Only keep providers with static apiKey — containers don't have host CLI tools.
-        providers = host_config.get("provider", {}).get("providers", [])
-        filtered = []
-        for p in providers:
-            # Normalize legacy key names
-            key = p.get("apiKey") or p.get("apikey") or p.get("APIKey", "")
-            if key and p.get("authMode", "apikey") != "bearer":
-                p["apiKey"] = key
-                p.pop("apikey", None)
-                p.pop("APIKey", None)
-                p.pop("authHelper", None)
-                filtered.append(p)
-        host_config["provider"]["providers"] = filtered
-        if not host_config["provider"]["providers"]:
-            raise RuntimeError("No static-apiKey provider found in config — cannot run in container")
+        if not host_config.get("provider", {}).get("providers"):
+            raise RuntimeError("No usable provider found in config")
 
         self._write_file("/testbed/.cece/settings.json", json.dumps(host_config, indent=2))
 
