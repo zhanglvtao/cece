@@ -72,10 +72,10 @@ func (h *humanHandler) Handle(_ context.Context, r slog.Record) error {
 	b.WriteByte(' ')
 	if sessionID != "" {
 		b.WriteString("[")
-		b.WriteString(sessionID)
+		b.WriteString(escapeNewlines(sessionID))
 		b.WriteString("] ")
 	}
-	b.WriteString(r.Message)
+	b.WriteString(escapeNewlines(r.Message))
 
 	for _, a := range remainingAttrs {
 		b.WriteByte(' ')
@@ -117,10 +117,16 @@ func levelString(l slog.Level) string {
 	}
 }
 
+func escapeNewlines(s string) string {
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "\\r")
+	return s
+}
+
 func formatAttr(a slog.Attr) string {
 	key := a.Key
 	val := formatValue(a.Value)
-	if strings.ContainsAny(val, " \t\n") {
+	if strings.ContainsAny(val, " \t") {
 		return fmt.Sprintf("%s=%q", key, val)
 	}
 	return fmt.Sprintf("%s=%s", key, val)
@@ -130,6 +136,7 @@ func formatValue(v slog.Value) string {
 	switch v.Kind() {
 	case slog.KindString:
 		s := v.String()
+		s = escapeNewlines(s)
 		if len(s) > maxAttrValueLen {
 			return s[:maxAttrValueLen] + "..."
 		}
