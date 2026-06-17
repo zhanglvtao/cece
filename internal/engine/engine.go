@@ -476,7 +476,7 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 		})
 		if err != nil {
 			slog.Error("subagent: factory failed", "agentID", agentID, "error", err)
-			e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
+			e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, ParentSessionID: parentSessionID, Error: err.Error()})
 			return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("sub-agent factory failed: %v", err), Err: err.Error()}, err
 		}
 		// Set model from config or fallback to parent
@@ -495,7 +495,7 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 		go e.bridgeSubRuntimeEvents(rt, e.store, parentSessionID)
 
 		// Emit start event
-		e.emitEvent(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description})
+		e.emitEvent(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description, ParentSessionID: parentSessionID})
 
 		// Sub-agents always use low reasoning effort.
 		rt.Engine.SetEffort("low")
@@ -505,7 +505,7 @@ func (e *Engine) startSubAgent(ctx context.Context, cfg tool.AgentSubAgentConfig
 		if err := rt.Engine.Input(rt.Context, cfg.Prompt); err != nil {
 			rt.CancelFunc()
 			slog.Error("subagent: input failed", "agentID", agentID, "error", err)
-			e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
+			e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, ParentSessionID: parentSessionID, Error: err.Error()})
 			e.mu.Lock()
 			delete(e.subAgents, agentID)
 			e.mu.Unlock()
@@ -642,14 +642,14 @@ func (e *Engine) startSubAgentBare(ctx context.Context, cfg tool.AgentSubAgentCo
 	go e.bridgeSubRuntimeEvents(rt, store, parentSessionID)
 
 	// Emit start event
-	e.emitEvent(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description})
+	e.emitEvent(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description, ParentSessionID: parentSessionID})
 
 	// Start child Engine
 	slog.Info("subagent: executing (bare)", "agentID", agentID, "sessionID", rt.SessionID)
 	if err := subEng.Input(subCtx, cfg.Prompt); err != nil {
 		cancel()
 		slog.Error("subagent: input failed (bare)", "agentID", agentID, "error", err)
-		e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, Error: err.Error()})
+		e.emitEvent(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, ParentSessionID: parentSessionID, Error: err.Error()})
 		e.mu.Lock()
 		delete(e.subAgents, agentID)
 		e.mu.Unlock()
@@ -918,23 +918,25 @@ func (e *Engine) bridgeSubRuntimeEvents(rt *AgentRuntime, store session.Store, p
 				HitMaxTurns:  true,
 			}
 			e.emitEvent(protocol.SubAgentActivityEvent{
-				ID:           rt.ID,
-				SessionID:    snap.SessionID,
-				Activity:     "hit max turns",
-				Status:       string(AgentStatusCompleted),
-				Model:        snap.Model,
-				InputTokens:  snap.InputTokens,
-				OutputTokens: snap.OutputTokens,
-				TurnCount:    snap.TurnCount,
+				ID:               rt.ID,
+				SessionID:        snap.SessionID,
+				ParentSessionID:  parentSessionID,
+				Activity:         "hit max turns",
+				Status:           string(AgentStatusCompleted),
+				Model:            snap.Model,
+				InputTokens:      snap.InputTokens,
+				OutputTokens:     snap.OutputTokens,
+				TurnCount:        snap.TurnCount,
 			})
 			e.emitEvent(protocol.SubAgentCompletedEvent{
-				ID:           rt.ID,
-				Description:  rt.Description,
-				SessionID:    snap.SessionID,
-				InputTokens:  snap.InputTokens,
-				OutputTokens: snap.OutputTokens,
-				TurnsUsed:    snap.TurnCount,
-				HitMaxTurns:  true,
+				ID:              rt.ID,
+				Description:     rt.Description,
+				SessionID:       snap.SessionID,
+				ParentSessionID: parentSessionID,
+				InputTokens:     snap.InputTokens,
+				OutputTokens:    snap.OutputTokens,
+				TurnsUsed:       snap.TurnCount,
+				HitMaxTurns:     true,
 			})
 			rt.Engine.Cancel()
 			return
@@ -965,6 +967,7 @@ func (e *Engine) bridgeSubRuntimeEvents(rt *AgentRuntime, store session.Store, p
 		e.emitEvent(protocol.SubAgentActivityEvent{
 			ID:               rt.ID,
 			SessionID:        snap.SessionID,
+			ParentSessionID:  parentSessionID,
 			Activity:         activity,
 			Status:           string(snap.Status),
 			Model:            snap.Model,
@@ -980,12 +983,13 @@ func (e *Engine) bridgeSubRuntimeEvents(rt *AgentRuntime, store session.Store, p
 		switch msg.Status {
 		case AgentStatusCompleted:
 			e.emitEvent(protocol.SubAgentCompletedEvent{
-				ID:           rt.ID,
-				Description:  rt.Description,
-				SessionID:    snap.SessionID,
-				InputTokens:  snap.InputTokens,
-				OutputTokens: snap.OutputTokens,
-				TurnsUsed:    snap.TurnCount,
+				ID:              rt.ID,
+				Description:     rt.Description,
+				SessionID:       snap.SessionID,
+				ParentSessionID: parentSessionID,
+				InputTokens:     snap.InputTokens,
+				OutputTokens:    snap.OutputTokens,
+				TurnsUsed:       snap.TurnCount,
 			})
 			e.mu.Lock()
 			e.totalInputTokens += snap.InputTokens
@@ -1000,10 +1004,11 @@ func (e *Engine) bridgeSubRuntimeEvents(rt *AgentRuntime, store session.Store, p
 				}
 			}
 			e.emitEvent(protocol.SubAgentFailedEvent{
-				ID:          rt.ID,
-				Description: rt.Description,
-				SessionID:   snap.SessionID,
-				Error:       errText,
+				ID:              rt.ID,
+				Description:     rt.Description,
+				SessionID:       snap.SessionID,
+				ParentSessionID: parentSessionID,
+				Error:           errText,
 			})
 		}
 	}

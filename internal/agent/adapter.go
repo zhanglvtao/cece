@@ -185,20 +185,31 @@ func ToDTO(e Event) protocol.Event {
 		return protocol.TodoUpdatedEvent{Tasks: taskItemsToDTO(v.Tasks)}
 
 	case SubAgentStarted:
-		return protocol.SubAgentStartedEvent{ID: v.ID, Description: v.Description}
+		return protocol.SubAgentStartedEvent{
+			ID: v.ID, Description: v.Description,
+			SessionID: v.SessionID, ParentSessionID: v.ParentSessionID,
+		}
 
 	case SubAgentActivity:
-		return protocol.SubAgentActivityEvent{ID: v.ID, Activity: v.Activity}
+		return protocol.SubAgentActivityEvent{
+			ID: v.ID, Activity: v.Activity,
+			SessionID: v.SessionID, ParentSessionID: v.ParentSessionID,
+		}
 
 	case SubAgentCompleted:
 		return protocol.SubAgentCompletedEvent{
 			ID: v.ID, Description: v.Description,
+			SessionID: v.SessionID, ParentSessionID: v.ParentSessionID,
 			InputTokens: v.InputTokens, OutputTokens: v.OutputTokens,
 			TurnsUsed: v.TurnsUsed, HitMaxTurns: v.HitMaxTurns,
 		}
 
 	case SubAgentFailed:
-		return protocol.SubAgentFailedEvent{ID: v.ID, Description: v.Description, Error: v.Error}
+		return protocol.SubAgentFailedEvent{
+			ID: v.ID, Description: v.Description,
+			SessionID: v.SessionID, ParentSessionID: v.ParentSessionID,
+			Error: v.Error,
+		}
 
 	case ModeChangedDuringExec:
 		return protocol.ModeChangedEvent{Mode: protocol.PermissionMode(v.Mode), Message: v.Message}

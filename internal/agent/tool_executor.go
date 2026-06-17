@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 
 	executeOne := func(idx int, c ApiToolUseBlock) execResult {
 		emitter := &chanEmitter{ch: ch, id: c.ID}
+		slog.Info("tool: executing", "name", c.Name, "id", c.ID)
 		emitToolEvent(ch, ToolExecStarted{ID: c.ID, Name: c.Name})
 		var result tool.Result
 		if c.Name == tool.AskUserQuestionToolName {
@@ -81,6 +83,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 				result = e.registry.Execute(ctx, c.Name, c.Input, emitter)
 			}
 		}
+		slog.Info("tool: completed", "name", c.Name, "id", c.ID, "isError", result.IsError, "len", len(result.Content))
 		emitToolEvent(ch, ToolExecCompleted{ID: c.ID, Name: c.Name, Result: result})
 		return execResult{index: idx, result: result}
 	}

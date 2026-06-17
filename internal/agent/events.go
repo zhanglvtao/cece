@@ -295,37 +295,45 @@ func (TaskUpdated) isEvent() {}
 
 // SubAgentStarted is emitted when a sub-agent begins executing.
 type SubAgentStarted struct {
-	ID          string
-	Description string
+	ID              string
+	Description     string
+	SessionID       string
+	ParentSessionID string
 }
 
 func (SubAgentStarted) isEvent() {}
 
 // SubAgentActivity is emitted when a sub-agent reports current activity.
 type SubAgentActivity struct {
-	ID       string
-	Activity string
+	ID              string
+	Activity        string
+	SessionID       string
+	ParentSessionID string
 }
 
 func (SubAgentActivity) isEvent() {}
 
 // SubAgentCompleted is emitted when a sub-agent finishes successfully.
 type SubAgentCompleted struct {
-	ID           string
-	Description  string
-	InputTokens  int
-	OutputTokens int
-	TurnsUsed    int
-	HitMaxTurns  bool
+	ID              string
+	Description     string
+	SessionID       string
+	ParentSessionID string
+	InputTokens     int
+	OutputTokens    int
+	TurnsUsed       int
+	HitMaxTurns     bool
 }
 
 func (SubAgentCompleted) isEvent() {}
 
 // SubAgentFailed is emitted when a sub-agent fails.
 type SubAgentFailed struct {
-	ID          string
-	Description string
-	Error       string
+	ID              string
+	Description     string
+	SessionID       string
+	ParentSessionID string
+	Error           string
 }
 
 func (SubAgentFailed) isEvent() {}

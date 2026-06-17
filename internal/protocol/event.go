@@ -416,18 +416,21 @@ func (TodoUpdatedEvent) isEvent() {}
 
 // SubAgentStartedEvent is emitted when a sub-agent begins executing.
 type SubAgentStartedEvent struct {
-	ID          string
-	Description string
+	ID              string
+	Description     string
+	SessionID       string
+	ParentSessionID string
 }
 
 func (SubAgentStartedEvent) isEvent() {}
 
 // SubAgentActivityEvent is emitted when a running sub-agent reports current activity.
 type SubAgentActivityEvent struct {
-	ID        string
-	SessionID string
-	Activity  string
-	Status    string
+	ID              string
+	SessionID       string
+	ParentSessionID string
+	Activity        string
+	Status          string
 	// Structured fields for the agent bar view — filled by forwardSubAgentActivity.
 	Model            string // model name from StreamStarted
 	InputTokens      int    // cumulative input tokens
@@ -442,23 +445,25 @@ func (SubAgentActivityEvent) isEvent() {}
 
 // SubAgentCompletedEvent is emitted when a sub-agent finishes successfully.
 type SubAgentCompletedEvent struct {
-	ID           string
-	Description  string
-	SessionID    string
-	InputTokens  int
-	OutputTokens int
-	TurnsUsed    int
-	HitMaxTurns  bool
+	ID              string
+	Description     string
+	SessionID       string
+	ParentSessionID string
+	InputTokens     int
+	OutputTokens    int
+	TurnsUsed       int
+	HitMaxTurns     bool
 }
 
 func (SubAgentCompletedEvent) isEvent() {}
 
 // SubAgentFailedEvent is emitted when a sub-agent fails.
 type SubAgentFailedEvent struct {
-	ID          string
-	Description string
-	SessionID   string
-	Error       string
+	ID              string
+	Description     string
+	SessionID       string
+	ParentSessionID string
+	Error           string
 }
 
 func (SubAgentFailedEvent) isEvent() {}

@@ -155,6 +155,14 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		operation = "start"
 	}
 
+	slog.Info("Agent tool called",
+		"operation", operation,
+		"agentID", p.AgentID,
+		"description", p.Description,
+		"model", p.Model,
+		"maxTurns", p.MaxTurns,
+	)
+
 	if operation == "start" && p.Prompt == "" {
 		return Result{Content: "prompt is required for start operation", IsError: true}
 	}
