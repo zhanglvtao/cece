@@ -227,6 +227,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			thinkingSummaryText = chunk.ThinkingSummaryText
 			thinkingEncryptedContent = chunk.ThinkingEncryptedContent
 			thinkingBuf.Reset()
+			logger.Debug("thinking block started", "index", chunk.Index, "providerID", chunk.ThinkingProviderID, "hasEncryptedContent", chunk.ThinkingEncryptedContent != "")
 			emitModelEvent(ch, ThinkingStarted{Index: chunk.Index})
 		}
 		if chunk.EventType == "content_block_start" && chunk.IsRedactedThinking {
@@ -242,6 +243,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			pid := thinkingProviderID
 			stext := thinkingSummaryText
 			econtent := thinkingEncryptedContent
+			logger.Debug("thinking block completed", "providerID", pid, "hasEncryptedContent", econtent != "", "textLen", len(fullThinking))
 			thinkingIndex = -1
 			thinkingProviderID = ""
 			thinkingSummaryText = ""

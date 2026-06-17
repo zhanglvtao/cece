@@ -243,17 +243,25 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 			out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: event.OutputIndex}
 			delete(state.activeToolIndices, event.OutputIndex)
 		}
-		if event.Item.Type == "reasoning" && state.reasoningOpen {
-			rid := state.reasoningProviderID
-			rtext := state.reasoningSummaryText
-			out <- agent.ApiStreamEvent{
-				EventType:           "content_block_stop",
-				Index:               state.reasoningIndex,
-				IsThinking:          true,
-				ThinkingProviderID:  rid,
-				ThinkingSummaryText: rtext,
+		if event.Item.Type == "reasoning" {
+			if state.reasoningOpen {
+				rid := state.reasoningProviderID
+				rtext := state.reasoningSummaryText
+				logger.Debug("reasoning output_item.done (reasoningOpen=true)", "id", rid, "index", state.reasoningIndex)
+				out <- agent.ApiStreamEvent{
+					EventType:           "content_block_stop",
+					Index:               state.reasoningIndex,
+					IsThinking:          true,
+					ThinkingProviderID:  rid,
+					ThinkingSummaryText: rtext,
+				}
+				state.reasoningOpen = false
+			} else {
+				// reasoning_text.done already closed this block.
+				// But output_item.done may carry encrypted_content or ID
+				// that we need for round-trip serialization. Log it.
+				logger.Debug("reasoning output_item.done (reasoningOpen=false, already closed)", "id", event.Item.ID, "hasEncryptedContent", event.Item.EncryptedContent != "")
 			}
-			state.reasoningOpen = false
 		}
 
 	case "response.output_text.delta":
@@ -331,6 +339,7 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 				summaryText = event.Item.Summary[0].Text
 			}
 			state.reasoningSummaryText = summaryText
+			logger.Debug("reasoning output_item.added", "id", event.Item.ID, "index", event.OutputIndex, "hasEncryptedContent", event.Item.EncryptedContent != "")
 			out <- agent.ApiStreamEvent{
 				EventType:           "content_block_start",
 				Index:               event.OutputIndex,
@@ -361,7 +370,25 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 			}
 		}
 	case "response.reasoning_text.delta":
-		if state.reasoningOpen && event.Delta != "" {
+		if !state.reasoningOpen {
+			// Reasoning text delta received without a prior output_item.added.
+			// Some proxy implementations omit the output_item.added event for
+			// reasoning items. Create the reasoning block on the first delta.
+			logger.Warn("reasoning_text.delta received without output_item.added — creating reasoning block on the fly", "output_index", event.OutputIndex)
+			state.reasoningOpen = true
+			state.reasoningIndex = event.OutputIndex
+			state.reasoningSeen = true
+			if !state.messageStarted {
+				state.messageStarted = true
+				out <- agent.ApiStreamEvent{EventType: "message_start"}
+			}
+			out <- agent.ApiStreamEvent{
+				EventType: "content_block_start",
+				Index:     event.OutputIndex,
+				IsThinking: true,
+			}
+		}
+		if event.Delta != "" {
 			out <- agent.ApiStreamEvent{
 				EventType:     "content_block_delta",
 				Detail:        "thinking_delta",
@@ -373,6 +400,7 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 		if state.reasoningOpen {
 			rid := state.reasoningProviderID
 			rtext := state.reasoningSummaryText
+			logger.Debug("reasoning_text.done (closing reasoning block)", "id", rid, "index", state.reasoningIndex)
 			out <- agent.ApiStreamEvent{
 				EventType:           "content_block_stop",
 				Index:               state.reasoningIndex,
@@ -383,6 +411,21 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 			state.reasoningOpen = false
 		}
 	case "response.reasoning_summary_text.delta":
+		if !state.reasoningOpen {
+			logger.Warn("reasoning_summary_text.delta received without output_item.added — creating reasoning block on the fly", "output_index", event.OutputIndex)
+			state.reasoningOpen = true
+			state.reasoningIndex = event.OutputIndex
+			state.reasoningSeen = true
+			if !state.messageStarted {
+				state.messageStarted = true
+				out <- agent.ApiStreamEvent{EventType: "message_start"}
+			}
+			out <- agent.ApiStreamEvent{
+				EventType: "content_block_start",
+				Index:     event.OutputIndex,
+				IsThinking: true,
+			}
+		}
 		if state.reasoningOpen && event.Delta != "" {
 			out <- agent.ApiStreamEvent{
 				EventType:     "content_block_delta",
@@ -395,6 +438,7 @@ func emitResponsesEvent(event *ResponsesEvent, out chan<- agent.ApiStreamEvent, 
 		if state.reasoningOpen {
 			rid := state.reasoningProviderID
 			rtext := state.reasoningSummaryText
+			logger.Debug("reasoning_summary_text.done (closing reasoning block)", "id", rid, "index", state.reasoningIndex)
 			out <- agent.ApiStreamEvent{
 				EventType:           "content_block_stop",
 				Index:               state.reasoningIndex,

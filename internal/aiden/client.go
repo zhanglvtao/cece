@@ -164,10 +164,44 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 }
 
 func (c *Client) streamResponses(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
+	input := SerializeResponsesInput(messages)
+	// Diagnostic: log reasoning vs function_call item counts in input.
+	// Warn if function_call items exist without matching reasoning items,
+	// which causes 400 errors from the Responses API.
+	var reasoningIDs, fcIDs []string
+	for _, item := range input {
+		switch item.Type {
+		case "reasoning":
+			reasoningIDs = append(reasoningIDs, item.ID)
+		case "function_call":
+			fcIDs = append(fcIDs, item.ID)
+		}
+	}
+	logger.Debug("responses input item counts", "reasoning", len(reasoningIDs), "function_call", len(fcIDs), "total", len(input))
+	// Log the raw messages for debugging reasoning preservation
+	for i, m := range messages {
+		if m.Role == agent.AssistantRole {
+			var thinkingIDs []string
+			for _, cb := range m.ContentBlocks {
+				if cb.Type == agent.ApiThinkingContentType && cb.Thinking != nil {
+					thinkingIDs = append(thinkingIDs, cb.Thinking.ID)
+				}
+			}
+			var toolUseIDs []string
+			for _, cb := range m.ContentBlocks {
+				if cb.Type == agent.ApiToolUseContentType && cb.ToolUse != nil {
+					toolUseIDs = append(toolUseIDs, cb.ToolUse.ProviderID)
+				}
+			}
+			if len(toolUseIDs) > 0 {
+				logger.Debug("responses assistant message content", "msg_index", i, "thinking_ids", thinkingIDs, "tool_use_provider_ids", toolUseIDs)
+			}
+		}
+	}
 	payload := ResponsesRequest{
 		Model:           c.model,
 		Instructions:    serializeSystemInstructions(system),
-		Input:           SerializeResponsesInput(messages),
+		Input:           input,
 		Stream:          true,
 		MaxOutputTokens: maxTokens,
 	}

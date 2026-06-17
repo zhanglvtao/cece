@@ -711,3 +711,145 @@ func TestDecodeResponsesCompletedWithNoOutput(t *testing.T) {
 		t.Errorf("stop reason = %q, want end_turn", stopReason)
 	}
 }
+
+// Test: reasoning + function_call round-trip.
+// When the API returns a reasoning item followed by a function_call item,
+// both must be correctly decoded so they can be serialized back in the
+// next request's input.
+func TestDecodeResponsesReasoningThenFunctionCall(t *testing.T) {
+	body := sseBody(
+		`data: {"type":"response.created","response":{"id":"resp_1"}}`,
+		``,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_abc","summary":[{"type":"summary_text","text":"thinking..."}],"encrypted_content":"ENC123"}}`,
+		``,
+		`data: {"type":"response.reasoning_text.delta","output_index":0,"delta":"hmm"}`,
+		``,
+		`data: {"type":"response.reasoning_text.done","output_index":0}`,
+		``,
+		`data: {"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"Read","arguments":""}}`,
+		``,
+		`data: {"type":"response.function_call_arguments.delta","output_index":1,"delta":"{\"file_path"}`,
+		``,
+		`data: {"type":"response.function_call_arguments.delta","output_index":1,"delta":"\":\"/tmp\"}"}`,
+		``,
+		`data: {"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_abc"}}`,
+		``,
+		`data: {"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"Read","arguments":"{\"file_path\":\"/tmp\"}"}}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":10,"output_tokens":5}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Collect thinking block info
+	var thinkingStartEvent, thinkingStopEvent *agent.ApiStreamEvent
+	var thinkingText string
+	var thinkingProviderID string
+	var thinkingEncryptedContent string
+	// Collect tool call info
+	var toolStartEvent *agent.ApiStreamEvent
+	var toolInputParts []string
+	var stopReason string
+
+	for i := range events {
+		e := &events[i]
+		if e.EventType == "content_block_start" && e.IsThinking {
+			thinkingStartEvent = e
+			thinkingProviderID = e.ThinkingProviderID
+			thinkingEncryptedContent = e.ThinkingEncryptedContent
+		}
+		if e.EventType == "content_block_stop" && e.IsThinking {
+			thinkingStopEvent = e
+		}
+		if e.Detail == "thinking_delta" {
+			thinkingText += e.ThinkingDelta
+		}
+		if e.EventType == "content_block_start" && e.ToolCallID != "" {
+			toolStartEvent = e
+		}
+		if e.Detail == "input_json_delta" {
+			toolInputParts = append(toolInputParts, e.ToolCallInput)
+		}
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+	}
+
+	// Verify thinking block
+	if thinkingStartEvent == nil {
+		t.Fatal("expected content_block_start for reasoning item")
+	}
+	if thinkingProviderID != "rs_abc" {
+		t.Errorf("thinking provider ID = %q, want rs_abc", thinkingProviderID)
+	}
+	if thinkingEncryptedContent != "ENC123" {
+		t.Errorf("thinking encrypted content = %q, want ENC123", thinkingEncryptedContent)
+	}
+	if thinkingStopEvent == nil {
+		t.Fatal("expected content_block_stop for reasoning item")
+	}
+	if thinkingText != "thinking...hmm" {
+		t.Errorf("thinking text = %q, want 'thinking...hmm'", thinkingText)
+	}
+
+	// Verify function call
+	if toolStartEvent == nil {
+		t.Fatal("expected content_block_start for function_call item")
+	}
+	if toolStartEvent.ToolCallProviderID != "fc_1" {
+		t.Errorf("tool call provider ID = %q, want fc_1", toolStartEvent.ToolCallProviderID)
+	}
+	toolInput := strings.Join(toolInputParts, "")
+	if toolInput != `{"file_path":"/tmp"}` {
+		t.Errorf("tool input = %q, want file_path payload", toolInput)
+	}
+
+	if stopReason != "tool_use" {
+		t.Errorf("stop reason = %q, want tool_use", stopReason)
+	}
+}
+
+// Test: API sends reasoning_text.delta WITHOUT prior output_item.added.
+// With the fallback logic, a reasoning block is created on the fly
+// from the first reasoning_text.delta event.
+func TestDecodeResponsesReasoningTextWithoutOutputItemAdded(t *testing.T) {
+	body := sseBody(
+		`data: {"type":"response.created","response":{"id":"resp_1"}}`,
+		``,
+		// NOTE: no response.output_item.added for reasoning!
+		`data: {"type":"response.reasoning_text.delta","output_index":0,"delta":"thinking"}`,
+		``,
+		`data: {"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"Bash","arguments":""}}`,
+		``,
+		`data: {"type":"response.function_call_arguments.delta","output_index":1,"delta":"{}"}`,
+		``,
+		`data: {"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"Bash","arguments":"{}"}}`,
+		``,
+		`data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":10,"output_tokens":5}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// With the fallback, reasoning_text.delta creates the reasoning block on the fly.
+	var toolStartSeen, thinkingStartSeen bool
+	for _, e := range events {
+		if e.EventType == "content_block_start" && e.IsThinking {
+			thinkingStartSeen = true
+		}
+		if e.EventType == "content_block_start" && e.ToolCallID != "" {
+			toolStartSeen = true
+		}
+	}
+	if !thinkingStartSeen {
+		t.Error("expected thinking content_block_start — fallback should create reasoning block from reasoning_text.delta")
+	}
+	if !toolStartSeen {
+		t.Error("expected function_call content_block_start")
+	}
+}

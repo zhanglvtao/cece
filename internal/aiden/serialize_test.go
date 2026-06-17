@@ -550,6 +550,100 @@ func TestSerializeResponsesReasoningIncludesEncryptedContent(t *testing.T) {
 	}
 }
 
+// Test: reasoning without encrypted_content still gets serialized
+// (some API implementations may not return encrypted_content).
+func TestSerializeResponsesReasoningWithoutEncryptedContent(t *testing.T) {
+	msgs := []agent.Message{
+		{
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{
+					Type: agent.ApiThinkingContentType,
+					Thinking: &agent.ApiThinkingBlock{
+						ID:          "rs_no_enc",
+						SummaryText: "thinking without encryption",
+						// EncryptedContent is empty
+					},
+				},
+				{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
+						ID:         "call_1",
+						ProviderID: "fc_1",
+						Name:       "Read",
+						Input:      json.RawMessage(`{"file_path":"/tmp/x"}`),
+					},
+				},
+			},
+		},
+	}
+
+	items := SerializeResponsesInput(msgs)
+
+	// Must have reasoning item
+	var reasoningCount, fcCount int
+	for _, item := range items {
+		switch item.Type {
+		case "reasoning":
+			reasoningCount++
+		case "function_call":
+			fcCount++
+		}
+	}
+	if reasoningCount != 1 {
+		t.Errorf("reasoning items = %d, want 1", reasoningCount)
+	}
+	if fcCount != 1 {
+		t.Errorf("function_call items = %d, want 1", fcCount)
+	}
+}
+
+// Test: thinking block with empty ID should NOT produce reasoning item
+// (this is the guard that prevents broken serialization).
+func TestSerializeResponsesThinkingWithoutIDProducesNoReasoning(t *testing.T) {
+	msgs := []agent.Message{
+		{
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{
+				{
+					Type: agent.ApiThinkingContentType,
+					Thinking: &agent.ApiThinkingBlock{
+						// ID is empty — e.g. from Chat Completions API thinking
+						Text: "some thinking",
+					},
+				},
+				{
+					Type: agent.ApiToolUseContentType,
+					ToolUse: &agent.ApiToolUseBlock{
+						ID:   "call_1",
+						Name: "Bash",
+						Input: json.RawMessage(`{}`),
+					},
+				},
+			},
+		},
+	}
+
+	items := SerializeResponsesInput(msgs)
+
+	// Should NOT have reasoning item (no ID), but SHOULD have function_call
+	var reasoningCount, fcCount int
+	for _, item := range items {
+		switch item.Type {
+		case "reasoning":
+			reasoningCount++
+		case "function_call":
+			fcCount++
+		}
+	}
+	if reasoningCount != 0 {
+		t.Errorf("reasoning items = %d, want 0 (no ID = no reasoning item)", reasoningCount)
+	}
+	if fcCount != 1 {
+		t.Errorf("function_call items = %d, want 1", fcCount)
+	}
+}
+
 func TestResponsesRequestReasoningFieldFormat(t *testing.T) {
 	// Verify the reasoning field is serialized as {"reasoning":{"effort":"..."}}
 	// not the flat reasoning_effort string (which causes 400 on OpenAI Responses API).

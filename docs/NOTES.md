@@ -80,3 +80,37 @@ O(blocks) × O(events/frame) → TUI 冻结。
 ### 参考
 - crush 使用 per-section 缓存 + 增量 glamour render（`streamingMarkdown` stable prefix 机制）
 - bubbletea viewport 的 `SetContent` 是 O(content) 操作，越长的内容越慢
+
+---
+
+## Responses API reasoning item 丢失导致 400 错误（2026-06-17 已修复）
+
+### 问题现象
+
+使用 gpt-5.4（Responses API）时，第一轮模型返回了 reasoning + function_call，cece 执行工具后发送第二轮请求，API 返回 400：
+
+```
+Item 'fc_0e4ba...' of type 'function_call' was provided without its required 'reasoning' item: 'rs_0e4ba...'
+```
+
+### 根因
+
+Responses API 是有状态的：如果上一轮响应包含了 reasoning item（`rs_...`）和 function_call item（`fc_...`），下一轮请求的 input 必须把它们都发回去。
+
+cece 在 `stream.go` 中解析 SSE 事件时，`response.reasoning_text.delta` 和 `response.reasoning_summary_text.delta` 事件只在 `state.reasoningOpen == true` 时处理，而 `reasoningOpen` 只在 `response.output_item.added`（reasoning）事件中设置为 true。
+
+如果 aiden proxy 不发送 `response.output_item.added`（reasoning）事件，或者该事件在 `reasoning_text.delta` 之后才到达，reasoning block 就不会被创建，导致下一轮请求缺少 reasoning item。
+
+### 修复
+
+1. **回退逻辑**：`stream.go` 中 `response.reasoning_text.delta` 和 `response.reasoning_summary_text.delta` 事件处理增加回退——当 `reasoningOpen == false` 时自动创建 reasoning block（发出 `content_block_start`），确保 reasoning 内容不丢失。
+
+2. **诊断日志**：在 `stream.go` 的 `output_item.added`、`output_item.done`、`reasoning_text.done` 等关键事件处加 DEBUG 日志；在 `client.go` 的 `streamResponses` 中记录 reasoning/function_call item 数量和 ID 列表。
+
+3. **`output_item.done` 改进**：当 `reasoningOpen == false` 时不再静默跳过，而是记录 reasoning item 的 ID 和 encrypted_content 供调试。
+
+### 教训
+
+- Responses API 的有状态特性要求 input 中必须包含之前响应的所有 output items
+- SSE 事件顺序不能假设——proxy 实现可能改变事件顺序或省略某些事件
+- 关键数据的丢失应该尽早检测和恢复，而不是等到 400 错误才发现
