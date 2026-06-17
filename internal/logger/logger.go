@@ -3,6 +3,8 @@ package logger
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,15 +12,16 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"crypto/rand"
-	"encoding/hex"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 const location = "Asia/Shanghai"
-const maxLogSize int64 = 512 * 1024 * 1024 // 512MB
+
+const maxLogSize int64 = 100 * 1024 * 1024           // 100MB per file
+const maxTotalSize int64 = 10 * 1024 * 1024 * 1024   // 10GB total
+const activeLogName = "cece.log"
 
 var (
 	mu        sync.Mutex
@@ -34,14 +37,19 @@ func generateSessionID() string {
 	return hex.EncodeToString(b)
 }
 
-func logFilePath(dir string) string {
+// archivedLogPath generates a timestamped name for an archived log file.
+func archivedLogPath(dir string) string {
 	ts := time.Now().Format("20060102150405")
 	return filepath.Join(dir, fmt.Sprintf("cece-%s.log", ts))
 }
 
+func activeLogPath(dir string) string {
+	return filepath.Join(dir, activeLogName)
+}
+
 // Init initializes the global logger with human-friendly output.
 // logDir is the directory for log files (e.g. .cece/log/).
-// Each session creates a timestamped file like cece-20260612115032.log.
+// New sessions append to the existing active log file (cece.log).
 // debug=true enables all levels; otherwise INFO and above.
 func Init(dir string, debug bool) error {
 	loc, err := time.LoadLocation(location)
@@ -53,11 +61,11 @@ func Init(dir string, debug bool) error {
 		return err
 	}
 
-	// Rotate old logs on startup
+	// Clean old logs on startup
 	cleanOldLogs(dir)
 
 	logDir = dir
-	path := logFilePath(dir)
+	path := activeLogPath(dir)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
@@ -79,8 +87,8 @@ func Init(dir string, debug bool) error {
 	return nil
 }
 
-// rotateIfNeeded checks if the current log file exceeds maxLogSize.
-// If so, it closes the current file and opens a new timestamped one.
+// rotateIfNeeded checks if the active log file exceeds maxLogSize.
+// If so, it renames it to a timestamped archive and creates a new active file.
 func rotateIfNeeded() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -102,9 +110,16 @@ func rotateIfNeeded() {
 	curFile.Sync()
 	curFile.Close()
 
-	// Open new file
-	path := logFilePath(logDir)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	// Rename active log to archived timestamped name
+	oldPath := activeLogPath(logDir)
+	newPath := archivedLogPath(logDir)
+	if err := os.Rename(oldPath, newPath); err != nil {
+		// If rename fails (e.g. cross-device), fall back to creating new file anyway
+		_ = os.Remove(oldPath)
+	}
+
+	// Create new active log file
+	f, err := os.OpenFile(oldPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return
 	}
@@ -115,7 +130,7 @@ func rotateIfNeeded() {
 	cleanOldLogs(logDir)
 }
 
-// cleanOldLogs removes the oldest log files when total size exceeds maxLogSize.
+// cleanOldLogs removes the oldest archived log files when total size exceeds maxTotalSize.
 func cleanOldLogs(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -130,18 +145,29 @@ func cleanOldLogs(dir string) {
 	var totalSize int64
 
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), "cece-") || !strings.HasSuffix(e.Name(), ".log") {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		// Only count archived logs (cece-<timestamp>.log), not the active cece.log
+		if !strings.HasPrefix(name, "cece-") || !strings.HasSuffix(name, ".log") {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		files = append(files, fileEntry{name: e.Name(), size: info.Size()})
+		files = append(files, fileEntry{name: name, size: info.Size()})
 		totalSize += info.Size()
 	}
 
-	if totalSize <= maxLogSize || len(files) == 0 {
+	// Also account for the active log size
+	activePath := activeLogPath(dir)
+	if info, err := os.Stat(activePath); err == nil {
+		totalSize += info.Size()
+	}
+
+	if totalSize <= maxTotalSize || len(files) == 0 {
 		return
 	}
 
@@ -150,8 +176,8 @@ func cleanOldLogs(dir string) {
 		return files[i].name < files[j].name
 	})
 
-	// Delete oldest files until total size ≤ maxLogSize
-	for i := 0; i < len(files) && totalSize > maxLogSize; i++ {
+	// Delete oldest archived files until total size ≤ maxTotalSize
+	for i := 0; i < len(files) && totalSize > maxTotalSize; i++ {
 		os.Remove(filepath.Join(dir, files[i].name))
 		totalSize -= files[i].size
 	}

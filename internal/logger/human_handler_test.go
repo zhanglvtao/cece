@@ -141,37 +141,38 @@ func TestGenerateSessionID(t *testing.T) {
 
 func TestCleanOldLogs(t *testing.T) {
 	dir := t.TempDir()
-	// Create some fake log files
-	for i, name := range []string{
+	// Create some fake archived log files
+	for _, name := range []string{
 		"cece-20260101000000.log",
 		"cece-20260201000000.log",
 		"cece-20260301000000.log",
 	} {
 		content := strings.Repeat("x", 300) // 300 bytes each
 		os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)
-		_ = i
 	}
-
-	// Set a very small maxLogSize for testing
-	// Total is 900 bytes, with maxLogSize=500 it should delete oldest file(s)
-	// We can't easily override the constant, so test the function logic indirectly
-	// by checking that cleanOldLogs with small files doesn't crash.
+	// Total is 900 bytes, well under 10GB limit, so no files should be deleted
 	cleanOldLogs(dir)
 
 	entries, _ := os.ReadDir(dir)
-	// Should have deleted some files since total (900) > maxLogSize (512MB)
-	// Actually 900 bytes < 512MB, so no files should be deleted
 	if len(entries) != 3 {
-		t.Fatalf("expected 3 entries (all under 512MB), got %d", len(entries))
+		t.Fatalf("expected 3 entries (all under 10GB), got %d", len(entries))
 	}
 }
 
-func TestLogFilePath(t *testing.T) {
-	path := logFilePath("/tmp/logs")
-	if !strings.HasPrefix(filepath.Base(path), "cece-") {
-		t.Fatalf("log file name should start with cece-: %q", filepath.Base(path))
+func TestArchivedLogPath(t *testing.T) {
+	path := archivedLogPath("/tmp/logs")
+	base := filepath.Base(path)
+	if !strings.HasPrefix(base, "cece-") {
+		t.Fatalf("archived log name should start with cece-: %q", base)
 	}
-	if !strings.HasSuffix(path, ".log") {
-		t.Fatalf("log file name should end with .log: %q", path)
+	if !strings.HasSuffix(base, ".log") {
+		t.Fatalf("archived log name should end with .log: %q", base)
+	}
+}
+
+func TestActiveLogPath(t *testing.T) {
+	path := activeLogPath("/tmp/logs")
+	if filepath.Base(path) != "cece.log" {
+		t.Fatalf("active log name should be cece.log: %q", filepath.Base(path))
 	}
 }
