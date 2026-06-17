@@ -189,6 +189,35 @@ func TestDecodeResponsesUsage(t *testing.T) {
 	}
 }
 
+func TestDecodeResponsesStopReasonToolUse(t *testing.T) {
+	body := sseBody(
+		`data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}`,
+		``,
+		`data: {"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"Bash"}}`,
+		``,
+		`data: {"type":"response.function_call_arguments.delta","output_index":1,"delta":"{}"}`,
+		``,
+		`data: {"type":"response.function_call_arguments.done","output_index":1,"arguments":"{}"}`,
+		``,
+		`data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":50,"output_tokens":20}}}`,
+		``,
+	)
+	events, err := collectEvents(DecodeResponsesStream(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var stopReason string
+	for _, e := range events {
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+	}
+	if stopReason != "tool_use" {
+		t.Errorf("expected stop_reason 'tool_use' when function_call present, got %q", stopReason)
+	}
+}
+
 func TestDecodeResponsesDoneSentinel(t *testing.T) {
 	body := sseBody(
 		`data: [DONE]`,

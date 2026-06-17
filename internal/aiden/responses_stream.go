@@ -80,6 +80,9 @@ type responsesStreamState struct {
 	doneEmitted       bool
 	// Track output items for function_call detection
 	pendingFuncCalls map[int]*toolCallTracker // output_index → tracker
+	// sawFuncCall tracks whether any function_call output_item was seen,
+	// used to determine stop_reason in response.completed.
+	sawFuncCall bool
 }
 
 type toolCallTracker struct {
@@ -159,6 +162,7 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 
 	case "response.output_item.added":
 		if evt.Item != nil && evt.Item.Type == "function_call" {
+			state.sawFuncCall = true
 			if state.pendingFuncCalls == nil {
 				state.pendingFuncCalls = make(map[int]*toolCallTracker)
 			}
@@ -285,9 +289,18 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 			outputTokens = evt.Response.Usage.OutputTokens
 		}
 
+		// Responses API doesn't have an explicit stop_reason field.
+		// Determine it from whether function_call items were in the output:
+		// - function_call present → "tool_use" (model wants to call tools)
+		// - no function_call → "end_turn" (model finished its response)
+		stopReason := "end_turn"
+		if state.sawFuncCall {
+			stopReason = "tool_use"
+		}
+
 		out <- agent.ApiStreamEvent{
 			EventType:    "message_delta",
-			StopReason:   "end_turn",
+			StopReason:   stopReason,
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,
 		}
