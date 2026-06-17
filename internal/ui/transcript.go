@@ -32,9 +32,13 @@ type transcriptBlock struct {
 	text       string
 	done       bool
 	err        bool
-	quietOk    bool   // quiet tool completed successfully — render inline ✓
-	toolName   string // set for blockTool, used for quiet-tool suppression
-	toolParams string // set for blockTool, parameter text rendered after [Name] without highlight
+	quietOk    bool        // quiet tool completed successfully — render inline ✓
+	toolName   string      // set for blockTool, used for quiet-tool suppression
+	toolParams string      // set for blockTool, parameter text rendered after [Name] without highlight
+
+	// Bash-specific: execution timing
+	execStartedAt time.Time // when ToolExecStarted was received (Bash only)
+	execDuration  time.Duration
 
 	// Thinking block timing
 	startedAt time.Time    // when ThinkingStarted was received
@@ -276,7 +280,11 @@ func (t *transcript) apply(event protocol.Event) {
 			t.toolByID[e.ID] = idx
 		}
 		t.blocks[idx].toolName = e.Name
-		if isQuietTool(e.Name) {
+		if isExecTool(e.Name) {
+			// Bash: record start time, clear preview text for streaming output
+			t.blocks[idx].execStartedAt = time.Now()
+			t.blocks[idx].text = ""
+		} else if isQuietTool(e.Name) {
 			// Quiet tools: no streaming output displayed
 		} else if t.blocks[idx].text == "" {
 			t.blocks[idx].text = "running..."
@@ -293,10 +301,15 @@ func (t *transcript) apply(event protocol.Event) {
 		if isQuietTool(t.blocks[idx].toolName) {
 			break
 		}
-		if strings.HasSuffix(t.blocks[idx].text, "running...") {
-			t.blocks[idx].text = strings.TrimSuffix(t.blocks[idx].text, "running...")
+		if isExecTool(t.blocks[idx].toolName) {
+			// Bash: append output directly, no "running..." management
+			t.blocks[idx].text += e.Text
+		} else {
+			if strings.HasSuffix(t.blocks[idx].text, "running...") {
+				t.blocks[idx].text = strings.TrimSuffix(t.blocks[idx].text, "running...")
+			}
+			t.blocks[idx].text += e.Text
 		}
-		t.blocks[idx].text += e.Text
 		t.markDirty(idx)
 	case protocol.ToolExecCompleted:
 		idx, ok := t.toolByID[e.ID]
@@ -316,16 +329,29 @@ func (t *transcript) apply(event protocol.Event) {
 			t.blocks[idx].done = true
 			break
 		}
-		var result string
+		// Bash: native terminal-like output
 		if isExecTool(e.Name) {
-			result = tailLines(e.Result.Content, 20)
-		} else {
-			maxLines := toolPreviewMaxLines
-			if isDiffTool(e.Name) {
-				maxLines = diffPreviewMaxLines
+			result := tailLines(e.Result.Content, 20)
+			// Compute duration
+			if !t.blocks[idx].execStartedAt.IsZero() {
+				t.blocks[idx].execDuration = time.Since(t.blocks[idx].execStartedAt)
 			}
-			result = summarizeText(e.Result.Content, toolPreviewBytes, maxLines)
+			if e.Result.IsError {
+				t.blocks[idx].err = true
+			}
+			result = strings.TrimRight(result, "\n")
+			status := formatBashStatus(e.Result.IsError, t.blocks[idx].execDuration)
+			t.blocks[idx].text = result + "\n" + status
+			t.blocks[idx].done = true
+			t.markDirty(idx)
+			break
 		}
+		var result string
+		maxLines := toolPreviewMaxLines
+		if isDiffTool(e.Name) {
+			maxLines = diffPreviewMaxLines
+		}
+		result = summarizeText(e.Result.Content, toolPreviewBytes, maxLines)
 		prefix := "ok"
 		if e.Result.IsError {
 			prefix = "error"
@@ -440,7 +466,10 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 						t.blocks[blk].quietOk = true
 					}
 				} else if isExecTool(name) {
-					blk := t.appendDone(blockTool, "tool: "+name, tailLines(b.ToolResult.Content, 20))
+					result := tailLines(b.ToolResult.Content, 20)
+					result = strings.TrimRight(result, "\n")
+					status := formatBashStatus(b.ToolResult.IsError, 0)
+					blk := t.appendDone(blockTool, "tool: "+name, result+"\n"+status)
 					t.blocks[blk].toolName = name
 					if b.ToolResult.IsError {
 						t.blocks[blk].err = true
@@ -719,6 +748,10 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		return lbl.Render("["+label+"]") + "\n" + rendered
 	}
 	text = ansi.Wrap(text, max(20, width-4), "")
+	// Bash tools: no indent, no wrap — render like terminal output.
+	if block.kind == blockTool && isExecTool(block.toolName) {
+		return renderLabel() + "\n" + text
+	}
 	// Diff coloring for tool blocks that contain unified diff output.
 	if block.kind == blockTool {
 		text = renderDiffText(text)

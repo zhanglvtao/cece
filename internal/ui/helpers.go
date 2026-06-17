@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/zhanglvtao/cece/internal/ui/theme"
@@ -56,6 +57,32 @@ func isDiffTool(name string) bool {
 // isExecTool returns true for tools that execute commands (Bash).
 func isExecTool(name string) bool {
 	return name == "Bash"
+}
+
+// formatBashStatus renders a muted completion status line for Bash output.
+// e.g. "exit 0 · 1.2s" or "exit 1 · 0.3s"
+func formatBashStatus(isError bool, d time.Duration) string {
+	code := 0
+	if isError {
+		code = 1
+	}
+	var timeStr string
+	switch {
+	case d == 0:
+		timeStr = ""
+	case d < time.Second:
+		timeStr = fmt.Sprintf("%.0fms", float64(d.Milliseconds()))
+	case d < time.Minute:
+		timeStr = fmt.Sprintf("%.1fs", d.Seconds())
+	default:
+		timeStr = fmt.Sprintf("%.1fm", d.Minutes())
+	}
+	status := fmt.Sprintf("exit %d", code)
+	if timeStr != "" {
+		status += " · " + timeStr
+	}
+	statusStyle := lipgloss.NewStyle().Foreground(theme.FgMuted).Faint(true)
+	return statusStyle.Render(status)
 }
 
 // diffAwareMaxLines returns diffPreviewMaxLines if the content looks like
