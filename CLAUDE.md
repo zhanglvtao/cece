@@ -9,7 +9,7 @@
 - 不重要的不写测试，不要浪费太多时间在测试上面
 - tui 风格：极简，不需要多余的颜色、图形，达意是最高优先级，ui 尽可能暴露出 cece 每一步在干什么
 - 多多参考 ~/claude-code ~/opencode ~/crush ~/CodeWhale这几个成熟的 Agent
-- 完整一个 feat/bugfix 就要 commit，`Co-Authored-By: Cece <zhanglvtao@foxmail.com>`
+- 必须完整一个 feat/bugfix 就要 commit，`Co-Authored-By: Cece <zhanglvtao@foxmail.com>`
 - 必须使用 `picker.Picker` 组件 如果需要做弹出选择的 tui 时
 - 你遇到有趣的问题，一定要记录下来。
 
