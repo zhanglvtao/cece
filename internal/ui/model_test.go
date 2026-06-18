@@ -248,6 +248,22 @@ func TestModelPickerDispatchesSwitchModel(t *testing.T) {
 	}
 }
 
+func TestToolResultRequestSummaryRendersOnToolLine(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "tool-1", Name: "Grep"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "tool-1", Name: "Grep", Input: json.RawMessage(`{"pattern":"TODO"}`)})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "tool-1", Name: "Grep", Result: protocol.ToolResult{Content: "match"}})
+	m.ApplyEventForTest(protocol.ModelRequestStarted{Reason: "tool_result", EstimatedInputTokens: 80981, ToolResults: []string{"Grep"}})
+
+	rendered := m.transcript.render(160, m.styles)
+	if strings.Contains(rendered, "[tool_result]") {
+		t.Fatalf("tool_result should not render as standalone block:\n%s", rendered)
+	}
+	if !containsAll(rendered, "[Grep]", "estimated input: 80981", "tool results: Grep") {
+		t.Fatalf("tool line missing request summary:\n%s", rendered)
+	}
+}
+
 func TestSessionLoadedRebuildsTranscript(t *testing.T) {
 	m := NewModel(nil, "old", "/tmp")
 	m.ApplyEventForTest(protocol.SessionLoadedEvent{

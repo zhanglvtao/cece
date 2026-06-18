@@ -32,20 +32,21 @@ type transcriptBlock struct {
 	text       string
 	done       bool
 	err        bool
-	quietOk    bool        // quiet tool completed successfully — render inline ✓
-	toolName   string      // set for blockTool, used for quiet-tool suppression
-	toolParams string      // set for blockTool, parameter text rendered after [Name] without highlight
+	quietOk    bool   // quiet tool completed successfully — render inline ✓
+	toolName   string // set for blockTool, used for quiet-tool suppression
+	toolParams string // set for blockTool, parameter text rendered after [Name] without highlight
+	toolMeta   string // set for blockTool, request metadata rendered on the same line
 
 	// Bash-specific: execution timing
 	execStartedAt time.Time // when ToolExecStarted was received (Bash only)
 	execDuration  time.Duration
 
 	// Thinking block timing
-	startedAt time.Time    // when ThinkingStarted was received
+	startedAt time.Time     // when ThinkingStarted was received
 	duration  time.Duration // elapsed time when ThinkingCompleted
 
 	// Incremental rendering: dirty=true means this block needs re-render.
-	dirty       bool
+	dirty        bool
 	cachedRender string // cached output of renderBlock
 	cachedWidth  int    // width that produced cachedRender
 }
@@ -139,6 +140,55 @@ func (t *transcript) ensureThinking() int {
 	return t.currentThinking
 }
 
+func formatModelRequestParts(estimatedInputTokens int, toolResults []string) []string {
+	parts := []string{}
+	if estimatedInputTokens > 0 {
+		parts = append(parts, fmt.Sprintf("estimated input: %d", estimatedInputTokens))
+	}
+	if len(toolResults) > 0 {
+		parts = append(parts, "tool results: "+strings.Join(toolResults, ", "))
+	}
+	return parts
+}
+
+func (t *transcript) attachToolRequestMeta(toolResults []string, meta string) bool {
+	if meta == "" {
+		return false
+	}
+	idx := t.findToolBlockForResults(toolResults)
+	if idx < 0 {
+		return false
+	}
+	t.blocks[idx].toolMeta = meta
+	t.markDirty(idx)
+	return true
+}
+
+func (t *transcript) findToolBlockForResults(toolResults []string) int {
+	want := map[string]struct{}{}
+	for _, name := range toolResults {
+		if name != "" {
+			want[name] = struct{}{}
+		}
+	}
+	if len(want) > 0 {
+		for i := len(t.blocks) - 1; i >= 0; i-- {
+			if t.blocks[i].kind != blockTool {
+				continue
+			}
+			if _, ok := want[t.blocks[i].toolName]; ok {
+				return i
+			}
+		}
+	}
+	for i := len(t.blocks) - 1; i >= 0; i-- {
+		if t.blocks[i].kind == blockTool {
+			return i
+		}
+	}
+	return -1
+}
+
 // formatThinkingFooter returns a muted footer line for a completed thinking block
 // showing the elapsed time, e.g. "Thought for 3s".
 func formatThinkingFooter(block transcriptBlock) string {
@@ -172,14 +222,11 @@ func (t *transcript) apply(event protocol.Event) {
 		if e.Reason != "" {
 			label = e.Reason
 		}
-		parts := []string{}
-		if e.EstimatedInputTokens > 0 {
-			parts = append(parts, fmt.Sprintf("estimated input: %d", e.EstimatedInputTokens))
-		}
-		if len(e.ToolResults) > 0 {
-			parts = append(parts, "tool results: "+strings.Join(e.ToolResults, ", "))
-		}
+		parts := formatModelRequestParts(e.EstimatedInputTokens, e.ToolResults)
 		if len(parts) > 0 {
+			if e.Reason == "tool_result" && t.attachToolRequestMeta(e.ToolResults, strings.Join(parts, " | ")) {
+				break
+			}
 			t.appendDone(blockInfo, label, strings.Join(parts, " | "))
 		}
 	case protocol.RequestDryRunEvent:
@@ -709,14 +756,23 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		if len(label) > maxLabel {
 			label = label[:maxLabel-3] + "..."
 		}
-		// Also truncate params so the full line fits within width.
-		if block.toolParams != "" {
-			maxParams := width - len(label) - 4 // "[" + label + "]" + " "
-			if maxParams < 10 {
-				maxParams = 10
+		// Also truncate params/meta so the full line roughly fits within width.
+		lineExtra := strings.TrimSpace(strings.Join([]string{block.toolParams, block.toolMeta}, "  "))
+		if lineExtra != "" {
+			maxExtra := width - len(label) - 4 // "[" + label + "]" + " "
+			if maxExtra < 10 {
+				maxExtra = 10
 			}
-			if len(block.toolParams) > maxParams {
-				block.toolParams = block.toolParams[:maxParams-3] + "..."
+			if len(lineExtra) > maxExtra {
+				if block.toolParams != "" && block.toolMeta != "" {
+					block.toolMeta = ""
+					lineExtra = block.toolParams
+				}
+				if len(lineExtra) > maxExtra {
+					lineExtra = lineExtra[:maxExtra-3] + "..."
+				}
+				block.toolParams = lineExtra
+				block.toolMeta = ""
 			}
 		}
 	}
@@ -736,12 +792,19 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		rendered := renderViewContent(text, block.toolParams, width)
 		return lbl.Render("["+label+"]") + "\n" + indent(rendered, "  ")
 	}
-	// For tool blocks, render [Name] highlighted and params plain.
+	// For tool blocks, render [Name] highlighted and params/meta plain.
 	renderLabel := func() string {
-		if block.kind == blockTool && block.toolParams != "" {
-			return lbl.Render("["+label+"]") + " " + block.toolParams
+		if block.kind != blockTool {
+			return lbl.Render("[" + label + "]")
 		}
-		return lbl.Render("[" + label + "]")
+		line := lbl.Render("[" + label + "]")
+		if block.toolParams != "" {
+			line += " " + block.toolParams
+		}
+		if block.toolMeta != "" {
+			line += "  " + block.toolMeta
+		}
+		return line
 	}
 	if text == "" {
 		if block.quietOk {
