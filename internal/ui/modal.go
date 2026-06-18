@@ -526,6 +526,7 @@ func (m *Model) openEffortPicker() {
 	p.SetOnSelect(func(item any) tea.Cmd {
 		o := item.(effortOption)
 		m.currentEffort = o.value
+		m.statusBar.UpdateEffort(o.value)
 		if actor, ok := m.sender.(Actor); ok {
 			actor.Do(protocol.SetEffortAction{Effort: o.value})
 		}

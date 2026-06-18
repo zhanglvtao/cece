@@ -57,6 +57,7 @@ var actionKinds = map[string]func() protocol.Action{
 	"list_tools":            func() protocol.Action { return &protocol.ListToolsAction{} },
 	"stats":                 func() protocol.Action { return &protocol.StatsAction{} },
 	"append_shell_result":   func() protocol.Action { return &protocol.AppendShellResultAction{} },
+	"set_effort":            func() protocol.Action { return &protocol.SetEffortAction{} },
 }
 
 var eventKinds = map[string]func() protocol.Event{
@@ -99,6 +100,7 @@ var eventKinds = map[string]func() protocol.Event{
 	"session_deleted":           func() protocol.Event { return &protocol.SessionDeletedEvent{} },
 	"models_loaded":             func() protocol.Event { return &protocol.ModelsLoadedEvent{} },
 	"mode_changed":              func() protocol.Event { return &protocol.ModeChangedEvent{} },
+	"effort_changed":            func() protocol.Event { return &protocol.EffortChangedEvent{} },
 	"mode":                      func() protocol.Event { return &protocol.ModeEvent{} },
 	"history_cleared":           func() protocol.Event { return &protocol.HistoryClearedEvent{} },
 	"session_loaded":            func() protocol.Event { return &protocol.SessionLoadedEvent{} },
@@ -263,6 +265,8 @@ func derefAction(a protocol.Action) protocol.Action {
 		return *v
 	case *protocol.AppendShellResultAction:
 		return *v
+	case *protocol.SetEffortAction:
+		return *v
 	default:
 		return a
 	}
@@ -345,6 +349,8 @@ func derefEvent(ev protocol.Event) protocol.Event {
 	case *protocol.ModelsLoadedEvent:
 		return *v
 	case *protocol.ModeChangedEvent:
+		return *v
+	case *protocol.EffortChangedEvent:
 		return *v
 	case *protocol.ModeEvent:
 		return *v
