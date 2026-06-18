@@ -1224,6 +1224,7 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	if e.client != nil {
 		e.client.SetReasoningEffort(string(resolvedEffort))
 	}
+	e.emitEvent(protocol.EffortChangedEvent{Effort: string(resolvedEffort)})
 
 	ctx, cancel := context.WithCancel(ctx)
 
