@@ -28,6 +28,7 @@ type EngineMediator struct {
 	mcpManager         *mcp.Manager
 	lightModelClientFn func() agent.ModelClient // returns lightweight model client, nil = fallback to current client
 	bgWg               sync.WaitGroup           // tracks background goroutines for graceful shutdown
+	cachedModels       []protocol.ModelInfo     // session-level cache; populated on first listAllModelsFn call
 }
 
 func NewEngineMediator(
@@ -146,22 +147,27 @@ func (m *EngineMediator) Do(action protocol.Action) {
 // ── B-class command implementations ────────────────────────────────────────
 
 func (m *EngineMediator) switchModel(a protocol.SwitchModelAction) {
-	// If Protocol/APIKey are missing, try to resolve via listAllModelsFn
+	// If Protocol/APIKey are missing, try to resolve via cached or fetched models
 	if a.Protocol == "" && m.listAllModelsFn != nil {
-		if models, err := m.listAllModelsFn(context.Background()); err == nil {
-			for _, mi := range models {
-				if mi.ID == a.Model {
-					if mi.MaxContextWindow > 0 && a.MaxContextWindow <= 0 {
-						a.MaxContextWindow = mi.MaxContextWindow
-					}
-					a.APIKey = mi.APIKey
-					a.BaseURL = mi.BaseURL
-					a.AuthMode = mi.AuthMode
-					a.AuthHelper = mi.AuthHelper
-					a.Protocol = mi.Protocol
-					a.ConfigName = mi.ConfigName
-					break
+		models := m.cachedModels
+		if len(models) == 0 {
+			if fetched, err := m.listAllModelsFn(context.Background()); err == nil {
+				models = fetched
+				m.cachedModels = fetched
+			}
+		}
+		for _, mi := range models {
+			if mi.ID == a.Model {
+				if mi.MaxContextWindow > 0 && a.MaxContextWindow <= 0 {
+					a.MaxContextWindow = mi.MaxContextWindow
 				}
+				a.APIKey = mi.APIKey
+				a.BaseURL = mi.BaseURL
+				a.AuthMode = mi.AuthMode
+				a.AuthHelper = mi.AuthHelper
+				a.Protocol = mi.Protocol
+				a.ConfigName = mi.ConfigName
+				break
 			}
 		}
 	}
@@ -279,10 +285,16 @@ func (m *EngineMediator) listModels() {
 		m.Engine.EmitEvent(protocol.ModelsLoadedEvent{Err: "multi-provider listing not configured"})
 		return
 	}
+	if len(m.cachedModels) > 0 {
+		m.Engine.EmitEvent(protocol.ModelsLoadedEvent{Models: m.cachedModels})
+		return
+	}
 	models, err := m.listAllModelsFn(context.Background())
 	errMsg := ""
 	if err != nil {
 		errMsg = err.Error()
+	} else {
+		m.cachedModels = models
 	}
 	m.Engine.EmitEvent(protocol.ModelsLoadedEvent{Models: models, Err: errMsg})
 }
