@@ -79,14 +79,20 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	}
 	view := m.transcript.render(80, m.styles)
 	plain := stripAnsi(view)
-	if !containsAll(plain, "You", "hi", "hello there") {
+	if !containsAll(plain, "hi", "hello there") {
 		t.Fatalf("transcript missing expected content:\n%s", view)
+	}
+	if strings.Contains(plain, "You") {
+		t.Fatalf("user label should not be rendered:\n%s", view)
 	}
 	if strings.Contains(plain, "Cece") {
 		t.Fatalf("assistant label should not be rendered:\n%s", view)
 	}
 	if strings.Contains(view, "[you]") || strings.Contains(view, "[cece]") {
 		t.Fatalf("transcript labels should not use brackets:\n%s", view)
+	}
+	if strings.Contains(plain, "\n  hi") {
+		t.Fatalf("user input should not be indented:\n%s", view)
 	}
 	if strings.Contains(plain, "\n  hello there") {
 		t.Fatalf("cece output should not be indented:\n%s", view)

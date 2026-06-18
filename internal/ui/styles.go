@@ -11,6 +11,7 @@ import (
 type Styles struct {
 	Chat struct {
 		LabelUser      lipgloss.Style
+		UserBody       lipgloss.Style
 		LabelAssistant lipgloss.Style
 		AssistantBody  lipgloss.Style
 		LabelThinking  lipgloss.Style
@@ -88,6 +89,7 @@ func DefaultStyles() Styles {
 	var s Styles
 
 	s.Chat.LabelUser = lipgloss.NewStyle().Foreground(theme.Fg)
+	s.Chat.UserBody = lipgloss.NewStyle().Foreground(theme.FgSubtle).Faint(true)
 	s.Chat.LabelAssistant = lipgloss.NewStyle().Foreground(theme.Green)
 	s.Chat.AssistantBody = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Chat.LabelThinking = lipgloss.NewStyle().Foreground(theme.FgMuted)

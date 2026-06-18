@@ -810,6 +810,10 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		}
 	}
 	text := strings.TrimRight(block.text, "\n")
+	if block.kind == blockUser {
+		text = ansi.Wrap(text, max(20, width), "")
+		return sty.Chat.UserBody.Render(text)
+	}
 	lbl := labelStyleForKind(block.kind, sty)
 	// Thinking blocks: render as Markdown with subdued palette + optional footer.
 	if block.kind == blockThinking {
