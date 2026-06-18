@@ -1,4 +1,4 @@
-.PHONY: build-linux clean
+.PHONY: build-linux clean secret-scan
 
 # Cross-compile cece for Linux (SWE-bench containers are x86_64 Linux)
 build-linux:
@@ -8,3 +8,6 @@ build-linux:
 
 clean:
 	rm -f bin/cece-linux-amd64
+
+secret-scan:
+	./scripts/secret-scan.sh

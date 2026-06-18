@@ -39,3 +39,8 @@
 - 现象：cece 接入 Kaboo 使用量上报时，最稳的边界不是直连 Kaboo API，而是写 botmux 已支持的 `~/.botmux/usage/usage-YYYY-MM-DD.jsonl`。
 - 定位：Kaboo `report` 会扫描本地 usage ledger 后统一聚合上报；ledger 的 `cliId` 可按产品分类，但不代表本地存在对应 CLI 的原生 transcript。
 - 结论：按需求把 cece ledger 的 `cliId` 固定为 `claude-code`，但只写 botmux-compatible ledger，不伪造 Claude Code 原生日志，避免后续 native parser 与 ledger 双计。
+
+## 发布前敏感信息扫描默认边界
+- 现象：发布前如果让大模型临时扫敏感信息，慢、不可复用，也容易把 `.cece`、`.claude`、构建产物等本地文件混进判断。
+- 定位：发布风险来自会被推送的 Git 内容；脚本默认应以 `git ls-files` 为输入，只检查版本控制内文本文件。
+- 结论：敏感信息扫描脚本默认只扫 Git 跟踪文件，命中时输出 `file:line: rule` 并失败；本地缓存和未跟踪私有配置不属于发布前默认扫描边界。
