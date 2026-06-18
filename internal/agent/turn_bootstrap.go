@@ -144,16 +144,30 @@ func (b *TurnBootstrap) turnDeps() TurnDeps {
 			if !ok {
 				return
 			}
-			b.sessionCoordinator.UpdateMeta(ctx, sessionID, meta)
+			if b.sessionCoordinator != nil {
+				b.sessionCoordinator.UpdateMeta(ctx, sessionID, meta)
+			}
+			eng.RecordUsage(ctx, UsageRecord{
+				SessionID:                sessionID,
+				Model:                    meta.Model,
+				InputTokens:              resp.inputTokens,
+				OutputTokens:             resp.outputTokens,
+				CacheReadTokens:          resp.cacheReadTokens,
+				CacheCreationTokens:      resp.cacheCreationTokens,
+				TotalInputTokens:         meta.TotalInputTokens,
+				TotalOutputTokens:        meta.TotalOutputTokens,
+				TotalCacheReadTokens:     meta.StatusBar.CacheReadTokens,
+				TotalCacheCreationTokens: meta.StatusBar.CacheCreationTokens,
+			})
 		},
-		DrainQueuedInputs:  eng.DrainQueuedInputs,
-		DrainModeReminder:  eng.PlanState().DrainModeReminder,
-		TryAutoCompact:     eng.TryAutoCompact,
-		HistorySnapshot:    eng.HistorySnapshot,
-		IncrementAPICalls:  eng.IncrementAPICalls,
+		DrainQueuedInputs:   eng.DrainQueuedInputs,
+		DrainModeReminder:   eng.PlanState().DrainModeReminder,
+		TryAutoCompact:      eng.TryAutoCompact,
+		HistorySnapshot:     eng.HistorySnapshot,
+		IncrementAPICalls:   eng.IncrementAPICalls,
 		RecordToolExecution: eng.RecordToolExecution,
-		UpdateCacheTokens:  eng.UpdateCacheTokens,
-		ContextWindow:      eng.ContextWindow(),
+		UpdateCacheTokens:   eng.UpdateCacheTokens,
+		ContextWindow:       eng.ContextWindow(),
 	}
 }
 

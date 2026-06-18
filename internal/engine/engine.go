@@ -16,6 +16,7 @@ import (
 	"github.com/zhanglvtao/cece/internal/protocol"
 	"github.com/zhanglvtao/cece/internal/session"
 	"github.com/zhanglvtao/cece/internal/tool"
+	"github.com/zhanglvtao/cece/internal/usageledger"
 )
 
 // Engine is the core agent engine. It manages conversation state, dispatches
@@ -519,6 +520,25 @@ func (e *Engine) IncrementTokens(input, output int) (sessionID string, meta sess
 		TotalOutputTokens: e.totalOutputTokens,
 		StatusBar:         e.statusBarSnapshotLocked(),
 	}, true
+}
+
+func (e *Engine) RecordUsage(ctx context.Context, usage agent.UsageRecord) {
+	_, _, err := usageledger.Append(ctx, usageledger.Usage{
+		SessionID:              usage.SessionID,
+		Model:                  usage.Model,
+		WorkingDir:             e.projectDir,
+		InputTokens:            usage.InputTokens,
+		OutputTokens:           usage.OutputTokens,
+		CacheReadTokens:        usage.CacheReadTokens,
+		CacheCreateTokens:      usage.CacheCreationTokens,
+		TotalInputTokens:       usage.TotalInputTokens,
+		TotalOutputTokens:      usage.TotalOutputTokens,
+		TotalCacheReadTokens:   usage.TotalCacheReadTokens,
+		TotalCacheCreateTokens: usage.TotalCacheCreationTokens,
+	}, usageledger.Options{})
+	if err != nil {
+		logger.Warn("usage ledger append failed", "error", err)
+	}
 }
 
 func (e *Engine) ResetQuestionAnswers() {

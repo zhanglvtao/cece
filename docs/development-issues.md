@@ -34,3 +34,8 @@
 - 现象：会话启动默认就是 plan mode，但模型仍可能先调用 `EnterPlanMode`，随后工具返回 `Already in plan mode.`。
 - 定位：tool definitions 里仍包含 `EnterPlanMode` 是为了保持工具结构稳定；模型是否知道“已在 plan 中”取决于模型可见的 plan reminder。
 - 结论：不要为了避免重复调用而动态移除工具，优先增强 full plan reminder 的当前状态表述，例如 `You are already in plan mode.`。
+
+## Kaboo 本地 ledger 的分类字段不能等同于原生日志
+- 现象：cece 接入 Kaboo 使用量上报时，最稳的边界不是直连 Kaboo API，而是写 botmux 已支持的 `~/.botmux/usage/usage-YYYY-MM-DD.jsonl`。
+- 定位：Kaboo `report` 会扫描本地 usage ledger 后统一聚合上报；ledger 的 `cliId` 可按产品分类，但不代表本地存在对应 CLI 的原生 transcript。
+- 结论：按需求把 cece ledger 的 `cliId` 固定为 `claude-code`，但只写 botmux-compatible ledger，不伪造 Claude Code 原生日志，避免后续 native parser 与 ledger 双计。

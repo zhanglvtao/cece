@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -539,5 +541,55 @@ func TestBuildContextNudgeReminderFramesAsContextManagement(t *testing.T) {
 		if !strings.Contains(reminder, check) {
 			t.Fatalf("reminder missing %q: %s", check, reminder)
 		}
+	}
+}
+
+func TestRecordUsageWritesKabooLedger(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("BOTMUX_USAGE_DIR", dir)
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/repo")
+
+	eng.RecordUsage(context.Background(), agent.UsageRecord{
+		SessionID:                "session-1",
+		Model:                    "glm-5.1",
+		InputTokens:              10,
+		OutputTokens:             20,
+		CacheReadTokens:          3,
+		CacheCreationTokens:      4,
+		TotalInputTokens:         100,
+		TotalOutputTokens:        200,
+		TotalCacheReadTokens:     30,
+		TotalCacheCreationTokens: 40,
+	})
+
+	matches, err := filepath.Glob(filepath.Join(dir, "usage-*.jsonl"))
+	if err != nil {
+		t.Fatalf("Glob error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("ledger files = %v, want one", matches)
+	}
+	data, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("ReadFile error = %v", err)
+	}
+	var got struct {
+		CLIID                  string `json:"cliId"`
+		SessionID              string `json:"sessionId"`
+		WorkingDir             string `json:"workingDir"`
+		InputTokens            int    `json:"inputTokens"`
+		OutputTokens           int    `json:"outputTokens"`
+		CacheReadTokens        int    `json:"cacheReadTokens"`
+		CacheCreateTokens      int    `json:"cacheCreateTokens"`
+		TotalCacheCreateTokens int    `json:"totalCacheCreateTokens"`
+	}
+	if err := json.Unmarshal(data[:len(data)-1], &got); err != nil {
+		t.Fatalf("Unmarshal error = %v", err)
+	}
+	if got.CLIID != "claude-code" || got.SessionID != "session-1" || got.WorkingDir != "/repo" {
+		t.Fatalf("record meta = %#v", got)
+	}
+	if got.InputTokens != 10 || got.OutputTokens != 20 || got.CacheReadTokens != 3 || got.CacheCreateTokens != 4 || got.TotalCacheCreateTokens != 40 {
+		t.Fatalf("record tokens = %#v", got)
 	}
 }

@@ -37,8 +37,9 @@ func (e *dryRunEngine) SetLastInputTokens(int) {}
 func (e *dryRunEngine) IncrementTokens(int, int) (string, session.SessionMeta, bool) {
 	return "", session.SessionMeta{}, false
 }
+func (e *dryRunEngine) RecordUsage(context.Context, UsageRecord)  {}
 func (e *dryRunEngine) IncrementAPICalls()                        {}
-func (e *dryRunEngine) RecordToolExecution(string, bool)              {}
+func (e *dryRunEngine) RecordToolExecution(string, bool)          {}
 func (e *dryRunEngine) UpdateCacheTokens(int, int)                {}
 func (e *dryRunEngine) ResetQuestionAnswers()                     {}
 func (e *dryRunEngine) GetQuestionAnswers() []tool.QuestionAnswer { return nil }
