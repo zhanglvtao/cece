@@ -49,7 +49,7 @@ func BuildFullPlanReminder(plansDir string, hasWritingPlanSkill bool) string {
 			"Use the Skill tool to load the `writing-plan` skill for plan writing guidance.\n"
 	}
 	return "<system-reminder>\n" +
-		"Plan mode is active. You MUST NOT make any edits or run non-readonly commands.\n" +
+		"You are already in plan mode. You MUST NOT make any edits or run non-readonly commands.\n" +
 		"You may only use Read, Grep, Glob, and Bash for read-only commands such as\n" +
 		"ls, pwd, git status, git log, git diff, find, grep, cat, head, and tail.\n" +
 		"Do not run commands that modify state, including mkdir, touch, rm, mv, cp,\n" +

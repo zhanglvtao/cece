@@ -29,3 +29,8 @@
 ## Coco 插件 YAML 里存在 macOS AppleDouble 文件
 - 现象：扫描 `~/Library/Caches/coco/plugins/*/*.yaml` 时会遇到 `._traecli.yaml`，内容不是 UTF-8 YAML，解析报 `special characters are not allowed`。
 - 结论：插件模型发现必须只读取明确文件名 `coco.yaml` / `traecli.yaml`，不要 glob 全部 `*.yaml`。
+
+## 默认 plan mode 需要显式告诉模型当前状态
+- 现象：会话启动默认就是 plan mode，但模型仍可能先调用 `EnterPlanMode`，随后工具返回 `Already in plan mode.`。
+- 定位：tool definitions 里仍包含 `EnterPlanMode` 是为了保持工具结构稳定；模型是否知道“已在 plan 中”取决于模型可见的 plan reminder。
+- 结论：不要为了避免重复调用而动态移除工具，优先增强 full plan reminder 的当前状态表述，例如 `You are already in plan mode.`。
