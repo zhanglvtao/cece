@@ -50,11 +50,7 @@ func renderTaskBar(tasks []protocol.TodoItem, width int, frame int, styles Style
 	}
 	for _, t := range show {
 		icon := taskStatusIcon(t.Status, frame, busy)
-		text := t.Content
-		if t.Status == "in_progress" && t.ActiveForm != "" {
-			text = t.ActiveForm
-		}
-		line := fmt.Sprintf("%s %s", icon, text)
+		line := fmt.Sprintf("%s %s", icon, t.Content)
 		if width > 0 && len(line) > width {
 			line = line[:width-3] + "..."
 		}

@@ -306,6 +306,25 @@ func TestEditToolRendersDiffWithoutParams(t *testing.T) {
 	}
 }
 
+func TestTodoToolRendersCountWithoutParams(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	input := json.RawMessage(`{"todos":[{"content":"Fix UI","activeForm":"Fixing UI","status":"in_progress"},{"content":"Run tests","activeForm":"Running tests","status":"pending"}]}`)
+
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "tool-todo", Name: "Todo"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "tool-todo", Name: "Todo", Input: input})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "tool-todo", Name: "Todo", Result: protocol.ToolResult{Content: "Tasks updated: 2 todos."}})
+
+	rendered := stripAnsi(m.transcript.render(160, m.styles))
+	if !containsAll(rendered, "Todo", "2 todos", "Fix UI", "Run tests") {
+		t.Fatalf("todo summary not rendered:\n%s", rendered)
+	}
+	for _, hidden := range []string{"activeForm", "content", "status", "Fixing UI", "Running tests", "in_progress", "pending"} {
+		if strings.Contains(rendered, hidden) {
+			t.Fatalf("todo params should not be rendered (%q):\n%s", hidden, rendered)
+		}
+	}
+}
+
 func TestSessionLoadedRebuildsTranscript(t *testing.T) {
 	m := NewModel(nil, "old", "/tmp")
 	m.ApplyEventForTest(protocol.SessionLoadedEvent{
@@ -719,7 +738,7 @@ func TestTaskBarHeightIncludesOverflowLine(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.tasks = []protocol.TodoItem{
-		{Content: "one", Status: "completed"},
+		{Content: "one", ActiveForm: "working one", Status: "in_progress"},
 		{Content: "two", Status: "completed"},
 		{Content: "three", Status: "completed"},
 		{Content: "four", Status: "completed"},
@@ -737,6 +756,9 @@ func TestTaskBarHeightIncludesOverflowLine(t *testing.T) {
 	plain := stripAnsi(view)
 	if strings.Contains(plain, "[Todo List]") || !strings.Contains(plain, "Todo List") {
 		t.Fatalf("todo label should not use brackets; view:\n%s", plain)
+	}
+	if strings.Contains(plain, "working one") {
+		t.Fatalf("todo list should show content, not activeForm:\n%s", plain)
 	}
 	for _, hidden := range []string{"three", "four", "five", "six"} {
 		if strings.Contains(plain, hidden) {

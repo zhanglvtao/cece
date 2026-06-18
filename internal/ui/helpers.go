@@ -19,9 +19,9 @@ const (
 )
 
 var (
-	diffStyleDel   = lipgloss.NewStyle().Foreground(theme.Red)
-	diffStyleAdd   = lipgloss.NewStyle().Foreground(theme.Green)
-	diffStyleHunk  = lipgloss.NewStyle().Foreground(theme.Primary)
+	diffStyleDel    = lipgloss.NewStyle().Foreground(theme.Red)
+	diffStyleAdd    = lipgloss.NewStyle().Foreground(theme.Green)
+	diffStyleHunk   = lipgloss.NewStyle().Foreground(theme.Primary)
 	diffStyleHeader = lipgloss.NewStyle().Foreground(theme.FgMuted)
 )
 
@@ -200,9 +200,12 @@ func formatToolTitleValue(val any) string {
 }
 
 // formatToolPreview formats a tool call's input for the transcript.
-// For the Agent tool, it shows a compact summary: description + prompt excerpt.
-// For all other tools, it falls through to formatJSONPreview.
+// Todo shows only a count and item content; Agent shows description + prompt excerpt.
+// Other tools fall through to formatJSONPreview.
 func formatToolPreview(name string, raw json.RawMessage) string {
+	if name == "Todo" {
+		return formatTodoPreview(raw)
+	}
 	if name != "Agent" || len(raw) == 0 {
 		return formatJSONPreview(raw)
 	}
@@ -231,6 +234,34 @@ func formatToolPreview(name string, raw json.RawMessage) string {
 			lines = append(lines, "...")
 		}
 		b.WriteString(strings.Join(lines, "\n"))
+	}
+	return b.String()
+}
+
+func formatTodoPreview(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return "0 todos"
+	}
+	var parsed struct {
+		Todos []struct {
+			Content string `json:"content"`
+		} `json:"todos"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return ""
+	}
+	if len(parsed.Todos) == 0 {
+		return "0 todos"
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%d todos", len(parsed.Todos)))
+	for _, item := range parsed.Todos {
+		content := strings.TrimSpace(item.Content)
+		if content == "" {
+			continue
+		}
+		b.WriteByte('\n')
+		b.WriteString(content)
 	}
 	return b.String()
 }

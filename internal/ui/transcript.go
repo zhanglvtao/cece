@@ -315,7 +315,7 @@ func (t *transcript) apply(event protocol.Event) {
 			t.toolByID[e.ID] = idx
 		}
 		name, params := formatToolTitleKVs(e.Name, e.Input)
-		if e.Name == "Edit" {
+		if e.Name == "Edit" || e.Name == "Todo" {
 			params = ""
 		}
 		t.blocks[idx].toolName = e.Name
@@ -340,10 +340,12 @@ func (t *transcript) apply(event protocol.Event) {
 			t.blocks[idx].text = ""
 		} else if isQuietTool(e.Name) {
 			// Quiet tools: no streaming output displayed
-		} else if t.blocks[idx].text == "" {
-			t.blocks[idx].text = "running..."
-		} else if !strings.Contains(t.blocks[idx].text, "\n---\n") {
-			t.blocks[idx].text += "\n---\nrunning..."
+		} else if e.Name != "Todo" {
+			if t.blocks[idx].text == "" {
+				t.blocks[idx].text = "running..."
+			} else if !strings.Contains(t.blocks[idx].text, "\n---\n") {
+				t.blocks[idx].text += "\n---\nrunning..."
+			}
 		}
 		t.markDirty(idx)
 	case protocol.ToolExecDelta:
@@ -396,6 +398,19 @@ func (t *transcript) apply(event protocol.Event) {
 			result = strings.TrimRight(result, "\n")
 			status := formatBashStatus(e.Result.IsError, t.blocks[idx].execDuration)
 			t.blocks[idx].text = result + "\n" + status
+			t.blocks[idx].done = true
+			t.markDirty(idx)
+			break
+		}
+		if e.Name == "Todo" {
+			if e.Result.IsError {
+				t.blocks[idx].text = "error:\n" + summarizeText(e.Result.Content, toolPreviewBytes, toolPreviewMaxLines)
+				t.blocks[idx].err = true
+			} else {
+				beforeOutput := strings.Split(t.blocks[idx].text, "\n---\n")[0]
+				beforeOutput = strings.TrimSuffix(beforeOutput, "running...")
+				t.blocks[idx].text = strings.TrimRight(beforeOutput, "\n")
+			}
 			t.blocks[idx].done = true
 			t.markDirty(idx)
 			break
@@ -550,6 +565,9 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 					var preview string
 					if b.ToolUse.Name == "Edit" {
 						params = ""
+					} else if b.ToolUse.Name == "Todo" {
+						params = ""
+						preview = formatToolPreview(b.ToolUse.Name, b.ToolUse.Input)
 					} else if !isQuietTool(b.ToolUse.Name) {
 						preview = formatToolPreview(b.ToolUse.Name, b.ToolUse.Input)
 					}

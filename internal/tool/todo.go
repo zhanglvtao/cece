@@ -139,17 +139,5 @@ func (t todoTool) Run(ctx context.Context, input json.RawMessage, emitter Emitte
 		return Result{Content: "Tasks updated. List cleared."}
 	}
 
-	// Summarize current state
-	var pending, inProgress, completed int
-	for _, item := range parsed.Todos {
-		switch item.Status {
-		case TodoPending:
-			pending++
-		case TodoInProgress:
-			inProgress++
-		case TodoCompleted:
-			completed++
-		}
-	}
-	return Result{Content: fmt.Sprintf("Tasks updated: %d pending, %d in_progress, %d completed.", pending, inProgress, completed)}
+	return Result{Content: fmt.Sprintf("Tasks updated: %d todos.", len(parsed.Todos))}
 }
