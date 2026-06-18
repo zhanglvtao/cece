@@ -345,3 +345,30 @@ func TestStreamRetriesOn3003(t *testing.T) {
 		t.Errorf("expected 2 attempts, got %d", attempt)
 	}
 }
+
+func TestListModelsAndGetModelInfoFromStaticModels(t *testing.T) {
+	client := NewClient("key", "openrouter-2o__dev", "openrouter-2o", "https://example.com/chat/completions")
+	client.SetModels([]agent.ModelInfo{{
+		ID:               "openrouter-2o__dev",
+		DisplayName:      "openrouter-2o",
+		MaxContextWindow: 936000,
+		ConfigName:       "openrouter-2o",
+		BaseURL:          "https://example.com",
+	}})
+
+	models, err := client.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(models) != 1 || models[0].ConfigName != "openrouter-2o" {
+		t.Fatalf("models = %+v", models)
+	}
+
+	info, err := client.GetModelInfo(context.Background())
+	if err != nil {
+		t.Fatalf("GetModelInfo: %v", err)
+	}
+	if info.MaxContextWindow != 936000 {
+		t.Fatalf("MaxContextWindow = %d", info.MaxContextWindow)
+	}
+}

@@ -8,10 +8,34 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/zhanglvtao/cece/internal/codebase"
 )
 
-// fetchModels calls the provider's /v1/models endpoint and returns the available models.
+// fetchModels returns available models for a provider.
 func fetchModels(protocol, baseURL, apiKey string) ([]modelOption, error) {
+	if protocol == "codebase" {
+		models, err := codebase.DiscoverCocoPluginModels()
+		if err != nil {
+			return nil, err
+		}
+		options := make([]modelOption, len(models))
+		for i, m := range models {
+			name := m.DisplayName
+			if name == "" {
+				name = m.ID
+			}
+			options[i] = modelOption{
+				id:               m.ID,
+				name:             name,
+				configName:       m.ConfigName,
+				baseURL:          m.BaseURL,
+				maxContextWindow: m.MaxContextWindow,
+			}
+		}
+		return options, nil
+	}
+
 	url := strings.TrimRight(baseURL, "/") + "/v1/models"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

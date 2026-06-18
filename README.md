@@ -73,6 +73,7 @@ A reference with all fields and comments: [`docs/settings.example.json`](docs/se
 | `authMode` | `apikey` | `apikey` or `bearer` |
 | `authHelper` | — | Shell command to fetch dynamic token |
 | `models[]` | — | Static model list (for providers without /v1/models) |
+| `models[].configName` | — | Codebase routing config name |
 
 **Other sections:**
 
@@ -94,15 +95,21 @@ You can also configure via environment variables (no config file needed):
 export ANTHROPIC_API_KEY="sk-ant-xxxxx"
 export ANTHROPIC_BASE_URL="https://api.anthropic.com"   # optional
 export ANTHROPIC_MODEL="claude-sonnet-4-6"              # optional
-export ZLAUDE_YOLO="1"                                   # enable auto-accept mode
+export ZLAUDE_YOLO="1"                                  # enable auto-accept mode
+export CECE_CODEBASE_AUTO="1"                           # add dynamic coco codebase provider
 ```
+
+| Variable | Description |
+|---|---|
+| `CECE_CODEBASE_AUTH_HELPER` | Override codebase token helper (default: `bytedcli auth get-codebase-jwt-token`) |
+| `CECE_COCO_PLUGINS_DIR` | Override coco plugin directory |
 
 ### Provider Protocols
 
 | Protocol | Description |
 |---|---|
 | `anthropic` | Default. Direct Anthropic API or compatible proxy. |
-| `codebase` | Codebase API with `configName` support. |
+| `codebase` | Codebase TraeV2 API. Dynamically reads coco plugin `byted_trae` models and uses `configName`. |
 | `aiden` | Aiden protocol. |
 
 ### Auth Modes

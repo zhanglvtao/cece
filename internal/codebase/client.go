@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/zhanglvtao/cece/internal/auth"
 	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/auth"
 	"github.com/zhanglvtao/cece/internal/httpretry"
 	"github.com/zhanglvtao/cece/internal/logger"
 	"github.com/zhanglvtao/cece/internal/tool"
@@ -27,11 +27,16 @@ type Client struct {
 	model      string
 	configName string
 	baseURL    string
+	models     []agent.ModelInfo
 	tokenCache *auth.TokenCache
 	httpClient *http.Client
 }
 
 func NewClient(apiKey, model, configName, baseURL string) *Client {
+	baseURL = normalizeBaseURL(baseURL)
+	if baseURL == "" {
+		baseURL = DefaultBaseURL
+	}
 	return &Client{
 		apiKey:     apiKey,
 		model:      model,
@@ -45,8 +50,8 @@ func (c *Client) SetAuthHelper(helper string) {
 	c.tokenCache = auth.NewTokenCache(helper, 0)
 }
 
-func (c *Client) SetModel(model string)     { c.model = model }
-func (c *Client) Model() string             { return c.model }
+func (c *Client) SetModel(model string) { c.model = model }
+func (c *Client) Model() string         { return c.model }
 
 // SetReasoningEffort is a no-op for the codebase client.
 func (c *Client) SetReasoningEffort(effort string) {}
@@ -55,7 +60,38 @@ func (c *Client) SetConfigName(name string) { c.configName = name }
 
 func (c *Client) SetProvider(apiKey, baseURL string, _ int) {
 	c.apiKey = apiKey
-	c.baseURL = baseURL
+	if baseURL = normalizeBaseURL(baseURL); baseURL != "" {
+		c.baseURL = baseURL
+	}
+}
+
+func (c *Client) SetModels(models []agent.ModelInfo) {
+	c.models = append([]agent.ModelInfo(nil), models...)
+}
+
+func (c *Client) ListModels(ctx context.Context) ([]agent.ModelInfo, error) {
+	_ = ctx
+	if len(c.models) > 0 {
+		return append([]agent.ModelInfo(nil), c.models...), nil
+	}
+	models, err := DiscoverCocoPluginModels()
+	if err != nil {
+		return nil, err
+	}
+	return models, nil
+}
+
+func (c *Client) GetModelInfo(ctx context.Context) (agent.ModelInfo, error) {
+	models, err := c.ListModels(ctx)
+	if err != nil {
+		return agent.ModelInfo{}, err
+	}
+	for _, m := range models {
+		if m.ID == c.model || m.ConfigName == c.model || m.ConfigName == c.configName {
+			return m, nil
+		}
+	}
+	return agent.ModelInfo{}, fmt.Errorf("model %q not found in codebase models", c.model)
 }
 
 func (c *Client) resolveAPIKey(ctx context.Context) (string, error) {
@@ -92,6 +128,14 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
+	}
+
+	key, err := c.resolveAPIKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve api key: %w", err)
+	}
+	if strings.TrimSpace(key) == "" {
+		return nil, fmt.Errorf("codebase api key is empty; set apiKey or authHelper (for coco use %q)", DefaultAuthHelper)
 	}
 
 	url := strings.TrimRight(c.baseURL, "/") + "/chat/completions"

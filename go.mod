@@ -16,6 +16,7 @@ require (
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/rivo/uniseg v0.4.7
 	github.com/sahilm/fuzzy v0.1.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

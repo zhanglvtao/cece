@@ -17,6 +17,20 @@
         "apiKey": "sk-ant-YOUR-API-KEY-HERE",
         "baseURL": "https://api.anthropic.com",
         "authMode": "apikey"
+      },
+      {
+        "name": "codebase",
+        "protocol": "codebase",
+        "baseURL": "https://codebase-api.byted.org/v2/api/2022-06-01/LLMProxy/TraeV2",
+        "authHelper": "bytedcli auth get-codebase-jwt-token",
+        "models": [
+          {
+            "id": "openrouter-2o__dev",
+            "displayName": "openrouter-2o",
+            "maxContextWindow": 936000,
+            "configName": "openrouter-2o"
+          }
+        ]
       }
     ]
   },

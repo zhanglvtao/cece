@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/zhanglvtao/cece/internal/codebase"
 	"github.com/zhanglvtao/cece/internal/ui/picker"
 	"github.com/zhanglvtao/cece/internal/ui/theme"
 )
@@ -63,8 +64,11 @@ type protocolOption struct{ id string }
 
 // modelOption is a picker item for model selection.
 type modelOption struct {
-	id   string
-	name string
+	id               string
+	name             string
+	configName       string
+	baseURL          string
+	maxContextWindow int
 }
 
 // modeOption is a picker item for mode selection.
@@ -88,33 +92,35 @@ var modes = []modeOption{
 
 // collected stores the user's choices.
 type collected struct {
-	protocol string
-	apiKey   string
-	baseURL  string
-	model    string
-	mode     string
+	protocol         string
+	apiKey           string
+	baseURL          string
+	model            string
+	configName       string
+	maxContextWindow int
+	mode             string
 }
 
 // lipgloss styles for the setup wizard.
 var (
-	styleTitle    = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
-	styleStep     = lipgloss.NewStyle().Foreground(theme.Yellow)
-	styleCursor   = lipgloss.NewStyle().Foreground(theme.Primary)
-	styleError    = lipgloss.NewStyle().Foreground(theme.Red)
-	styleHelp     = lipgloss.NewStyle().Foreground(theme.FgMuted)
-	styleSuccess  = lipgloss.NewStyle().Foreground(theme.Green).Bold(true)
-	styleSpinner  = lipgloss.NewStyle().Foreground(theme.Primary)
-	styleLabel    = lipgloss.NewStyle().Foreground(theme.FgSubtle)
-	styleValue    = lipgloss.NewStyle().Foreground(theme.Fg)
-	styleKeyEnter = lipgloss.NewStyle().Foreground(theme.Green).Bold(true)
-	styleKeyEsc   = lipgloss.NewStyle().Foreground(theme.Red).Bold(true)
-	styleKeyLeft  = lipgloss.NewStyle().Foreground(theme.Blue).Bold(true)
-	styleKeyRight = lipgloss.NewStyle().Foreground(theme.Blue).Bold(true)
-	styleKeyOther = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
-	styleProgress = lipgloss.NewStyle().Foreground(theme.Primary)
-	styleProgressDone = lipgloss.NewStyle().Foreground(theme.Green)
+	styleTitle         = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
+	styleStep          = lipgloss.NewStyle().Foreground(theme.Yellow)
+	styleCursor        = lipgloss.NewStyle().Foreground(theme.Primary)
+	styleError         = lipgloss.NewStyle().Foreground(theme.Red)
+	styleHelp          = lipgloss.NewStyle().Foreground(theme.FgMuted)
+	styleSuccess       = lipgloss.NewStyle().Foreground(theme.Green).Bold(true)
+	styleSpinner       = lipgloss.NewStyle().Foreground(theme.Primary)
+	styleLabel         = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	styleValue         = lipgloss.NewStyle().Foreground(theme.Fg)
+	styleKeyEnter      = lipgloss.NewStyle().Foreground(theme.Green).Bold(true)
+	styleKeyEsc        = lipgloss.NewStyle().Foreground(theme.Red).Bold(true)
+	styleKeyLeft       = lipgloss.NewStyle().Foreground(theme.Blue).Bold(true)
+	styleKeyRight      = lipgloss.NewStyle().Foreground(theme.Blue).Bold(true)
+	styleKeyOther      = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
+	styleProgress      = lipgloss.NewStyle().Foreground(theme.Primary)
+	styleProgressDone  = lipgloss.NewStyle().Foreground(theme.Green)
 	styleProgressEmpty = lipgloss.NewStyle().Foreground(theme.FgMuted)
-	styleBox      = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(theme.Primary).Padding(0, 1)
+	styleBox           = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(theme.Primary).Padding(0, 1)
 )
 
 // key renders a colored key label like [enter], [esc], etc.
@@ -249,6 +255,16 @@ func (m *SetupModel) goToStep(s step) (tea.Model, tea.Cmd) {
 	case stepProtocol:
 		m.openPicker()
 	case stepBaseURL:
+		if m.col.protocol == "codebase" {
+			m.col.baseURL = codebase.DefaultBaseURL
+			m.step = stepLoading
+			m.textInput = ""
+			m.fetchErr = ""
+			m.fetchedModels = nil
+			cmd := m.fetchModelsCmd()
+			tickCmd := tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg{} })
+			return m, tea.Batch(cmd, tickCmd)
+		}
 		m.textInput = m.col.baseURL
 	case stepAPIKey:
 		m.textInput = m.col.apiKey
@@ -401,6 +417,8 @@ func (m SetupModel) updateCustomModelInput(kp tea.KeyPressMsg) (tea.Model, tea.C
 		input := strings.TrimSpace(m.textInput)
 		if input != "" {
 			m.col.model = input
+			m.col.configName = ""
+			m.col.maxContextWindow = 0
 			m.customInput = false
 			m.textInput = ""
 			m.step = stepMode
@@ -439,12 +457,26 @@ func (m SetupModel) updateTextInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.step == stepAPIKey {
 				field = "API key"
 			}
-			m.err = field + " is required"
-			return m, nil
+			if m.col.protocol == "codebase" && m.step == stepBaseURL {
+				input = codebase.DefaultBaseURL
+			} else {
+				m.err = field + " is required"
+				return m, nil
+			}
 		}
 		switch m.step {
 		case stepBaseURL:
 			m.col.baseURL = input
+			if m.col.protocol == "codebase" {
+				m.col.apiKey = ""
+				m.step = stepLoading
+				m.textInput = ""
+				m.fetchErr = ""
+				m.fetchedModels = nil
+				cmd := m.fetchModelsCmd()
+				tickCmd := tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg{} })
+				return m, tea.Batch(cmd, tickCmd)
+			}
 			m.step = stepAPIKey
 			m.textInput = ""
 			return m, nil
@@ -510,6 +542,15 @@ func (m SetupModel) handleModelsLoaded(msg modelsLoadedMsg) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
+func (m SetupModel) modelOptionByID(id string) (modelOption, bool) {
+	for _, mo := range m.fetchedModels {
+		if mo.id == id {
+			return mo, true
+		}
+	}
+	return modelOption{}, false
+}
+
 // handleSelect processes a picker selection message.
 func (m SetupModel) handleSelect(value string) (tea.Model, tea.Cmd) {
 	switch m.step {
@@ -518,6 +559,14 @@ func (m SetupModel) handleSelect(value string) (tea.Model, tea.Cmd) {
 		if value == "bytedance" {
 			m.col.baseURL = "https://aiden-aiproxy.bytedance.net"
 			m.step = stepAPIKey
+		} else if value == "codebase" {
+			m.col.baseURL = codebase.DefaultBaseURL
+			m.step = stepLoading
+			m.fetchErr = ""
+			m.fetchedModels = nil
+			cmd := m.fetchModelsCmd()
+			tickCmd := tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg{} })
+			return m, tea.Batch(cmd, tickCmd)
 		} else {
 			m.step = stepBaseURL
 		}
@@ -529,6 +578,15 @@ func (m SetupModel) handleSelect(value string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.col.model = value
+		m.col.configName = ""
+		m.col.maxContextWindow = 0
+		if mo, ok := m.modelOptionByID(value); ok {
+			m.col.configName = mo.configName
+			m.col.maxContextWindow = mo.maxContextWindow
+			if mo.baseURL != "" {
+				m.col.baseURL = mo.baseURL
+			}
+		}
 		m.step = stepMode
 		m.openPicker()
 		return m, nil
@@ -553,7 +611,12 @@ func (m *SetupModel) openPicker() {
 			items[i] = p
 		}
 		p := picker.New("[1/5] Provider protocol", items, 8, func(item any, selected bool) string {
-			return picker.FormatItem(item.(protocolOption).id, selected)
+			id := item.(protocolOption).id
+			line := id
+			if id == "codebase" {
+				line += "  coco plugin models"
+			}
+			return picker.FormatItem(line, selected)
 		})
 		p.SetOnSelect(func(item any) tea.Cmd {
 			return func() tea.Msg { return selectMsg{value: item.(protocolOption).id} }
@@ -591,7 +654,9 @@ func (m *SetupModel) openModelPicker() {
 
 	models := make([]modelOption, len(m.fetchedModels))
 	copy(models, m.fetchedModels)
-	models = append(models, modelOption{id: "__custom__", name: "Custom input..."})
+	if m.fetchErr != "" {
+		models = append(models, modelOption{id: "__custom__", name: "Custom input..."})
+	}
 
 	items := make([]any, len(models))
 	for i, mo := range models {
@@ -603,11 +668,14 @@ func (m *SetupModel) openModelPicker() {
 		if name == "" {
 			name = opt.id
 		}
+		if opt.configName != "" && opt.configName != opt.id {
+			name += "  " + opt.configName
+		}
 		return picker.FormatItem(name, selected)
 	})
 	p.SetFilterFn(func(item any, q string) bool {
 		opt := item.(modelOption)
-		return strings.Contains(strings.ToLower(opt.name+" "+opt.id), strings.ToLower(q))
+		return strings.Contains(strings.ToLower(opt.name+" "+opt.id+" "+opt.configName), strings.ToLower(q))
 	})
 	p.SetOnSelect(func(item any) tea.Cmd {
 		return func() tea.Msg { return selectMsg{value: item.(modelOption).id} }
@@ -619,17 +687,31 @@ func (m *SetupModel) openModelPicker() {
 
 // save writes the collected config to .cece/settings.json in the project directory.
 func (m *SetupModel) save() error {
+	providers := []providerEntry{
+		{
+			Name:     m.col.protocol,
+			Protocol: m.col.protocol,
+			APIKey:   m.col.apiKey,
+			BaseURL:  m.col.baseURL,
+		},
+	}
+	if m.col.protocol == "codebase" {
+		providers[0].AuthHelper = codebase.DefaultAuthHelper
+		providers[0].Models = []staticModelEntry{{
+			ID:               m.col.model,
+			DisplayName:      m.col.model,
+			MaxContextWindow: m.col.maxContextWindow,
+			ConfigName:       m.col.configName,
+		}}
+		if providers[0].Models[0].ConfigName == "" {
+			providers[0].Models[0].ConfigName = m.col.model
+		}
+	}
+
 	sf := settingsFile{
 		Provider: providerSection{
-			Model: []string{m.col.model},
-			Providers: []providerEntry{
-				{
-					Name:     m.col.protocol,
-					Protocol: m.col.protocol,
-					APIKey:   m.col.apiKey,
-					BaseURL:  m.col.baseURL,
-				},
-			},
+			Model:     []string{m.col.model},
+			Providers: providers,
 		},
 		DefaultMode: modeSection{Mode: m.col.mode},
 	}
@@ -723,8 +805,16 @@ func (m SetupModel) textView(stepNum, label string) string {
 func (m SetupModel) loadingView() string {
 	frame := spinnerFrames[m.spinnerIdx]
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s Fetching models from %s...\n\n", styleStep.Render("[4/5]"), styleSpinner.Render(frame), styleValue.Render(m.col.baseURL))
-	b.WriteString(styleHelp.Render("Querying available models from the provider") + "\n\n")
+	target := m.col.baseURL
+	if m.col.protocol == "codebase" {
+		target = "coco plugins"
+	}
+	fmt.Fprintf(&b, "%s %s Fetching models from %s...\n\n", styleStep.Render("[4/5]"), styleSpinner.Render(frame), styleValue.Render(target))
+	if m.col.protocol == "codebase" {
+		b.WriteString(styleHelp.Render("Reading local coco plugin model configs") + "\n\n")
+	} else {
+		b.WriteString(styleHelp.Render("Querying available models from the provider") + "\n\n")
+	}
 	b.WriteString(key(&styleKeyOther, "ctrl+c") + " cancel")
 	return b.String()
 }
@@ -737,10 +827,21 @@ func (m SetupModel) doneView() string {
 	fmt.Fprintf(&inner, "  %s  %s\n", styleLabel.Render("protocol:"), styleValue.Render(m.col.protocol))
 	fmt.Fprintf(&inner, "  %s  %s\n", styleLabel.Render("base URL:"), styleValue.Render(m.col.baseURL))
 	fmt.Fprintf(&inner, "  %s     %s\n", styleLabel.Render("model:"), styleValue.Render(m.col.model))
+	if m.col.protocol == "codebase" {
+		if m.col.configName != "" {
+			fmt.Fprintf(&inner, "  %s  %s\n", styleLabel.Render("config:"), styleValue.Render(m.col.configName))
+		}
+		if m.col.maxContextWindow > 0 {
+			fmt.Fprintf(&inner, "  %s     %s\n", styleLabel.Render("ctx:"), styleValue.Render(fmt.Sprintf("%d", m.col.maxContextWindow)))
+		}
+	}
 	fmt.Fprintf(&inner, "  %s      %s\n", styleLabel.Render("mode:"), styleValue.Render(m.col.mode))
 	keyPreview := m.col.apiKey
 	if len(keyPreview) > 4 {
 		keyPreview = keyPreview[:4] + "****"
+	}
+	if m.col.protocol == "codebase" && keyPreview == "" {
+		keyPreview = "authHelper"
 	}
 	fmt.Fprintf(&inner, "  %s    %s\n", styleLabel.Render("apiKey:"), styleValue.Render(keyPreview))
 	inner.WriteString("\n" + styleHelp.Render("Config written to "+m.configPath))
@@ -756,10 +857,19 @@ func (m SetupModel) doneView() string {
 // JSON structures for settings file output.
 
 type providerEntry struct {
-	Name     string `json:"name"`
-	Protocol string `json:"protocol"`
-	APIKey   string `json:"apiKey"`
-	BaseURL  string `json:"baseURL"`
+	Name       string             `json:"name"`
+	Protocol   string             `json:"protocol"`
+	APIKey     string             `json:"apiKey,omitempty"`
+	BaseURL    string             `json:"baseURL"`
+	AuthHelper string             `json:"authHelper,omitempty"`
+	Models     []staticModelEntry `json:"models,omitempty"`
+}
+
+type staticModelEntry struct {
+	ID               string `json:"id"`
+	DisplayName      string `json:"displayName"`
+	MaxContextWindow int    `json:"maxContextWindow,omitempty"`
+	ConfigName       string `json:"configName,omitempty"`
 }
 
 type providerSection struct {

@@ -200,6 +200,31 @@ func Load(projectDir string) (Config, error) {
 		})
 	}
 
+	if codebaseHelper := strings.TrimSpace(os.Getenv("CECE_CODEBASE_AUTH_HELPER")); codebaseHelper != "" {
+		cfg.Providers = append(cfg.Providers, ProviderConfig{
+			Name:       "codebase",
+			Protocol:   "codebase",
+			AuthHelper: codebaseHelper,
+		})
+	}
+
+	if strings.TrimSpace(os.Getenv("CECE_CODEBASE_AUTO")) == "1" {
+		exists := false
+		for _, p := range cfg.Providers {
+			if p.Protocol == "codebase" || p.Name == "codebase" {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			cfg.Providers = append(cfg.Providers, ProviderConfig{
+				Name:       "codebase",
+				Protocol:   "codebase",
+				AuthHelper: "bytedcli auth get-codebase-jwt-token",
+			})
+		}
+	}
+
 	if len(cfg.Providers) == 0 {
 		return Config{}, errors.New("no providers configured: add providers to .cece/settings.json or ~/.cece/settings.json, or set ANTHROPIC_API_KEY")
 	}

@@ -2,6 +2,8 @@ package codebase
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/zhanglvtao/cece/internal/agent"
@@ -11,10 +13,13 @@ func TestStreamE2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode")
 	}
+	if v := strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E")); v != "1" {
+		t.Skip("set CECE_CODEBASE_E2E=1 to run codebase e2e test")
+	}
 
 	client := NewClient("", "openrouter-2o__dev", "openrouter-2o",
-		"https://codebase-api.example.com/v2/api/2022-06-01/LLMProxy/TraeV2")
-	client.SetAuthHelper("bytedcli --json auth get-codebase-jwt-token | python3 -c \"import sys,json;print(json.load(sys.stdin)['data']['jwt'])\"")
+		DefaultBaseURL)
+	client.SetAuthHelper(DefaultAuthHelper)
 
 	ch, err := client.Stream(context.Background(),
 		[]agent.Message{{Role: agent.UserRole, Content: "Say hello in 3 words, nothing else."}},
@@ -57,10 +62,13 @@ func TestStreamE2EWithReasoning(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode")
 	}
+	if v := strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E")); v != "1" {
+		t.Skip("set CECE_CODEBASE_E2E=1 to run codebase e2e test")
+	}
 
 	client := NewClient("", "DeepSeek-V4-Pro__dev", "DeepSeek-V4-Pro",
-		"https://codebase-api.example.com/v2/api/2022-06-01/LLMProxy/TraeV2")
-	client.SetAuthHelper("bytedcli --json auth get-codebase-jwt-token | python3 -c \"import sys,json;print(json.load(sys.stdin)['data']['jwt'])\"")
+		DefaultBaseURL)
+	client.SetAuthHelper(DefaultAuthHelper)
 
 	ch, err := client.Stream(context.Background(),
 		[]agent.Message{{Role: agent.UserRole, Content: "What is 2+3? Just give the number."}},

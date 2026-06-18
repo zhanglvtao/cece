@@ -58,6 +58,19 @@ func shouldUseResponsesAPI(model string) bool {
 	return strings.HasPrefix(model, "gpt-") || strings.HasPrefix(model, "o1") || strings.HasPrefix(model, "o3") || strings.HasPrefix(model, "o4")
 }
 
+func staticModelsToAgent(staticModels []config.StaticModel) []agent.ModelInfo {
+	models := make([]agent.ModelInfo, len(staticModels))
+	for i, sm := range staticModels {
+		models[i] = agent.ModelInfo{
+			ID:               sm.ID,
+			DisplayName:      sm.DisplayName,
+			MaxContextWindow: sm.MaxContextWindow,
+			ConfigName:       sm.ConfigName,
+		}
+	}
+	return models
+}
+
 func createClient(pc config.ProviderConfig, model string, configName string) agent.ModelClient {
 	if configName == "" {
 		for _, sm := range pc.Models {
@@ -69,9 +82,34 @@ func createClient(pc config.ProviderConfig, model string, configName string) age
 	}
 	switch pc.Protocol {
 	case "codebase":
+		var models []agent.ModelInfo
+		if len(pc.Models) > 0 {
+			models = staticModelsToAgent(pc.Models)
+		} else if discovered, err := codebase.DiscoverCocoPluginModels(); err == nil {
+			models = discovered
+			if model != "" && configName == "" {
+				for _, m := range models {
+					if m.ID == model || m.ConfigName == model {
+						model = m.ID
+						configName = m.ConfigName
+						if pc.BaseURL == "" && m.BaseURL != "" {
+							pc.BaseURL = m.BaseURL
+						}
+						break
+					}
+				}
+			}
+		}
 		c := codebase.NewClient(pc.APIKey, model, configName, pc.BaseURL)
-		if pc.AuthHelper != "" {
-			c.SetAuthHelper(pc.AuthHelper)
+		if len(models) > 0 {
+			c.SetModels(models)
+		}
+		authHelper := pc.AuthHelper
+		if authHelper == "" && pc.APIKey == "" {
+			authHelper = codebase.DefaultAuthHelper
+		}
+		if authHelper != "" {
+			c.SetAuthHelper(authHelper)
 		}
 		return c
 	case "aiden":
@@ -298,6 +336,23 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 	providerResolver := func(configName string) (string, string, string, string, string) {
 		for _, p := range cfg.Providers {
 			if configName != "" {
+				if p.Protocol == "codebase" {
+					if models, err := codebase.DiscoverCocoPluginModels(); err == nil {
+						for _, m := range models {
+							if m.ConfigName == configName || m.ID == configName {
+								baseURL := p.BaseURL
+								if m.BaseURL != "" {
+									baseURL = m.BaseURL
+								}
+								authHelper := p.AuthHelper
+								if authHelper == "" && p.APIKey == "" {
+									authHelper = codebase.DefaultAuthHelper
+								}
+								return p.APIKey, baseURL, p.AuthMode, authHelper, p.Protocol
+							}
+						}
+					}
+				}
 				for _, m := range p.Models {
 					if m.ConfigName == configName {
 						return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
@@ -305,12 +360,20 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 				}
 			}
 			if p.Name == configName {
-				return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
+				authHelper := p.AuthHelper
+				if p.Protocol == "codebase" && authHelper == "" && p.APIKey == "" {
+					authHelper = codebase.DefaultAuthHelper
+				}
+				return p.APIKey, p.BaseURL, p.AuthMode, authHelper, p.Protocol
 			}
 		}
 		if len(cfg.Providers) > 0 {
 			p := defaultProvider
-			return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
+			authHelper := p.AuthHelper
+			if p.Protocol == "codebase" && authHelper == "" && p.APIKey == "" {
+				authHelper = codebase.DefaultAuthHelper
+			}
+			return p.APIKey, p.BaseURL, p.AuthMode, authHelper, p.Protocol
 		}
 		return "", "", "", "", ""
 	}
@@ -320,6 +383,19 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 			for _, m := range p.Models {
 				if m.ID == model || m.ConfigName == model {
 					return createClient(p, model, m.ConfigName)
+				}
+			}
+			if p.Protocol == "codebase" {
+				if models, err := codebase.DiscoverCocoPluginModels(); err == nil {
+					for _, m := range models {
+						if m.ID == model || m.ConfigName == model {
+							pc := p
+							if m.BaseURL != "" {
+								pc.BaseURL = m.BaseURL
+							}
+							return createClient(pc, m.ID, m.ConfigName)
+						}
+					}
 				}
 			}
 		}
@@ -405,7 +481,7 @@ func discoverContextWindow(ctx context.Context, client agent.ModelClient, cfg co
 	}); ok {
 		if models, err := lister.ListModels(ctx); err == nil {
 			for _, m := range models {
-				if m.ID == cfg.Model {
+				if m.ID == cfg.Model || m.ConfigName == cfg.Model {
 					logger.Info("model context window set from ListModels", "max_context", m.MaxContextWindow)
 					return m.MaxContextWindow
 				}
@@ -448,15 +524,7 @@ func buildListAllModelsFn(cfg config.Config) runtime.ListAllModelsFn {
 				}
 
 				if len(models) == 0 && len(pc.Models) > 0 {
-					models = make([]agent.ModelInfo, len(pc.Models))
-					for i, sm := range pc.Models {
-						models[i] = agent.ModelInfo{
-							ID:               sm.ID,
-							DisplayName:      sm.DisplayName,
-							MaxContextWindow: sm.MaxContextWindow,
-							ConfigName:       sm.ConfigName,
-						}
-					}
+					models = staticModelsToAgent(pc.Models)
 				}
 
 				if len(models) == 0 {
@@ -465,15 +533,23 @@ func buildListAllModelsFn(cfg config.Config) runtime.ListAllModelsFn {
 
 				dtoModels := make([]protocol.ModelInfo, len(models))
 				for i, m := range models {
+					baseURL := pc.BaseURL
+					if m.BaseURL != "" {
+						baseURL = m.BaseURL
+					}
+					authHelper := pc.AuthHelper
+					if pc.Protocol == "codebase" && authHelper == "" && pc.APIKey == "" {
+						authHelper = codebase.DefaultAuthHelper
+					}
 					dtoModels[i] = protocol.ModelInfo{
 						ID:               m.ID,
 						DisplayName:      m.DisplayName,
 						MaxContextWindow: m.MaxContextWindow,
 						Provider:         pc.Name,
 						APIKey:           pc.APIKey,
-						BaseURL:          pc.BaseURL,
+						BaseURL:          baseURL,
 						AuthMode:         pc.AuthMode,
-						AuthHelper:       pc.AuthHelper,
+						AuthHelper:       authHelper,
 						Protocol:         pc.Protocol,
 						ConfigName:       m.ConfigName,
 					}
