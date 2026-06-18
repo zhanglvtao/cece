@@ -79,14 +79,17 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	}
 	view := m.transcript.render(80, m.styles)
 	plain := stripAnsi(view)
-	if !containsAll(plain, "You", "hi", "Cece", "hello there") {
+	if !containsAll(plain, "You", "hi", "hello there") {
 		t.Fatalf("transcript missing expected content:\n%s", view)
+	}
+	if strings.Contains(plain, "Cece") {
+		t.Fatalf("assistant label should not be rendered:\n%s", view)
 	}
 	if strings.Contains(view, "[you]") || strings.Contains(view, "[cece]") {
 		t.Fatalf("transcript labels should not use brackets:\n%s", view)
 	}
-	if !strings.Contains(plain, "Cece ...\n\n  hello there") {
-		t.Fatalf("cece output should be indented after label:\n%s", view)
+	if strings.Contains(plain, "\n  hello there") {
+		t.Fatalf("cece output should not be indented:\n%s", view)
 	}
 	bodyStart := strings.Index(view, "hello there")
 	if bodyStart < 0 {
@@ -279,6 +282,27 @@ func TestToolResultRequestSummaryRendersOnToolLine(t *testing.T) {
 	}
 	if !containsAll(rendered, "Grep", "estimated input: 80981", "tool results: Grep") {
 		t.Fatalf("tool line missing request summary:\n%s", rendered)
+	}
+}
+
+func TestEditToolRendersDiffWithoutParams(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	input := json.RawMessage(`{"path":"/tmp/a.go","old_string":"very long old string that should not appear","new_string":"very long new string that should not appear"}`)
+	diff := "--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old\n+new"
+
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "tool-edit", Name: "Edit"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "tool-edit", Name: "Edit", Input: input})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "tool-edit", Name: "Edit", Result: protocol.ToolResult{Content: diff}})
+
+	rendered := stripAnsi(m.transcript.render(160, m.styles))
+	if !containsAll(rendered, "Edit", "ok:", "--- a/a.go", "+new") {
+		t.Fatalf("edit diff not rendered:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "old_string") || strings.Contains(rendered, "new_string") || strings.Contains(rendered, "very long") {
+		t.Fatalf("edit params should not be rendered:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "\n---\n") {
+		t.Fatalf("edit result should not be appended after parameter preview:\n%s", rendered)
 	}
 }
 

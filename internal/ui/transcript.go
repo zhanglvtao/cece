@@ -315,10 +315,13 @@ func (t *transcript) apply(event protocol.Event) {
 			t.toolByID[e.ID] = idx
 		}
 		name, params := formatToolTitleKVs(e.Name, e.Input)
+		if e.Name == "Edit" {
+			params = ""
+		}
 		t.blocks[idx].toolName = e.Name
 		t.blocks[idx].title = name
 		t.blocks[idx].toolParams = params
-		if isQuietTool(e.Name) {
+		if isQuietTool(e.Name) || e.Name == "Edit" {
 			t.blocks[idx].text = ""
 		} else {
 			t.blocks[idx].text = formatToolPreview(e.Name, e.Input)
@@ -411,7 +414,7 @@ func (t *transcript) apply(event protocol.Event) {
 		beforeOutput := strings.Split(t.blocks[idx].text, "\n---\n")[0]
 		beforeOutput = strings.TrimSuffix(beforeOutput, "running...")
 		beforeOutput = strings.TrimRight(beforeOutput, "\n")
-		if beforeOutput == "" {
+		if beforeOutput == "" || e.Name == "Edit" {
 			t.blocks[idx].text = prefix + ":\n" + result
 		} else {
 			t.blocks[idx].text = beforeOutput + "\n---\n" + prefix + ":\n" + result
@@ -545,7 +548,9 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 				if b.ToolUse != nil {
 					name, params := formatToolTitleKVs(b.ToolUse.Name, b.ToolUse.Input)
 					var preview string
-					if !isQuietTool(b.ToolUse.Name) {
+					if b.ToolUse.Name == "Edit" {
+						params = ""
+					} else if !isQuietTool(b.ToolUse.Name) {
 						preview = formatToolPreview(b.ToolUse.Name, b.ToolUse.Input)
 					}
 					blk := t.appendDone(blockTool, name, preview)
@@ -657,16 +662,10 @@ func (t *transcript) renderStreamingThinking(block transcriptBlock, width int, s
 }
 
 func renderAssistantBody(rendered string, sty Styles) string {
-	return indent(sty.Chat.AssistantBody.Render(rendered), "  ")
+	return sty.Chat.AssistantBody.Render(rendered)
 }
 
 func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, sty Styles) string {
-	label := block.title
-	if label == "" {
-		label = string(block.kind)
-	}
-	label = formatTranscriptLabel(label + " ...")
-	lbl := labelStyleForKind(block.kind, sty)
 	text := strings.TrimRight(block.text, "\n")
 
 	renderer := getMarkdownRenderer(width)
@@ -675,7 +674,7 @@ func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, 
 	}
 	rendered := t.streamingMD.Render(text, width, renderer)
 
-	return lbl.Render(label) + "\n\n" + renderAssistantBody(rendered, sty)
+	return renderAssistantBody(rendered, sty)
 }
 
 func (t *transcript) renderOrder() []transcriptBlock {
@@ -836,7 +835,7 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	}
 	if block.kind == blockAssistant && block.done {
 		rendered := renderMarkdown(text, width)
-		return lbl.Render(label) + "\n\n" + renderAssistantBody(rendered, sty)
+		return renderAssistantBody(rendered, sty)
 	}
 	// Bash tools: no indent, no wrap — render like terminal output (may contain ANSI).
 	if block.kind == blockTool && isExecTool(block.toolName) {
