@@ -643,7 +643,7 @@ func (t *transcript) renderStreamingThinking(block transcriptBlock, width int, s
 	if label == "" {
 		label = string(block.kind)
 	}
-	label += " ..."
+	label = formatTranscriptLabel(label + " ...")
 	lbl := labelStyleForKind(block.kind, sty)
 	text := strings.TrimRight(block.text, "\n")
 
@@ -653,7 +653,7 @@ func (t *transcript) renderStreamingThinking(block transcriptBlock, width int, s
 	}
 	rendered := t.streamingMD.Render(text, width, renderer)
 
-	return lbl.Render("["+label+"]") + "\n" + indent(rendered, "  ")
+	return lbl.Render(label) + "\n" + indent(rendered, "  ")
 }
 
 func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, sty Styles) string {
@@ -661,7 +661,7 @@ func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, 
 	if label == "" {
 		label = string(block.kind)
 	}
-	label += " ..."
+	label = formatTranscriptLabel(label + " ...")
 	lbl := labelStyleForKind(block.kind, sty)
 	text := strings.TrimRight(block.text, "\n")
 
@@ -671,7 +671,7 @@ func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, 
 	}
 	rendered := t.streamingMD.Render(text, width, renderer)
 
-	return lbl.Render("["+label+"]") + "\n" + rendered
+	return lbl.Render(label) + "\n\n" + rendered
 }
 
 func (t *transcript) renderOrder() []transcriptBlock {
@@ -739,6 +739,17 @@ func labelStyleForKind(kind blockKind, sty Styles) lipgloss.Style {
 	}
 }
 
+func formatTranscriptLabel(label string) string {
+	if label == "" {
+		return label
+	}
+	runes := []rune(label)
+	if runes[0] >= 'a' && runes[0] <= 'z' {
+		runes[0] = runes[0] - 'a' + 'A'
+	}
+	return string(runes)
+}
+
 func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	label := string(block.kind)
 	if block.title != "" {
@@ -747,9 +758,10 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	if !block.done && block.kind != blockUser && block.kind != blockSystem {
 		label += " ..."
 	}
-	// Truncate tool labels to fit one line: "[label...]" must not exceed width.
+	label = formatTranscriptLabel(label)
+	// Truncate tool labels to fit one line.
 	if block.kind == blockTool {
-		maxLabel := width - 2 // account for "[" and "]"
+		maxLabel := width
 		if maxLabel < 10 {
 			maxLabel = 10
 		}
@@ -759,7 +771,7 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		// Also truncate params/meta so the full line roughly fits within width.
 		lineExtra := strings.TrimSpace(strings.Join([]string{block.toolParams, block.toolMeta}, "  "))
 		if lineExtra != "" {
-			maxExtra := width - len(label) - 4 // "[" + label + "]" + " "
+			maxExtra := width - len(label) - 1
 			if maxExtra < 10 {
 				maxExtra = 10
 			}
@@ -785,19 +797,19 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		if footer != "" {
 			rendered = rendered + "\n" + footer
 		}
-		return lbl.Render("["+label+"]") + "\n" + indent(rendered, "  ")
+		return lbl.Render(label) + "\n" + indent(rendered, "  ")
 	}
 	// View blocks: render file content as markdown or syntax-highlighted code.
 	if block.kind == blockView {
 		rendered := renderViewContent(text, block.toolParams, width)
-		return lbl.Render("["+label+"]") + "\n" + indent(rendered, "  ")
+		return lbl.Render(label) + "\n" + indent(rendered, "  ")
 	}
-	// For tool blocks, render [Name] highlighted and params/meta plain.
+	// For tool blocks, render the name highlighted and params/meta plain.
 	renderLabel := func() string {
 		if block.kind != blockTool {
-			return lbl.Render("[" + label + "]")
+			return lbl.Render(label)
 		}
-		line := lbl.Render("[" + label + "]")
+		line := lbl.Render(label)
 		if block.toolParams != "" {
 			line += " " + block.toolParams
 		}
@@ -814,9 +826,13 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		return renderLabel()
 	}
 	// Markdown-rendered blocks: plan and completed assistant messages.
-	if block.kind == blockPlan || (block.kind == blockAssistant && block.done) {
+	if block.kind == blockPlan {
 		rendered := renderMarkdown(text, width)
-		return lbl.Render("["+label+"]") + "\n" + rendered
+		return lbl.Render(label) + "\n" + rendered
+	}
+	if block.kind == blockAssistant && block.done {
+		rendered := renderMarkdown(text, width)
+		return lbl.Render(label) + "\n\n" + rendered
 	}
 	// Bash tools: no indent, no wrap — render like terminal output (may contain ANSI).
 	if block.kind == blockTool && isExecTool(block.toolName) {

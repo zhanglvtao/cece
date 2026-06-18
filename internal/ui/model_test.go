@@ -78,8 +78,15 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 		t.Fatal("busy = true after TurnCompleted")
 	}
 	view := m.transcript.render(80, m.styles)
-	if !containsAll(view, "[you]", "hi", "cece", "hello there") {
+	plain := stripAnsi(view)
+	if !containsAll(plain, "You", "hi", "Cece", "hello there") {
 		t.Fatalf("transcript missing expected content:\n%s", view)
+	}
+	if strings.Contains(view, "[you]") || strings.Contains(view, "[cece]") {
+		t.Fatalf("transcript labels should not use brackets:\n%s", view)
+	}
+	if !strings.Contains(plain, "Cece ...\n\n") {
+		t.Fatalf("cece output should have a blank line after label:\n%s", view)
 	}
 }
 
@@ -259,7 +266,10 @@ func TestToolResultRequestSummaryRendersOnToolLine(t *testing.T) {
 	if strings.Contains(rendered, "[tool_result]") {
 		t.Fatalf("tool_result should not render as standalone block:\n%s", rendered)
 	}
-	if !containsAll(rendered, "[Grep]", "estimated input: 80981", "tool results: Grep") {
+	if strings.Contains(rendered, "[Grep]") {
+		t.Fatalf("tool label should not use brackets:\n%s", rendered)
+	}
+	if !containsAll(rendered, "Grep", "estimated input: 80981", "tool results: Grep") {
 		t.Fatalf("tool line missing request summary:\n%s", rendered)
 	}
 }
@@ -692,6 +702,18 @@ func TestTaskBarHeightIncludesOverflowLine(t *testing.T) {
 	if got != want {
 		t.Fatalf("taskBarHeight() = %d, want rendered line count %d; view:\n%s", got, want, stripAnsi(view))
 	}
+	plain := stripAnsi(view)
+	if strings.Contains(plain, "[Todo List]") || !strings.Contains(plain, "Todo List") {
+		t.Fatalf("todo label should not use brackets; view:\n%s", plain)
+	}
+	for _, hidden := range []string{"three", "four", "five", "six"} {
+		if strings.Contains(plain, hidden) {
+			t.Fatalf("todo list should show at most 3 items; %q was visible:\n%s", hidden, plain)
+		}
+	}
+	if !containsAll(plain, "seven", "one", "two", "... +4 more") {
+		t.Fatalf("todo list missing expected visible/overflow rows:\n%s", plain)
+	}
 }
 
 func keyMsg(s string) tea.KeyPressMsg {
@@ -964,8 +986,11 @@ func TestDryRunEventRendersRequestLayers(t *testing.T) {
 		Tools:    []protocol.ToolDryRun{{Name: "Read", Description: "read files"}},
 	})
 	view := m.transcript.render(100, m.styles)
-	if !containsAll(view, "[dryrun]", "[prompt layers]", "stable", "system rules", "[messages]", "preview", "[tools]", "Read") {
+	if !containsAll(view, "Dryrun", "[prompt layers]", "stable", "system rules", "[messages]", "preview", "[tools]", "Read") {
 		t.Fatalf("dryrun not rendered:\n%s", view)
+	}
+	if strings.Contains(view, "[dryrun]") {
+		t.Fatalf("dryrun label should not use brackets:\n%s", view)
 	}
 	if m.transcript.contextUsed != 42 {
 		t.Fatalf("contextUsed = %d, want 42", m.transcript.contextUsed)

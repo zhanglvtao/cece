@@ -5,11 +5,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/zhanglvtao/cece/internal/protocol"
 	"charm.land/lipgloss/v2"
+	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
-const maxTaskBarLines = 6
+const maxTaskBarLines = 3
 
 // taskBarHeight returns the number of terminal lines the task bar occupies.
 // Returns 0 when there are no tasks.
@@ -40,7 +40,7 @@ func renderTaskBar(tasks []protocol.TodoItem, width int, frame int, styles Style
 	})
 
 	var b strings.Builder
-	b.WriteString(styles.Task.Label.Render("[Todo List]"))
+	b.WriteString(styles.Task.Label.Render("Todo List"))
 	b.WriteByte('\n')
 	show := sorted
 	overflow := 0

@@ -1,5 +1,10 @@
 # 开发问题记录
 
+## transcript 标签样式分散导致一致性风险
+- 现象：transcript 主渲染、streaming assistant/thinking、Todo List 分别手写 `[` `]` 和 label 文案，改视觉样式时容易漏分支。
+- 定位：`renderBlock`、`renderStreamingAssistant`、`renderStreamingThinking`、`renderTaskBar` 各自拼接 label。
+- 结论：transcript label 应集中格式化，面板标题也要有明确常量/上限，避免局部 UI 风格漂移。
+
 ## tool_result 请求摘要与工具块生命周期分离
 - 现象：工具执行后，下一次模型请求会单独显示 `[tool_result] estimated input...`，和刚刚完成的工具块割裂，尤其 `Grep` 这类高频工具会制造很多噪音。
 - 定位：`ModelRequestStarted{Reason:"tool_result"}` 和 `ToolExecCompleted` 是两条独立事件；UI transcript 之前直接把前者渲染成 `blockInfo`，没有尝试关联最近工具块。
