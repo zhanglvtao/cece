@@ -1,5 +1,10 @@
 # 开发问题记录
 
+## assistant markdown 外层套色与内部高亮的边界
+- 现象：给 cece 正文整体加主色时，直接在渲染后的 markdown 外层套 `lipgloss.Style` 最简单，但可能覆盖 markdown 内部已有的 heading/link/code 颜色。
+- 定位：assistant 流式/完成态分别在 `renderStreamingAssistant` 和 completed assistant 分支拼接 markdown 输出；markdown 颜色来源是 `buildGlamourStyle`。
+- 结论：短期为满足正文整体主色与缩进，用独立 `AssistantBody` 样式集中处理；若后续发现 markdown 内部高亮被压平，应把默认正文色下沉到 glamour `Document`/`Paragraph`，不要在所有输出外层强套。
+
 ## transcript 标签样式分散导致一致性风险
 - 现象：transcript 主渲染、streaming assistant/thinking、Todo List 分别手写 `[` `]` 和 label 文案，改视觉样式时容易漏分支。
 - 定位：`renderBlock`、`renderStreamingAssistant`、`renderStreamingThinking`、`renderTaskBar` 各自拼接 label。

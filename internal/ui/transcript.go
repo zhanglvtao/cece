@@ -656,6 +656,10 @@ func (t *transcript) renderStreamingThinking(block transcriptBlock, width int, s
 	return lbl.Render(label) + "\n" + indent(rendered, "  ")
 }
 
+func renderAssistantBody(rendered string, sty Styles) string {
+	return indent(sty.Chat.AssistantBody.Render(rendered), "  ")
+}
+
 func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, sty Styles) string {
 	label := block.title
 	if label == "" {
@@ -671,7 +675,7 @@ func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, 
 	}
 	rendered := t.streamingMD.Render(text, width, renderer)
 
-	return lbl.Render(label) + "\n\n" + rendered
+	return lbl.Render(label) + "\n\n" + renderAssistantBody(rendered, sty)
 }
 
 func (t *transcript) renderOrder() []transcriptBlock {
@@ -832,7 +836,7 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	}
 	if block.kind == blockAssistant && block.done {
 		rendered := renderMarkdown(text, width)
-		return lbl.Render(label) + "\n\n" + rendered
+		return lbl.Render(label) + "\n\n" + renderAssistantBody(rendered, sty)
 	}
 	// Bash tools: no indent, no wrap — render like terminal output (may contain ANSI).
 	if block.kind == blockTool && isExecTool(block.toolName) {

@@ -12,6 +12,7 @@ type Styles struct {
 	Chat struct {
 		LabelUser      lipgloss.Style
 		LabelAssistant lipgloss.Style
+		AssistantBody  lipgloss.Style
 		LabelThinking  lipgloss.Style
 		LabelTool      lipgloss.Style
 		LabelError     lipgloss.Style
@@ -85,6 +86,7 @@ func DefaultStyles() Styles {
 
 	s.Chat.LabelUser = lipgloss.NewStyle().Foreground(theme.Fg)
 	s.Chat.LabelAssistant = lipgloss.NewStyle().Foreground(theme.Green)
+	s.Chat.AssistantBody = lipgloss.NewStyle().Foreground(theme.Primary)
 	s.Chat.LabelThinking = lipgloss.NewStyle().Foreground(theme.FgMuted)
 	s.Chat.LabelTool = lipgloss.NewStyle().Foreground(theme.Yellow)
 	s.Chat.LabelError = lipgloss.NewStyle().Foreground(theme.Red)

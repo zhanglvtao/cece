@@ -85,8 +85,16 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	if strings.Contains(view, "[you]") || strings.Contains(view, "[cece]") {
 		t.Fatalf("transcript labels should not use brackets:\n%s", view)
 	}
-	if !strings.Contains(plain, "Cece ...\n\n") {
-		t.Fatalf("cece output should have a blank line after label:\n%s", view)
+	if !strings.Contains(plain, "Cece ...\n\n  hello there") {
+		t.Fatalf("cece output should be indented after label:\n%s", view)
+	}
+	bodyStart := strings.Index(view, "hello there")
+	if bodyStart < 0 {
+		t.Fatalf("cece output body missing:\n%s", view)
+	}
+	bodyPrefix := view[max(0, bodyStart-12):bodyStart]
+	if !strings.Contains(bodyPrefix, "\x1b[") {
+		t.Fatalf("cece output body should contain ANSI styling:\n%s", view)
 	}
 }
 
