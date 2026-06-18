@@ -271,7 +271,11 @@ func (t *transcript) apply(event protocol.Event) {
 		t.blocks[idx].toolName = e.Name
 		t.blocks[idx].title = name
 		t.blocks[idx].toolParams = params
-		t.blocks[idx].text = formatToolPreview(e.Name, e.Input)
+		if isQuietTool(e.Name) {
+			t.blocks[idx].text = ""
+		} else {
+			t.blocks[idx].text = formatToolPreview(e.Name, e.Input)
+		}
 		t.markDirty(idx)
 	case protocol.ToolExecStarted:
 		idx, ok := t.toolByID[e.ID]
@@ -493,7 +497,11 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 			case protocol.ToolUseContentType:
 				if b.ToolUse != nil {
 					name, params := formatToolTitleKVs(b.ToolUse.Name, b.ToolUse.Input)
-					blk := t.appendDone(blockTool, name, formatToolPreview(b.ToolUse.Name, b.ToolUse.Input))
+					var preview string
+					if !isQuietTool(b.ToolUse.Name) {
+						preview = formatToolPreview(b.ToolUse.Name, b.ToolUse.Input)
+					}
+					blk := t.appendDone(blockTool, name, preview)
 					t.blocks[blk].toolName = b.ToolUse.Name
 					t.blocks[blk].toolParams = params
 				}
