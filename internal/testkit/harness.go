@@ -52,6 +52,7 @@ type harnessConfig struct {
 	yolo          bool
 	maxTokens     int
 	defaultMode   string
+	defaultEffort string
 	width, height int
 
 	store      *MemStore
@@ -99,6 +100,11 @@ func WithWindowSize(w, h int) HarnessOption {
 // WithDefaultMode sets the initial permission mode.
 func WithDefaultMode(mode string) HarnessOption {
 	return func(c *harnessConfig) { c.defaultMode = mode }
+}
+
+// WithDefaultEffort sets the initial reasoning effort.
+func WithDefaultEffort(effort string) HarnessOption {
+	return func(c *harnessConfig) { c.defaultEffort = effort }
 }
 
 // WithStore replaces the default in-memory store. Useful for tests
@@ -191,6 +197,7 @@ func NewHarness(t *testing.T, llm *ScriptedClient, opts ...HarnessOption) *Harne
 		MaxTokens:        cfg.maxTokens,
 		Yolo:             cfg.yolo,
 		DefaultMode:      cfg.defaultMode,
+		DefaultEffort:    cfg.defaultEffort,
 		StablePrompt:     "test stable prompt",
 		ModelClient:      llm,
 		Store:            cfg.store,
@@ -228,6 +235,9 @@ func NewHarness(t *testing.T, llm *ScriptedClient, opts ...HarnessOption) *Harne
 		uiModel.SetSkillStore(cfg.skills)
 	}
 	uiModel.SetSessions(cfg.store)
+	if cfg.defaultEffort != "" {
+		uiModel.SetDefaultEffort(cfg.defaultEffort)
+	}
 	if cfg.defaultMode != "" {
 		uiModel.SetDefaultMode(cfg.defaultMode)
 	}

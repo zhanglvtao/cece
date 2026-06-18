@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/zhanglvtao/cece/internal/protocol"
 	"github.com/zhanglvtao/cece/internal/session"
 	"github.com/zhanglvtao/cece/internal/skill"
-	tea "charm.land/bubbletea/v2"
 )
 
 type recordingSender struct {
@@ -33,6 +33,38 @@ func (s *recordingSender) Do(action protocol.Action) {
 }
 
 func (s *recordingSender) Events() <-chan protocol.Event { return s.events }
+
+func TestModelInitialEffortDefaultsToXHigh(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	if m.currentEffort != "xhigh" {
+		t.Fatalf("currentEffort = %q, want xhigh", m.currentEffort)
+	}
+	if !strings.Contains(m.statusBar.Render(120), "xhigh") {
+		t.Fatalf("status bar missing xhigh: %q", m.statusBar.Render(120))
+	}
+}
+
+func TestModelSetDefaultEffort(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.SetDefaultEffort("medium")
+	if m.currentEffort != "medium" {
+		t.Fatalf("currentEffort = %q, want medium", m.currentEffort)
+	}
+	if !strings.Contains(m.statusBar.Render(120), "medium") {
+		t.Fatalf("status bar missing medium: %q", m.statusBar.Render(120))
+	}
+}
+
+func TestEngineReadyEventSyncsEffort(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.ApplyEventForTest(protocol.EngineReadyEvent{Model: "opus", ContextWindow: 123, Effort: "xhigh"})
+	if m.modelName != "opus" || m.contextWindow != 123 || m.currentEffort != "xhigh" {
+		t.Fatalf("model/context/effort = %s/%d/%s, want opus/123/xhigh", m.modelName, m.contextWindow, m.currentEffort)
+	}
+	if !strings.Contains(m.statusBar.Render(120), "xhigh") {
+		t.Fatalf("status bar missing xhigh: %q", m.statusBar.Render(120))
+	}
+}
 
 func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
@@ -748,7 +780,7 @@ func (f *fakeSessionStore) Get(context.Context, string) (*session.Session, error
 func (f *fakeSessionStore) Rename(context.Context, string, string) error                  { return nil }
 func (f *fakeSessionStore) Delete(context.Context, string) error                          { return nil }
 func (f *fakeSessionStore) UpdateMeta(context.Context, string, session.SessionMeta) error { return nil }
-func (f *fakeSessionStore) SaveInputHistory(context.Context, string, []string) error       { return nil }
+func (f *fakeSessionStore) SaveInputHistory(context.Context, string, []string) error      { return nil }
 
 func TestChineseInputGoesDirectlyToTextarea(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")

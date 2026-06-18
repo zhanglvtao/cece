@@ -41,6 +41,7 @@ func TestActionRoundTrip(t *testing.T) {
 
 func TestEventRoundTrip(t *testing.T) {
 	events := []protocol.Event{
+		protocol.EngineReadyEvent{Model: "m", ContextWindow: 100, Effort: "xhigh"},
 		protocol.SessionCreated{ID: "s1", Title: "title"},
 		protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: "hi"}},
 		protocol.ModelRequestStarted{Reason: "user", EstimatedInputTokens: 12, APICalls: 1},

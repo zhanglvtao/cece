@@ -200,6 +200,9 @@ func TestBuilderBuildsInteractiveAndWorkerRuntimes(t *testing.T) {
 	if worker.Tracker.MaxTurns != MustProfile(ProfileWorker).Execution.DefaultMaxTurns {
 		t.Fatalf("worker MaxTurns = %d, want %d", worker.Tracker.MaxTurns, MustProfile(ProfileWorker).Execution.DefaultMaxTurns)
 	}
+	if worker.Engine.Effort() != "low" {
+		t.Fatalf("worker effort = %q, want low", worker.Engine.Effort())
+	}
 	if _, ok := worker.Registry.Get(tool.AgentToolName); ok {
 		t.Fatal("worker registry must not contain Agent tool")
 	}
@@ -217,6 +220,7 @@ func TestBuildUsesBuilderForInteractiveBundle(t *testing.T) {
 		ContextWindow: 32000,
 		MaxTokens:     1024,
 		Yolo:          true,
+		DefaultEffort: "xhigh",
 		ModelClient:   llm,
 		Store:         newMemStore(),
 	})
@@ -228,6 +232,9 @@ func TestBuildUsesBuilderForInteractiveBundle(t *testing.T) {
 	}
 	if _, ok := bundle.Registry.Get(tool.AgentToolName); !ok {
 		t.Fatal("interactive bundle should still contain Agent tool")
+	}
+	if bundle.Engine.Effort() != "xhigh" {
+		t.Fatalf("Engine effort = %q, want xhigh", bundle.Engine.Effort())
 	}
 }
 

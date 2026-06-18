@@ -508,8 +508,8 @@ func (m *Model) openEffortPicker() {
 	options := []effortOption{
 		{"low", "low", "fast, simple tasks"},
 		{"medium", "medium", "balanced effort"},
-		{"high", "high", "routine dev work (default)"},
-		{"xhigh", "xhigh", "deep debugging, complex tasks"},
+		{"high", "high", "routine dev work"},
+		{"xhigh", "xhigh", "deep debugging, complex tasks (default)"},
 		{"auto", "auto", "keyword-based automatic selection"},
 	}
 	items := make([]any, len(options))

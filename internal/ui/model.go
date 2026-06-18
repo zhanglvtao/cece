@@ -169,11 +169,12 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 	if len(contextWindow) > 0 {
 		cw = contextWindow[0]
 	}
+	defaultEffort := "xhigh"
 
 	sb := NewStatusBar()
 	sb.UpdateMode(string(protocol.PermissionModeDefault))
 	sb.UpdateModel(modelName)
-	sb.UpdateEffort("high")
+	sb.UpdateEffort(defaultEffort)
 	sb.UpdateContext(0, cw)
 
 	hb := NewHeaderBar()
@@ -181,7 +182,7 @@ func NewModel(sender Sender, modelName string, projectDir string, contextWindow 
 	return Model{
 		sender:        sender,
 		modelName:     modelName,
-		currentEffort: "high",
+		currentEffort: defaultEffort,
 		mode:          protocol.PermissionModeDefault,
 		projectDir:    projectDir,
 		workDir:       filepath.Base(projectDir),
@@ -209,6 +210,17 @@ func (m *Model) SetDefaultMode(mode string) {
 	}
 	if m.statusBar != nil {
 		m.statusBar.UpdateMode(string(m.mode))
+	}
+}
+
+// SetDefaultEffort sets the initial reasoning effort from config.
+func (m *Model) SetDefaultEffort(effort string) {
+	if effort == "" {
+		return
+	}
+	m.currentEffort = effort
+	if m.statusBar != nil {
+		m.statusBar.UpdateEffort(effort)
 	}
 }
 
@@ -438,6 +450,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 		if e.Model != "" {
 			m.modelName = e.Model
 			m.statusBar.UpdateModel(e.Model)
+		}
+		if e.Effort != "" {
+			m.currentEffort = e.Effort
+			m.statusBar.UpdateEffort(e.Effort)
 		}
 	case protocol.SessionCreated:
 		m.currentSessionID = e.ID

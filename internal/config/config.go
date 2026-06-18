@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/zhanglvtao/cece/internal/effort"
 )
 
 var defaultModels = []string{"glm-5.1", "gpt-5.5", "deepseek-v4-pro"}
@@ -75,7 +77,7 @@ type Config struct {
 	Yolo                bool
 	MaxTokens           int
 	DefaultMode         string         // "default", "auto-accept", or "plan"
-	Effort              string         // reasoning effort: "low", "medium", "high", "xhigh", "auto" (default: "high")
+	Effort              string         // reasoning effort: "low", "medium", "high", "xhigh", "auto" (default: "xhigh")
 	ModelContextMapping map[string]int // model ID -> max context window
 	Providers           []ProviderConfig
 	MCP                 MCPs
@@ -184,6 +186,12 @@ func Load(projectDir string) (Config, error) {
 
 	if v := strings.TrimSpace(os.Getenv("ZLAUDE_EFFORT")); v != "" {
 		cfg.Effort = v
+	}
+	cfg.Effort = strings.TrimSpace(cfg.Effort)
+	if cfg.Effort == "" {
+		cfg.Effort = string(effort.XHigh)
+	} else if !effort.Valid(cfg.Effort) {
+		return Config{}, fmt.Errorf("invalid provider.effort %q: want low, medium, high, xhigh, or auto", cfg.Effort)
 	}
 
 	// Environment variable fallback: add an "env" provider when set.

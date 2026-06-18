@@ -13,6 +13,7 @@ type Event interface{ isEvent() }
 type EngineReadyEvent struct {
 	Model         string
 	ContextWindow int
+	Effort        string
 }
 
 func (EngineReadyEvent) isEvent() {}

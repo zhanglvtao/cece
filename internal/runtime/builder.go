@@ -44,6 +44,7 @@ type BuildRequest struct {
 	ToolNames         []string
 	Yolo              bool
 	DefaultMode       string
+	DefaultEffort     string
 	StablePrompt      string
 	MaxTurns          int
 }
@@ -141,8 +142,12 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 	if req.DefaultMode != "" {
 		eng.Do(protocol.SetPermissionModeAction{Mode: protocol.PermissionMode(req.DefaultMode)})
 	}
-	if req.Profile.Execution.DefaultEffort != "" {
-		eng.SetEffort(req.Profile.Execution.DefaultEffort)
+	defaultEffort := req.DefaultEffort
+	if defaultEffort == "" {
+		defaultEffort = req.Profile.Execution.DefaultEffort
+	}
+	if defaultEffort != "" {
+		eng.SetEffort(defaultEffort)
 	}
 	if b.shared.ContextWindowFor != nil {
 		eng.ContextWindowFor = b.shared.ContextWindowFor

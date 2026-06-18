@@ -39,6 +39,7 @@ type runtimeBundle struct {
 	model         string
 	contextWindow int
 	defaultMode   string
+	defaultEffort string
 	cleanup       func()
 }
 
@@ -46,6 +47,7 @@ type runtimeMetadata struct {
 	model         string
 	contextWindow int
 	defaultMode   string
+	defaultEffort string
 	debug         bool
 	enabledSkills []string
 }
@@ -236,6 +238,7 @@ func runTUI(projectDir string) int {
 	defer client.Close()
 
 	model := ui.NewModel(client, meta.model, projectDir)
+	model.SetDefaultEffort(meta.defaultEffort)
 	model.SetDefaultMode(meta.defaultMode)
 	model.SetSessions(session.NewFileStore(projectDir))
 	skillStore := skill.NewStore(skill.DiscoverAll(projectDir))
@@ -300,6 +303,7 @@ func loadMetadata(projectDir string) (runtimeMetadata, error) {
 		model:         cfg.Model,
 		contextWindow: cfg.ContextWindowFor(cfg.Model),
 		defaultMode:   cfg.DefaultMode,
+		defaultEffort: cfg.Effort,
 		debug:         cfg.Debug,
 		enabledSkills: cfg.EnabledSkills,
 	}, nil
@@ -426,6 +430,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		MaxTokens:        cfg.MaxTokens,
 		Yolo:             cfg.Yolo,
 		DefaultMode:      cfg.DefaultMode,
+		DefaultEffort:    cfg.Effort,
 		LintConfig:       cfg.Lint,
 		ModelClient:      client,
 		Store:            store,
@@ -446,6 +451,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 	bundle.Engine.EmitEvent(protocol.EngineReadyEvent{
 		Model:         cfg.Model,
 		ContextWindow: contextWindow,
+		Effort:        cfg.Effort,
 	})
 
 	return runtimeBundle{
@@ -455,6 +461,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		model:         cfg.Model,
 		contextWindow: contextWindow,
 		defaultMode:   cfg.DefaultMode,
+		defaultEffort: cfg.Effort,
 		cleanup:       bundle.Cleanup,
 	}, nil
 }

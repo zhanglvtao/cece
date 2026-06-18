@@ -72,6 +72,62 @@ func TestLoadFallsBackToEnvWhenNoFile(t *testing.T) {
 	if cfg.Providers[0].BaseURL != "https://api.anthropic.com" {
 		t.Fatalf("Providers[0].BaseURL = %q, want default %q", cfg.Providers[0].BaseURL, "https://api.anthropic.com")
 	}
+	if cfg.Effort != "xhigh" {
+		t.Fatalf("Effort = %q, want xhigh", cfg.Effort)
+	}
+}
+
+func TestLoadEffortEnvOverridesConfig(t *testing.T) {
+	dir := t.TempDir()
+	settings := `{
+		"provider": {
+			"model": "test-model",
+			"effort": "high",
+			"providers": [
+				{ "name": "test", "apiKey": "sk-test", "baseURL": "https://test.example.com" }
+			]
+		}
+	}`
+	path := filepath.Join(dir, ".cece", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ZLAUDE_EFFORT", "xhigh")
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Effort != "xhigh" {
+		t.Fatalf("Effort = %q, want xhigh", cfg.Effort)
+	}
+}
+
+func TestLoadInvalidEffort(t *testing.T) {
+	dir := t.TempDir()
+	settings := `{
+		"provider": {
+			"model": "test-model",
+			"effort": "extreme",
+			"providers": [
+				{ "name": "test", "apiKey": "sk-test", "baseURL": "https://test.example.com" }
+			]
+		}
+	}`
+	path := filepath.Join(dir, ".cece", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(dir); err == nil {
+		t.Fatal("expected invalid effort error")
+	}
 }
 
 func TestLoadReturnsErrorWhenNoKeyAnywhere(t *testing.T) {

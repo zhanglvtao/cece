@@ -137,6 +137,11 @@ func (e *Engine) SetMCPTools(tools []tool.Tool) {
 }
 func (e *Engine) Yolo() bool     { return e.yolo }
 func (e *Engine) MaxTokens() int { return e.maxTokens }
+func (e *Engine) Effort() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.effort
+}
 
 // SetEffort configures the reasoning effort level.
 func (e *Engine) SetEffort(v string) {

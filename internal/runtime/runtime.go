@@ -58,6 +58,7 @@ type Options struct {
 	MaxTokens     int    // 0 → 16384
 	Yolo          bool   // auto-approve tool execution
 	DefaultMode   string // "" / "default" / "auto-accept" / "plan"
+	DefaultEffort string // "low" / "medium" / "high" / "xhigh" / "auto"
 	StablePrompt  string // "" → prompt.FormatStableSystemPrompt(ProjectDir)
 	LintConfig    map[string]string
 
@@ -117,6 +118,7 @@ func Build(opts Options) (*Bundle, error) {
 		Profile:       MustProfile(ProfileInteractive),
 		Yolo:          opts.Yolo,
 		DefaultMode:   opts.DefaultMode,
+		DefaultEffort: opts.DefaultEffort,
 		StablePrompt:  opts.StablePrompt,
 	})
 	if err != nil {
