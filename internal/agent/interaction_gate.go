@@ -73,7 +73,7 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 	// non-empty plan to review. Empty/missing plans are not approvable; let the
 	// tool execute and return its validation error to the agent.
 	if hasExitPlanMode(calls) {
-		planContent, planFile, ok := exitPlanModePreview(calls)
+		planContent, planFile, ok := exitPlanModePreview(g.planState, calls)
 		if ok {
 			events <- PlanApprovalRequested{
 				PlanContent: planContent,
@@ -236,7 +236,7 @@ func (g *InteractionGate) isPlansDirOnlyWrites(calls []ApiToolUseBlock) bool {
 	return hasWrite
 }
 
-func exitPlanModePreview(calls []ApiToolUseBlock) (planContent, planFile string, ok bool) {
+func exitPlanModePreview(planState *tool.PlanModeState, calls []ApiToolUseBlock) (planContent, planFile string, ok bool) {
 	for _, tc := range calls {
 		if tc.Name != tool.ExitPlanModeToolName {
 			continue
@@ -246,7 +246,11 @@ func exitPlanModePreview(calls []ApiToolUseBlock) (planContent, planFile string,
 		}
 		if json.Unmarshal(tc.Input, &args) == nil && args.PlanFile != "" {
 			planFile = filepath.Base(args.PlanFile)
-			abs, err := filepath.Abs(args.PlanFile)
+			candidate := args.PlanFile
+			if !filepath.IsAbs(candidate) && planState != nil && planState.PlansDir() != "" {
+				candidate = filepath.Join(planState.PlansDir(), candidate)
+			}
+			abs, err := filepath.Abs(candidate)
 			if err == nil {
 				data, readErr := os.ReadFile(abs)
 				if readErr == nil {

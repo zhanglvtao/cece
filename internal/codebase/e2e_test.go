@@ -2,19 +2,53 @@ package codebase
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/zhanglvtao/cece/internal/agent"
 )
 
-func TestStreamE2E(t *testing.T) {
+type codebaseE2EConfig struct {
+	BaseURL    string
+	APIKey     string
+	AuthHelper string
+}
+
+func codebaseE2EConfigFromEnv() (codebaseE2EConfig, bool) {
+	cfg := codebaseE2EConfig{
+		BaseURL:    strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E_BASE_URL")),
+		APIKey:     strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E_API_KEY")),
+		AuthHelper: strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E_AUTH_HELPER")),
+	}
+	if cfg.BaseURL == "" {
+		return codebaseE2EConfig{}, false
+	}
+	if cfg.APIKey == "" && cfg.AuthHelper == "" {
+		return codebaseE2EConfig{}, false
+	}
+	return cfg, true
+}
+
+func requireCodebaseE2EConfig(t *testing.T) codebaseE2EConfig {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode")
 	}
+	cfg, ok := codebaseE2EConfigFromEnv()
+	if !ok {
+		t.Skip("skipping codebase e2e: set CECE_CODEBASE_E2E_BASE_URL and either CECE_CODEBASE_E2E_API_KEY or CECE_CODEBASE_E2E_AUTH_HELPER")
+	}
+	return cfg
+}
 
-	client := NewClient("", "openrouter-2o__dev", "openrouter-2o",
-		"https://codebase-api.example.com/v2/api/2022-06-01/LLMProxy/TraeV2")
-	client.SetAuthHelper("bytedcli --json auth get-codebase-jwt-token | python3 -c \"import sys,json;print(json.load(sys.stdin)['data']['jwt'])\"")
+func TestStreamE2E(t *testing.T) {
+	cfg := requireCodebaseE2EConfig(t)
+
+	client := NewClient(cfg.APIKey, "openrouter-2o__dev", "openrouter-2o", cfg.BaseURL)
+	if cfg.AuthHelper != "" {
+		client.SetAuthHelper(cfg.AuthHelper)
+	}
 
 	ch, err := client.Stream(context.Background(),
 		[]agent.Message{{Role: agent.UserRole, Content: "Say hello in 3 words, nothing else."}},
@@ -54,13 +88,12 @@ func TestStreamE2E(t *testing.T) {
 }
 
 func TestStreamE2EWithReasoning(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
+	cfg := requireCodebaseE2EConfig(t)
 
-	client := NewClient("", "DeepSeek-V4-Pro__dev", "DeepSeek-V4-Pro",
-		"https://codebase-api.example.com/v2/api/2022-06-01/LLMProxy/TraeV2")
-	client.SetAuthHelper("bytedcli --json auth get-codebase-jwt-token | python3 -c \"import sys,json;print(json.load(sys.stdin)['data']['jwt'])\"")
+	client := NewClient(cfg.APIKey, "DeepSeek-V4-Pro__dev", "DeepSeek-V4-Pro", cfg.BaseURL)
+	if cfg.AuthHelper != "" {
+		client.SetAuthHelper(cfg.AuthHelper)
+	}
 
 	ch, err := client.Stream(context.Background(),
 		[]agent.Message{{Role: agent.UserRole, Content: "What is 2+3? Just give the number."}},

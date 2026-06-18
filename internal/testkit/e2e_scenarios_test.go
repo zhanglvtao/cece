@@ -216,6 +216,31 @@ func TestE2E_CtrlC_BusyCancels(t *testing.T) {
 	}
 }
 
+func TestE2E_AgentCancelStopsRunningWorker(t *testing.T) {
+	gate := make(chan struct{})
+	workerLLM := testkit.NewScriptedClient(testkit.ScriptedTurn{Text: "worker response", Block: gate})
+	parentLLM := testkit.NewScriptedClient(
+		testkit.ToolUseTurn("call-agent-start", "Agent", `{"operation":"start","prompt":"slow work","description":"slow work"}`),
+		testkit.ToolUseTurn("call-agent-cancel", "Agent", `{"operation":"cancel","agent_id":"agent-1"}`),
+		testkit.TextTurn("worker cancelled"),
+	)
+
+	h := testkit.NewHarness(t, parentLLM,
+		testkit.WithCreateClientFn(func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient {
+			return workerLLM
+		}),
+	)
+
+	h.Send("run a slow worker")
+	testkit.WaitForEvent[protocol.SubAgentStartedEvent](t, h, nil, 5*time.Second)
+	testkit.WaitForEvent[protocol.TurnCompleted](t, h, nil, 5*time.Second)
+	close(gate)
+
+	if parentLLM.Calls() != 3 {
+		t.Fatalf("parent LLM calls = %d, want 3", parentLLM.Calls())
+	}
+}
+
 func TestE2E_CtrlC_NonEmptyClearsInput(t *testing.T) {
 	llm := testkit.NewScriptedClient()
 	h := testkit.NewHarness(t, llm)
