@@ -44,10 +44,10 @@ type AgentSubAgentResult struct {
 	Err          string
 
 	// Artifact fields — populated when the result was persisted as an artifact.
-	ResultPath           string
-	ContentFullLength    int
+	ResultPath            string
+	ContentFullLength     int
 	ContentReturnedLength int
-	ContentTruncated     bool
+	ContentTruncated      bool
 }
 
 type agentTool struct {
@@ -64,7 +64,7 @@ func (agentTool) Effect() Effect { return EffectMode }
 func (agentTool) Info() Definition {
 	return Definition{
 		Name:        AgentToolName,
-		Description: "Launch a sub-agent to handle a complex, multi-step task autonomously. Multiple Agent calls in a single response will run in parallel. The sub-agent has its own conversation history and tool set, but shares the project directory. It cannot spawn further sub-agents.",
+		Description: "Start and control worker agents asynchronously. Use operation=start to launch a worker and immediately receive an agent_id, then use status/send/answer/confirm/reject/cancel to drive it. Multiple Agent start calls in a single response can run in parallel. Workers have their own conversation history and tool set, share the project directory, and cannot spawn further agents.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -176,7 +176,9 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 	}
 
 	if operation == "start" {
-		emitter.Emit(fmt.Sprintf("Launching sub-agent: %s\n", description))
+		if emitter != nil {
+			emitter.Emit(fmt.Sprintf("Launching sub-agent: %s\n", description))
+		}
 	}
 
 	result, err := t.handler.RunSubAgent(ctx, AgentSubAgentConfig{
@@ -207,7 +209,16 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 	}
 
 	if result.Status != "" && result.Status != "completed" {
-		return Result{Content: result.Content}
+		var b strings.Builder
+		b.WriteString(result.Content)
+		if result.AgentID != "" {
+			b.WriteString(fmt.Sprintf("\n\nAgent: %s", result.AgentID))
+			if result.SessionID != "" {
+				b.WriteString(fmt.Sprintf(" | Session: %s", result.SessionID))
+			}
+		}
+		b.WriteString(fmt.Sprintf("\nStatus: %s", result.Status))
+		return Result{Content: b.String()}
 	}
 
 	var b strings.Builder

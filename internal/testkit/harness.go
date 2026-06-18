@@ -26,6 +26,7 @@ type Harness struct {
 	t *testing.T
 
 	LLM   *ScriptedClient
+	Host  *runtime.RuntimeHost
 	Eng   *engine.Engine
 	Med   *engine.EngineMediator
 	Store *MemStore
@@ -183,7 +184,7 @@ func NewHarness(t *testing.T, llm *ScriptedClient, opts ...HarnessOption) *Harne
 		return createClientFn("", "", model, "", "", "", "")
 	}
 
-	bundle, err := runtime.Build(runtime.Options{
+	host, err := runtime.BuildHost(runtime.Options{
 		ProjectDir:       cfg.projectDir,
 		Model:            cfg.model,
 		ContextWindow:    cfg.contextWindow,
@@ -209,18 +210,19 @@ func NewHarness(t *testing.T, llm *ScriptedClient, opts ...HarnessOption) *Harne
 	h := &Harness{
 		t:     t,
 		LLM:   llm,
-		Eng:   bundle.Engine,
-		Med:   bundle.Mediator,
+		Host:  host,
+		Eng:   host.Engine(),
+		Med:   host.Mediator(),
 		Store: cfg.store,
 	}
 
 	// Tap the engine's event stream so the harness can observe every
 	// event while the UI also receives a copy via Eventer.Events().
-	tap := newEventTap(bundle.Engine.Events(), &h.events, &h.mu)
+	tap := newEventTap(host.Events(), &h.events, &h.mu)
 	h.closeWG.Add(1)
 	go func() { defer h.closeWG.Done(); tap.run() }()
 
-	wrapped := &tappedSender{EngineMediator: bundle.Mediator, events: tap.out}
+	wrapped := &tappedSender{EngineMediator: host.Mediator(), events: tap.out}
 	uiModel := ui.NewModel(wrapped, cfg.model, cfg.projectDir, cfg.contextWindow)
 	if cfg.skills != nil {
 		uiModel.SetSkillStore(cfg.skills)
@@ -347,6 +349,17 @@ func (h *Harness) Read(fn func(*ui.Model)) {
 	})
 }
 
+// Mutate invokes fn with the current *ui.Model while holding the driver's
+// lock so tests can safely perform direct UI-only mutations (for example,
+// opening a modal via a test API) without racing concurrent Update calls.
+func (h *Harness) Mutate(fn func(*ui.Model)) {
+	h.Drv.WithModel(func(m tea.Model) {
+		if um, ok := m.(*ui.Model); ok {
+			fn(um)
+		}
+	})
+}
+
 // ReadString is a typed convenience for fn that returns a string.
 func (h *Harness) ReadString(fn func(*ui.Model) string) string {
 	var out string
@@ -412,6 +425,11 @@ func (h *Harness) Close() {
 	h.closeOnce.Do(func() {
 		if h.Drv != nil {
 			h.Drv.Close()
+		}
+		if h.Host != nil {
+			h.Host.Wait()
+			h.Host.Close()
+			return
 		}
 		h.Med.Wait()
 	})

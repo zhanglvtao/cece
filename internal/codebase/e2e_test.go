@@ -9,17 +9,50 @@ import (
 	"github.com/zhanglvtao/cece/internal/agent"
 )
 
-func TestStreamE2E(t *testing.T) {
+type codebaseE2EConfig struct {
+	BaseURL    string
+	APIKey     string
+	AuthHelper string
+}
+
+func codebaseE2EConfigFromEnv() (codebaseE2EConfig, bool) {
+	cfg := codebaseE2EConfig{
+		BaseURL:    strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E_BASE_URL")),
+		APIKey:     strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E_API_KEY")),
+		AuthHelper: strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E_AUTH_HELPER")),
+	}
+	if cfg.BaseURL == "" {
+		return codebaseE2EConfig{}, false
+	}
+	if cfg.APIKey == "" && cfg.AuthHelper == "" {
+		return codebaseE2EConfig{}, false
+	}
+	return cfg, true
+}
+
+func requireCodebaseE2EConfig(t *testing.T) codebaseE2EConfig {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode")
 	}
-	if v := strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E")); v != "1" {
-		t.Skip("set CECE_CODEBASE_E2E=1 to run codebase e2e test")
+	cfg, ok := codebaseE2EConfigFromEnv()
+	if ok {
+		return cfg
 	}
+	if strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E")) == "1" {
+		return codebaseE2EConfig{BaseURL: DefaultBaseURL, AuthHelper: DefaultAuthHelper}
+	}
+	t.Skip("skipping codebase e2e: set CECE_CODEBASE_E2E=1 or provide CECE_CODEBASE_E2E_BASE_URL with CECE_CODEBASE_E2E_API_KEY / CECE_CODEBASE_E2E_AUTH_HELPER")
+	return codebaseE2EConfig{}
+}
 
-	client := NewClient("", "openrouter-2o__dev", "openrouter-2o",
-		DefaultBaseURL)
-	client.SetAuthHelper(DefaultAuthHelper)
+func TestStreamE2E(t *testing.T) {
+	cfg := requireCodebaseE2EConfig(t)
+
+	client := NewClient(cfg.APIKey, "openrouter-2o__dev", "openrouter-2o", cfg.BaseURL)
+	if cfg.AuthHelper != "" {
+		client.SetAuthHelper(cfg.AuthHelper)
+	}
 
 	ch, err := client.Stream(context.Background(),
 		[]agent.Message{{Role: agent.UserRole, Content: "Say hello in 3 words, nothing else."}},
@@ -59,16 +92,12 @@ func TestStreamE2E(t *testing.T) {
 }
 
 func TestStreamE2EWithReasoning(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping e2e test in short mode")
-	}
-	if v := strings.TrimSpace(os.Getenv("CECE_CODEBASE_E2E")); v != "1" {
-		t.Skip("set CECE_CODEBASE_E2E=1 to run codebase e2e test")
-	}
+	cfg := requireCodebaseE2EConfig(t)
 
-	client := NewClient("", "DeepSeek-V4-Pro__dev", "DeepSeek-V4-Pro",
-		DefaultBaseURL)
-	client.SetAuthHelper(DefaultAuthHelper)
+	client := NewClient(cfg.APIKey, "DeepSeek-V4-Pro__dev", "DeepSeek-V4-Pro", cfg.BaseURL)
+	if cfg.AuthHelper != "" {
+		client.SetAuthHelper(cfg.AuthHelper)
+	}
 
 	ch, err := client.Stream(context.Background(),
 		[]agent.Message{{Role: agent.UserRole, Content: "What is 2+3? Just give the number."}},

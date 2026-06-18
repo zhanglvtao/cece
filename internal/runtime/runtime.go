@@ -9,7 +9,6 @@ import (
 
 	"github.com/zhanglvtao/cece/internal/agent"
 	"github.com/zhanglvtao/cece/internal/engine"
-	"github.com/zhanglvtao/cece/internal/lint"
 	"github.com/zhanglvtao/cece/internal/logger"
 	"github.com/zhanglvtao/cece/internal/mcp"
 	"github.com/zhanglvtao/cece/internal/prompt"
@@ -55,11 +54,11 @@ type LightModelClientFn = func() agent.ModelClient
 type Options struct {
 	ProjectDir    string
 	Model         string
-	ContextWindow int           // 0 → defaults to 200000
-	MaxTokens     int           // 0 → 16384
-	Yolo          bool          // auto-approve tool execution
-	DefaultMode   string        // "" / "default" / "auto-accept" / "plan"
-	StablePrompt  string        // "" → prompt.FormatStableSystemPrompt(ProjectDir)
+	ContextWindow int    // 0 → defaults to 200000
+	MaxTokens     int    // 0 → 16384
+	Yolo          bool   // auto-approve tool execution
+	DefaultMode   string // "" / "default" / "auto-accept" / "plan"
+	StablePrompt  string // "" → prompt.FormatStableSystemPrompt(ProjectDir)
 	LintConfig    map[string]string
 
 	ModelClient agent.ModelClient // required
@@ -86,33 +85,6 @@ func Build(opts Options) (*Bundle, error) {
 		skillStore = skill.NewStore(nil)
 	}
 
-	planState := tool.NewPlanModeState()
-	planState.SetProjectDir(opts.ProjectDir)
-	planState.SetSkillStore(skillStore)
-	taskList := tool.NewTaskList()
-
-	registry := tool.NewRegistry(
-		tool.NewBash(),
-		tool.NewRead(),
-		tool.NewWrite(),
-		tool.NewGrep(),
-		tool.NewEdit(),
-		tool.NewGlob(),
-		tool.NewWebFetch(),
-		tool.NewEnterPlanMode(planState),
-		tool.NewExitPlanMode(planState),
-		tool.NewAskUserQuestion(),
-		tool.NewSkillTool(skillStore),
-		tool.NewTodo(taskList),
-	)
-	for _, t := range opts.ExtraTools {
-		registry.Register(t)
-	}
-
-	if len(opts.LintConfig) > 0 {
-		registry.SetLinter(lint.NewRunner(opts.LintConfig, opts.ProjectDir))
-	}
-
 	cleanup := func() { logger.Sync() }
 	if opts.MCPManager != nil {
 		mgr := opts.MCPManager
@@ -120,107 +92,60 @@ func Build(opts Options) (*Bundle, error) {
 			mgr.Close()
 			logger.Sync()
 		}
-		for _, t := range mgr.Tools() {
-			registry.Register(t)
-		}
 	}
+	builder := NewBuilder(SharedDeps{
+		ProjectDir:       opts.ProjectDir,
+		Store:            opts.Store,
+		Skills:           skillStore,
+		ExtraTools:       opts.ExtraTools,
+		MCPManager:       opts.MCPManager,
+		ProviderResolver: opts.ProviderResolver,
+		CreateClient:     opts.CreateClientFn,
+		ListAllModels:    opts.ListAllModelsFn,
+		ContextWindowFor: opts.ContextWindowFor,
+		ModelClientFor:   opts.ModelClientFor,
+		LightClientFn:    opts.LightClientFn,
+		MaxTokens:        opts.MaxTokens,
+		LintConfig:       opts.LintConfig,
+	})
 
-	stable := opts.StablePrompt
-	if stable == "" {
-		stable = prompt.FormatStableSystemPrompt(opts.ProjectDir)
-	}
-	collector := prompt.NewDefaultSessionCollector(opts.ProjectDir, registry)
-	collector.SetSkillProvider(skillStore)
-	assembler := prompt.NewContextAssembler(stable, registry, collector)
-
-	if _, err := assembler.RefreshSession(context.Background()); err != nil {
-		logger.Warn("initial session refresh failed", "error", err)
+	built, err := builder.Build(context.Background(), BuildRequest{
+		ID:            "interactive-root",
+		Model:         opts.Model,
+		ContextWindow: opts.ContextWindow,
+		ModelClient:   opts.ModelClient,
+		Profile:       MustProfile(ProfileInteractive),
+		Yolo:          opts.Yolo,
+		DefaultMode:   opts.DefaultMode,
+		StablePrompt:  opts.StablePrompt,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	skillStore.OnChange = func() {
-		if _, err := assembler.RefreshSession(context.Background()); err != nil {
+		if _, err := built.Assembler.RefreshSession(context.Background()); err != nil {
 			logger.Warn("skill change refresh failed", "error", err)
 		}
 	}
 
-	contextWindow := opts.ContextWindow
-	if contextWindow <= 0 {
-		contextWindow = 200000
-	}
-	assembler.SetMaxContextTokens(contextWindow)
-
-	maxTokens := opts.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 16384
-	}
-
-	eng := engine.NewEngine(opts.ModelClient, registry, opts.Yolo, maxTokens, assembler, opts.ProjectDir)
-	eng.SetPlanModeState(planState)
-	eng.SetTaskList(taskList)
-	eng.SetModelInfo(opts.Model, contextWindow)
-	registry.Register(tool.NewCompact(eng.CompactHandler()))
-	registry.Register(tool.NewTrimToolResults(eng.TrimToolResultsHandler()))
-	registry.Register(tool.NewPrune(eng.PruneHandler()))
-	registry.Register(tool.NewAgent(eng.AgentHandler()))
-
-	if opts.ContextWindowFor != nil {
-		eng.ContextWindowFor = opts.ContextWindowFor
-	}
-	if opts.ModelClientFor != nil {
-		eng.ModelClientFor = opts.ModelClientFor
-	}
-	if opts.Store != nil {
-		eng.SetStore(opts.Store)
-	}
-	if opts.DefaultMode != "" {
-		eng.Do(protocol.SetPermissionModeAction{Mode: protocol.PermissionMode(opts.DefaultMode)})
-	}
-
-	createFn := opts.CreateClientFn
-	if createFn == nil {
-		createFn = func(string, string, string, string, string, string, string) agent.ModelClient {
-			return opts.ModelClient
-		}
-	}
-	resolveFn := opts.ProviderResolver
-	if resolveFn == nil {
-		resolveFn = func(string) (string, string, string, string, string) {
-			return "", "", "", "", ""
-		}
-	}
-	listFn := opts.ListAllModelsFn
-	if listFn == nil {
-		listFn = func(context.Context) ([]protocol.ModelInfo, error) {
-			return []protocol.ModelInfo{{ID: opts.Model, MaxContextWindow: contextWindow}}, nil
-		}
-	}
-
-	mediator := engine.NewEngineMediator(eng, opts.Store, resolveFn, createFn, listFn, opts.MCPManager, opts.LightClientFn)
-
-	// Inject sub-agent runtime factory with full Mediator wiring.
-	eng.SetSubAgentFactory(&subAgentFactory{
-		store:            opts.Store,
-		createClientFn:   createFn,
-		providerResolver: resolveFn,
-		listAllModelsFn:  listFn,
-		mcpManager:       opts.MCPManager,
-		lightClientFn:    opts.LightClientFn,
-		contextWindowFor: opts.ContextWindowFor,
-		modelClientFor:   opts.ModelClientFor,
-		maxTokens:        maxTokens,
+	built.Engine.SetAgentController(engine.NewOrchestrator(&subAgentFactory{
+		builder:          builder,
 		projectDir:       opts.ProjectDir,
-		parentEng:        eng,
-	})
+		parentEng:        built.Engine,
+		modelClientFor:   opts.ModelClientFor,
+		contextWindowFor: opts.ContextWindowFor,
+	}, opts.Store, built.Engine.EmitEvent))
 
 	return &Bundle{
-		Engine:    eng,
-		Mediator:  mediator,
+		Engine:    built.Engine,
+		Mediator:  built.Mediator,
 		Store:     opts.Store,
 		Skills:    skillStore,
-		PlanState: planState,
-		TaskList:  taskList,
-		Registry:  registry,
-		Assembler: assembler,
+		PlanState: built.PlanState,
+		TaskList:  built.TaskList,
+		Registry:  built.Registry,
+		Assembler: built.Assembler,
 		Cleanup:   cleanup,
 	}, nil
 }
@@ -228,80 +153,45 @@ func Build(opts Options) (*Bundle, error) {
 // subAgentFactory implements engine.SubAgentRuntimeFactory.
 // It builds a full AgentRuntime with its own Engine + EngineMediator.
 type subAgentFactory struct {
-	store            session.Store
-	createClientFn   CreateClientFn
-	providerResolver ProviderResolverFn
-	listAllModelsFn  ListAllModelsFn
-	mcpManager       *mcp.Manager
-	lightClientFn    LightModelClientFn
-	contextWindowFor ContextWindowFn
-	modelClientFor   func(model string) agent.ModelClient
-	maxTokens        int
+	builder          *Builder
 	projectDir       string
 	parentEng        *engine.Engine
+	modelClientFor   func(model string) agent.ModelClient
+	contextWindowFor ContextWindowFn
 }
 
 func (f *subAgentFactory) NewSubAgentRuntime(ctx context.Context, cfg engine.SubAgentBuildConfig) (*engine.AgentRuntime, error) {
-	// Resolve model
 	subModel := cfg.Model
 	if subModel == "" {
 		subModel = f.parentEng.SessionMetaModel()
 	}
-
-	var client agent.ModelClient
-	if f.modelClientFor != nil && subModel != "" {
-		if c := f.modelClientFor(subModel); c != nil {
-			client = c
-		}
-	}
-	if client == nil {
-		client = f.parentEng.Client()
-	}
-
-	// Build sub registry excluding Agent tool and engine-bound tools
-	subRegistry := f.parentEng.BuildSubRegistry(cfg.Tools)
-
-	// Build sub assembler
 	contextWindow := 200000
 	if f.contextWindowFor != nil {
 		if cw := f.contextWindowFor(subModel); cw > 0 {
 			contextWindow = cw
 		}
 	}
-	stablePrompt := prompt.FormatSubAgentSystemPrompt(f.projectDir, cfg.SystemPromptExtra)
-	collector := prompt.NewDefaultSessionCollector(f.projectDir, subRegistry)
-	subAssembler := prompt.NewContextAssembler(stablePrompt, subRegistry, collector)
-	subAssembler.SetMaxContextTokens(contextWindow)
-
-	maxTokens := cfg.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = f.maxTokens
-	}
-
-	// Build sub Engine
-	subEng := engine.NewEngine(client, subRegistry, false, maxTokens, subAssembler, f.projectDir)
-	subEng.SetStore(f.store)
-	subEng.SetPlanModeState(tool.NewPlanModeState())
-	subEng.SetTaskList(tool.NewTaskList())
+	var client agent.ModelClient
 	if f.modelClientFor != nil {
-		subEng.ModelClientFor = f.modelClientFor
+		client = f.modelClientFor(subModel)
 	}
-	if f.contextWindowFor != nil {
-		subEng.ContextWindowFor = f.contextWindowFor
+	if client == nil {
+		client = f.parentEng.Client()
 	}
-	subEng.SetModelInfo(subModel, contextWindow)
-
-	// Register sub-engine-bound context management tools
-	subRegistry.Register(tool.NewCompact(subEng.CompactHandler()))
-	subRegistry.Register(tool.NewTrimToolResults(subEng.TrimToolResultsHandler()))
-	subRegistry.Register(tool.NewPrune(subEng.PruneHandler()))
-
-	// Build sub Mediator for switch_model support
-	subMediator := engine.NewEngineMediator(subEng, f.store, f.providerResolver, f.createClientFn, f.listAllModelsFn, f.mcpManager, f.lightClientFn)
-
-	// Create runtime with cancellable context
-	subCtx, cancel := context.WithCancel(ctx)
-	rt := engine.NewAgentRuntime(cfg.AgentID, cfg.Description, subModel, cfg.ParentSessionID, subEng, subMediator, subCtx, cancel, cfg.MaxTurns)
-
-	return rt, nil
+	built, err := f.builder.Build(ctx, BuildRequest{
+		ID:                cfg.AgentID,
+		Description:       cfg.Description,
+		Model:             subModel,
+		ContextWindow:     contextWindow,
+		ModelClient:       client,
+		Profile:           MustProfile(ProfileWorker),
+		ParentSessionID:   cfg.ParentSessionID,
+		SystemPromptExtra: cfg.SystemPromptExtra,
+		ToolNames:         cfg.Tools,
+		MaxTurns:          cfg.MaxTurns,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return built.Tracker, nil
 }

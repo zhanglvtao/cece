@@ -269,10 +269,17 @@ func runEngineStdio(defaultProjectDir string, args []string) int {
 		fmt.Fprintf(os.Stderr, "engine init failed: %v\n", err)
 		return 1
 	}
-	defer bundle.cleanup()
+	host := runtime.NewHost(&runtime.Bundle{
+		Engine:   bundle.mediator.Engine,
+		Mediator: bundle.mediator,
+		Store:    bundle.store,
+		Skills:   bundle.skillStore,
+		Cleanup:  bundle.cleanup,
+	})
+	defer host.Close()
 
 	ctx := context.Background()
-	if err := ipc.Serve(ctx, bundle.mediator, os.Stdin, os.Stdout); err != nil {
+	if err := ipc.Serve(ctx, host, os.Stdin, os.Stdout); err != nil {
 		logger.Error("engine stdio exited", "error", err)
 		return 1
 	}

@@ -202,7 +202,7 @@ func TestE2E_ResumePicker_SelectsAndLoadsSession(t *testing.T) {
 
 	// Open the session picker directly via the test helper
 	// (this exercises the same code path as typing /resume)
-	h.CurrentUI().OpenSessionsDialogForTest()
+	h.Mutate(func(m *ui.Model) { m.OpenSessionsDialogForTest() })
 
 	if !h.WaitForModal("session_picker", 5*time.Second) {
 		t.Fatalf("session_picker modal did not open; status=%q; events=%d",
@@ -242,17 +242,19 @@ func TestE2E_AskUserQuestion_AnswersAndContinues(t *testing.T) {
 
 	// Inject a QuestionAsked event directly to the UI model,
 	// which exercises the same UI code path a real QuestionAsked event would.
-	h.CurrentUI().ApplyEventForTest(protocol.QuestionAsked{
-		CallID: "call-q",
-		Questions: []protocol.Question{
-			{
-				Question: "Which language?",
-				Options: []protocol.QuestionOption{
-					{Label: "Go"},
-					{Label: "Python"},
+	h.Mutate(func(m *ui.Model) {
+		m.ApplyEventForTest(protocol.QuestionAsked{
+			CallID: "call-q",
+			Questions: []protocol.Question{
+				{
+					Question: "Which language?",
+					Options: []protocol.QuestionOption{
+						{Label: "Go"},
+						{Label: "Python"},
+					},
 				},
 			},
-		},
+		})
 	})
 
 	// Wait for the question modal to open
@@ -288,36 +290,36 @@ func TestE2E_AskUserQuestion_AnswersAndContinues(t *testing.T) {
 	}
 }
 
-// ── SubAgent ────────────────────────────────────────────────────────────
+// ── Agent async control plane ────────────────────────────────────────────
 
-func TestE2E_SubAgent_CompletesTask(t *testing.T) {
-	// Subagent needs to do at least one tool call so turnsUsed increments
-	// (the subagent loop only increments turns after tool execution).
-	subLLM := testkit.NewScriptedClient(
-		// First subagent turn: call a tool
+func TestE2E_AgentStartThenStatusCompletesTask(t *testing.T) {
+	workerLLM := testkit.NewScriptedClient(
 		testkit.ToolUseTurn("call-sub-bash", "Bash", `{"command":"echo hello"}`),
-		// Second subagent turn: text reply (no tool call)
 		testkit.TextTurn("subagent done: files analyzed"),
 	)
 
 	llm := testkit.NewScriptedClient(
-		testkit.ToolUseTurn("call-agent", "Agent", `{
+		testkit.ToolUseTurn("call-agent-start", "Agent", `{
+			"operation": "start",
 			"prompt": "analyze files",
 			"description": "file analysis",
 			"max_turns": 5,
 			"model": "sub-model"
 		}`),
+		testkit.ToolUseTurn("call-agent-status", "Agent", `{
+			"operation": "status",
+			"agent_id": "agent-1"
+		}`),
 		testkit.TextTurn("received subagent result"),
 	)
 
-	// Provide a fake Bash tool for the subagent to call
 	fakeBash := testkit.NewFakeBash(map[string]testkit.CommandResult{
 		"echo hello": {Stdout: "hello"},
 	})
 
 	h := testkit.NewHarness(t, llm,
 		testkit.WithCreateClientFn(func(protocol, apiKey, model, baseURL, authMode, authHelper, configName string) agent.ModelClient {
-			return subLLM
+			return workerLLM
 		}),
 		testkit.WithExtraTools(fakeBash),
 	)
@@ -344,11 +346,11 @@ func TestE2E_SubAgent_CompletesTask(t *testing.T) {
 		t.Fatalf("SubAgentCompletedEvent.TurnsUsed = %d, want >= 1", completed.TurnsUsed)
 	}
 
-	if subLLM.Calls() < 2 {
-		t.Fatalf("subLLM calls = %d, want >= 2", subLLM.Calls())
+	if workerLLM.Calls() < 2 {
+		t.Fatalf("workerLLM calls = %d, want >= 2", workerLLM.Calls())
 	}
-	if llm.Calls() != 2 {
-		t.Fatalf("parent LLM calls = %d, want 2", llm.Calls())
+	if llm.Calls() != 3 {
+		t.Fatalf("parent LLM calls = %d, want 3", llm.Calls())
 	}
 }
 

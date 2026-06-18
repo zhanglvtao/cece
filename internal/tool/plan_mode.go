@@ -448,7 +448,11 @@ func (t exitPlanModeTool) Run(ctx context.Context, input json.RawMessage, emitte
 		return Result{Content: "plan_file parameter is required. Provide the path of the plan file you wrote.", IsError: true}
 	}
 
-	abs, err := filepath.Abs(args.PlanFile)
+	candidate := args.PlanFile
+	if !filepath.IsAbs(candidate) && plansDir != "" {
+		candidate = filepath.Join(plansDir, candidate)
+	}
+	abs, err := filepath.Abs(candidate)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("Invalid plan_file path: %s", args.PlanFile), IsError: true}
 	}

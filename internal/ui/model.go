@@ -12,16 +12,16 @@ import (
 
 	"github.com/rivo/uniseg"
 
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zhanglvtao/cece/internal/logger"
 	"github.com/zhanglvtao/cece/internal/protocol"
 	"github.com/zhanglvtao/cece/internal/session"
 	"github.com/zhanglvtao/cece/internal/skill"
 	"github.com/zhanglvtao/cece/internal/update"
 	"github.com/zhanglvtao/cece/internal/version"
-	"charm.land/bubbles/v2/textarea"
-	"charm.land/bubbles/v2/viewport"
-	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -148,7 +148,8 @@ type Model struct {
 	viewportGotoBottom      bool // when dirty, whether to pin viewport to bottom
 	lastViewportWidth       int  // track width changes for refresh
 	scrollToPlanBlock       bool // scroll viewport to plan block's first line after PlanApprovalRequested
-	viewMode               bool // true when file popup is in /view mode (Enter reads file, not inserts path)
+	viewMode                bool // true when file popup is in /view mode (Enter reads file, not inserts path)
+	appliedEventCount       int
 }
 
 func NewModel(sender Sender, modelName string, projectDir string, contextWindow ...int) Model {
@@ -329,6 +330,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, ev := range msg.events {
 			cwBefore := m.contextWindow
 			m.applyEvent(ev)
+			m.appliedEventCount++
 			if m.contextWindow != cwBefore {
 				logger.Info("UI: contextWindow changed during applyEvent", "old", cwBefore, "new", m.contextWindow, "eventType", fmt.Sprintf("%T", ev))
 			}
@@ -421,6 +423,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // consistent (production code defers viewport refresh to View()).
 func (m *Model) ApplyEventForTest(event protocol.Event) {
 	m.applyEvent(event)
+	m.appliedEventCount++
 	m.resize()
 }
 

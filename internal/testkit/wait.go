@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/zhanglvtao/cece/internal/protocol"
+	"github.com/zhanglvtao/cece/internal/ui"
 )
 
 // DefaultEventTimeout is the default ceiling for WaitForEvent /
@@ -35,12 +36,25 @@ func WaitForEvent[T protocol.Event](t *testing.T, h *Harness, pred func(T) bool,
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		for _, ev := range h.EventsSnapshot() {
+		events := h.EventsSnapshot()
+		for idx, ev := range events {
 			typed, ok := ev.(T)
 			if !ok {
 				continue
 			}
 			if pred == nil || pred(typed) {
+				// Most E2E tests want the UI to have consumed the matched event before
+				// they inspect view state. But quit-triggering events can legitimately be
+				// recorded after the UI has already torn down, so don't block on UI sync
+				// for session deletion.
+				if _, isSessionDeleted := any(typed).(protocol.SessionDeletedEvent); isSessionDeleted {
+					return typed
+				}
+				if !h.Drv.WaitForBoolFn(func() bool {
+					return h.ReadBool(func(m *ui.Model) bool { return m.AppliedEventCountForTest() >= idx+1 })
+				}, true, time.Until(deadline)) {
+					break
+				}
 				return typed
 			}
 		}

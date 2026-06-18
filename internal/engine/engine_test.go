@@ -76,12 +76,32 @@ func TestEngineDoDispatchesActions(t *testing.T) {
 	eng.Do(protocol.ListModelsAction{})
 	eng.Do(protocol.CyclePermissionModeAction{})
 
-	if eng.QueuedInputCount() != 1 {
-		t.Fatalf("QueuedInputCount = %d, want 1", eng.QueuedInputCount())
-	}
-	eng.ClearQueuedInputs()
+	waitForTurnCompleted(t, eng)
 	if eng.QueuedInputCount() != 0 {
-		t.Fatal("ClearQueuedInputs did not clear")
+		t.Fatalf("QueuedInputCount = %d, want 0", eng.QueuedInputCount())
+	}
+	history := eng.History()
+	if len(history) == 0 || history[0].Content != "test" {
+		t.Fatalf("history = %+v, want queue input recorded as a turn", history)
+	}
+}
+
+func TestEngineQueueInputStartsTurnImmediatelyWhenIdle(t *testing.T) {
+	client := &recordingClient{}
+	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
+
+	eng.Do(protocol.QueueInputAction{Text: "next"})
+	waitForTurnCompleted(t, eng)
+
+	if got := eng.QueuedInputCount(); got != 0 {
+		t.Fatalf("QueuedInputCount = %d, want 0 when idle queue input starts immediately", got)
+	}
+	if client.calls != 1 {
+		t.Fatalf("client calls = %d, want 1", client.calls)
+	}
+	history := eng.History()
+	if len(history) == 0 || history[0].Content != "next" {
+		t.Fatalf("history = %+v, want queued input recorded as user turn", history)
 	}
 }
 
@@ -395,6 +415,11 @@ func (b *blockingClient) SetReasoningEffort(_ string) {}
 
 func TestRunSubAgentEmitsUniqueIDsForParallelAgents(t *testing.T) {
 	eng := NewEngine(&recordingClient{}, tool.NewRegistry(), true, 1024, nil, t.TempDir())
+	orch := NewOrchestrator(runtimeFactoryFunc(func(ctx context.Context, cfg SubAgentBuildConfig) (*AgentRuntime, error) {
+		worker := NewEngine(&recordingClient{}, tool.NewRegistry(), false, 1024, nil, t.TempDir())
+		return NewAgentRuntime(cfg.AgentID, cfg.Description, "model", cfg.ParentSessionID, worker, nil, ctx, func() {}, cfg.MaxTurns), nil
+	}), nil, eng.EmitEvent)
+	eng.SetAgentController(orch)
 
 	ctx := context.Background()
 	done := make(chan struct{}, 2)
@@ -425,14 +450,20 @@ func TestRunSubAgentEmitsUniqueIDsForParallelAgents(t *testing.T) {
 
 func TestRunSubAgentEmitsFailedOnCancellation(t *testing.T) {
 	eng := NewEngine(&recordingClient{}, tool.NewRegistry(), true, 1024, nil, t.TempDir())
+	orch := NewOrchestrator(runtimeFactoryFunc(func(ctx context.Context, cfg SubAgentBuildConfig) (*AgentRuntime, error) {
+		worker := NewEngine(&blockingClient{unblock: make(chan struct{})}, tool.NewRegistry(), false, 1024, nil, t.TempDir())
+		return NewAgentRuntime(cfg.AgentID, cfg.Description, "model", cfg.ParentSessionID, worker, nil, ctx, func() {}, cfg.MaxTurns), nil
+	}), nil, eng.EmitEvent)
+	eng.SetAgentController(orch)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Start the sub-agent first, then cancel the context while it runs.
-	resultCh := make(chan tool.AgentSubAgentResult, 1)
-	go func() {
-		r, _ := eng.AgentHandler().RunSubAgent(ctx, tool.AgentSubAgentConfig{Prompt: "a", Description: "A"}, nil)
-		resultCh <- r
-	}()
+	result, err := eng.AgentHandler().RunSubAgent(ctx, tool.AgentSubAgentConfig{Prompt: "a", Description: "A"}, nil)
+	if err != nil {
+		t.Fatalf("RunSubAgent error = %v", err)
+	}
+	if result.Status != string(AgentStatusStarting) && result.Status != string(AgentStatusRunning) {
+		t.Fatalf("start result status = %q, want starting/running", result.Status)
+	}
 
 	// Give the sub-agent time to start
 	time.Sleep(100 * time.Millisecond)
@@ -440,18 +471,17 @@ func TestRunSubAgentEmitsFailedOnCancellation(t *testing.T) {
 	// Cancel the context
 	cancel()
 
-	// The sub-agent should eventually report a terminal state.
-	// With the new Engine-based sub-agent, a pre-cancelled context
-	// may still allow the recordingClient to complete its response
-	// (since recordingClient doesn't check ctx cancellation).
-	// So we accept either completed or failed/cancelled.
-	select {
-	case result := <-resultCh:
-		if result.Status != string(AgentStatusCompleted) && result.Status != string(AgentStatusFailed) && result.Status != string(AgentStatusCancelled) {
-			t.Fatalf("unexpected status = %q", result.Status)
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev := <-eng.Events():
+			failed, ok := ev.(protocol.SubAgentFailedEvent)
+			if ok && failed.Error == "cancelled" {
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for cancelled SubAgentFailedEvent")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for sub-agent result")
 	}
 }
 
