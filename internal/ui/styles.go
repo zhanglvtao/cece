@@ -143,7 +143,7 @@ func DefaultStyles() Styles {
 	s.TitleBar = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Separator = lipgloss.NewStyle().Foreground(theme.FgMuted).Faint(true)
 	s.Status.Model = lipgloss.NewStyle().Foreground(theme.Primary)
-	s.Status.Context = lipgloss.NewStyle().Foreground(theme.Blue)
+	s.Status.Context = lipgloss.NewStyle().Foreground(theme.Green)
 	s.Status.Tokens = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Ok = lipgloss.NewStyle().Foreground(theme.Green)

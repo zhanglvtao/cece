@@ -72,12 +72,7 @@ func (sb *StatusBar) Render(width int) string {
 
 	// context
 	if sb.contextWindow > 0 {
-		remaining := sb.contextWindow - sb.contextUsed
-		if remaining < 0 {
-			remaining = 0
-		}
-		pct := remaining * 100 / sb.contextWindow
-		parts = append(parts, sb.styles.Status.Context.Render(fmt.Sprintf("ctx:%s/%s %d%%", formatTokenK(remaining), formatTokenK(sb.contextWindow), pct)))
+		parts = append(parts, sb.styles.Status.Context.Render(formatContextGauge(sb.contextUsed, sb.contextWindow)))
 	}
 
 	// scroll
@@ -105,6 +100,17 @@ func statusModeLabel(mode string) string {
 		symbol = "✎"
 	}
 	return fmt.Sprintf("%s %s", mode, symbol)
+}
+
+func formatContextGauge(used, window int) string {
+	remaining := window - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	pct := remaining * 100 / window
+	filled := remaining * 10 / window
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
+	return fmt.Sprintf("【%s %s/%s %d%%】", bar, formatTokenK(remaining), formatTokenK(window), pct)
 }
 
 func formatTokenK(n int) string {

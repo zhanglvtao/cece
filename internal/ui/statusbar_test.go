@@ -50,12 +50,35 @@ func TestStatusBarRender(t *testing.T) {
 	sb.UpdateModel("sonnet")
 	sb.UpdateContext(30000, 200000)
 
-	got := sb.Render(120)
+	got := stripAnsi(sb.Render(120))
 	if !strings.Contains(got, "sonnet") {
 		t.Fatalf("missing model: %q", got)
 	}
-	if !strings.Contains(got, "ctx:") {
-		t.Fatalf("missing context: %q", got)
+	if !strings.Contains(got, "【████████░░ 170K/200K 85%】") {
+		t.Fatalf("missing context gauge: %q", got)
+	}
+	if strings.Contains(got, "ctx:") {
+		t.Fatalf("old context label should not appear: %q", got)
+	}
+}
+
+func TestFormatContextGauge(t *testing.T) {
+	tests := []struct {
+		name   string
+		used   int
+		window int
+		want   string
+	}{
+		{name: "full", used: 0, window: 270000, want: "【██████████ 270K/270K 100%】"},
+		{name: "sixty", used: 108000, window: 270000, want: "【██████░░░░ 162K/270K 60%】"},
+		{name: "empty", used: 300000, window: 270000, want: "【░░░░░░░░░░ 0K/270K 0%】"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatContextGauge(tt.used, tt.window); got != tt.want {
+				t.Fatalf("formatContextGauge(%d, %d) = %q, want %q", tt.used, tt.window, got, tt.want)
+			}
+		})
 	}
 }
 
