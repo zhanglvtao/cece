@@ -496,15 +496,15 @@ func TestModelSyncsModeToStatusBar(t *testing.T) {
 	m.SetDefaultMode("plan")
 	got := stripAnsi(m.statusBar.Render(120))
 	parts := strings.Split(got, " | ")
-	if parts[0] != "plan ✎" {
-		t.Fatalf("default mode statusbar column = %q, want %q", parts[0], "plan ✎")
+	if parts[0] != "  Plan" {
+		t.Fatalf("default mode statusbar column = %q, want %q", parts[0], "  Plan")
 	}
 
 	m.ApplyEventForTest(protocol.ModeChangedEvent{Mode: protocol.PermissionModeAutoAccept, Message: "Auto-accept mode"})
 	got = stripAnsi(m.statusBar.Render(120))
 	parts = strings.Split(got, " | ")
-	if parts[0] != "auto-accept ✓" {
-		t.Fatalf("changed mode statusbar column = %q, want %q", parts[0], "auto-accept ✓")
+	if parts[0] != "  Auto" {
+		t.Fatalf("changed mode statusbar column = %q, want %q", parts[0], "  Auto")
 	}
 }
 

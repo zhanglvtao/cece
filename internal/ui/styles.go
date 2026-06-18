@@ -50,21 +50,24 @@ type Styles struct {
 	Queued   lipgloss.Style
 	TitleBar lipgloss.Style
 	Status   struct {
-		Separator lipgloss.Style
-		Model     lipgloss.Style
-		Context   lipgloss.Style
-		Tokens    lipgloss.Style
-		Calls     lipgloss.Style
-		Ok        lipgloss.Style // ✓ green
-		Fail      lipgloss.Style // ✗ red
-		Tool      lipgloss.Style // default / unclassified tools + MCP
-		ToolFile  lipgloss.Style // file ops: Read, Write, Edit, Glob, Grep, Bash
-		ToolWeb   lipgloss.Style // web ops: WebFetch, WebSearch
-		ToolAsk   lipgloss.Style // user interaction: AskUserQuestion
-		ToolCtx   lipgloss.Style // context compression: Compact, Trim, Prune
-		ToolAgent lipgloss.Style // Agent sub-agent
-		ToolPlan  lipgloss.Style // EnterPlanMode, ExitPlanMode
-		Scroll    lipgloss.Style
+		Separator   lipgloss.Style
+		Model       lipgloss.Style
+		ModeDefault lipgloss.Style
+		ModePlan    lipgloss.Style
+		ModeAuto    lipgloss.Style
+		Context     lipgloss.Style
+		Tokens      lipgloss.Style
+		Calls       lipgloss.Style
+		Ok          lipgloss.Style // ✓ green
+		Fail        lipgloss.Style // ✗ red
+		Tool        lipgloss.Style // default / unclassified tools + MCP
+		ToolFile    lipgloss.Style // file ops: Read, Write, Edit, Glob, Grep, Bash
+		ToolWeb     lipgloss.Style // web ops: WebFetch, WebSearch
+		ToolAsk     lipgloss.Style // user interaction: AskUserQuestion
+		ToolCtx     lipgloss.Style // context compression: Compact, Trim, Prune
+		ToolAgent   lipgloss.Style // Agent sub-agent
+		ToolPlan    lipgloss.Style // EnterPlanMode, ExitPlanMode
+		Scroll      lipgloss.Style
 	}
 	Task struct {
 		Label      lipgloss.Style
@@ -143,6 +146,9 @@ func DefaultStyles() Styles {
 	s.TitleBar = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Separator = lipgloss.NewStyle().Foreground(theme.FgMuted).Faint(true)
 	s.Status.Model = lipgloss.NewStyle().Foreground(theme.Primary)
+	s.Status.ModeDefault = lipgloss.NewStyle().Foreground(theme.FgSubtle)
+	s.Status.ModePlan = lipgloss.NewStyle().Foreground(theme.Blue)
+	s.Status.ModeAuto = lipgloss.NewStyle().Foreground(theme.Green)
 	s.Status.Context = lipgloss.NewStyle().Foreground(theme.Green)
 	s.Status.Tokens = lipgloss.NewStyle().Foreground(theme.FgSubtle)
 	s.Status.Calls = lipgloss.NewStyle().Foreground(theme.FgSubtle)

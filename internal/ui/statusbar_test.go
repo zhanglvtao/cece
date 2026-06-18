@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/zhanglvtao/cece/internal/ui/theme"
 )
 
 func TestStatusBarModeFirstColumn(t *testing.T) {
@@ -15,8 +17,8 @@ func TestStatusBarModeFirstColumn(t *testing.T) {
 	if len(parts) < 2 {
 		t.Fatalf("statusbar parts = %v, want at least mode and model", parts)
 	}
-	if parts[0] != "plan ✎" {
-		t.Fatalf("first column = %q, want %q", parts[0], "plan ✎")
+	if parts[0] != "  Plan" {
+		t.Fatalf("first column = %q, want %q", parts[0], "  Plan")
 	}
 	if parts[1] != "sonnet" {
 		t.Fatalf("second column = %q, want model", parts[1])
@@ -28,11 +30,11 @@ func TestStatusBarModeSymbols(t *testing.T) {
 		mode string
 		want string
 	}{
-		{mode: "", want: "default ○"},
-		{mode: "default", want: "default ○"},
-		{mode: "auto-accept", want: "auto-accept ✓"},
-		{mode: "plan", want: "plan ✎"},
-		{mode: "unknown", want: "unknown ○"},
+		{mode: "", want: "  Default"},
+		{mode: "default", want: "  Default"},
+		{mode: "auto-accept", want: "  Auto"},
+		{mode: "plan", want: "  Plan"},
+		{mode: "unknown", want: "  Unknown"},
 	}
 	for _, tt := range tests {
 		sb := NewStatusBar()
@@ -41,6 +43,25 @@ func TestStatusBarModeSymbols(t *testing.T) {
 		parts := strings.Split(got, " | ")
 		if parts[0] != tt.want {
 			t.Fatalf("mode %q rendered %q, want %q", tt.mode, parts[0], tt.want)
+		}
+	}
+}
+
+func TestStatusBarModeStyles(t *testing.T) {
+	styles := DefaultStyles()
+	cases := []struct {
+		mode string
+		want any
+	}{
+		{mode: "", want: theme.FgSubtle},
+		{mode: "default", want: theme.FgSubtle},
+		{mode: "plan", want: theme.Blue},
+		{mode: "auto-accept", want: theme.Green},
+		{mode: "unknown", want: theme.FgSubtle},
+	}
+	for _, tt := range cases {
+		if got := statusModeStyle(styles, tt.mode).GetForeground(); got != tt.want {
+			t.Fatalf("mode %q foreground = %v, want %v", tt.mode, got, tt.want)
 		}
 	}
 }
@@ -54,7 +75,7 @@ func TestStatusBarRender(t *testing.T) {
 	if !strings.Contains(got, "sonnet") {
 		t.Fatalf("missing model: %q", got)
 	}
-	if !strings.Contains(got, "【████████░░ 170K/200K 85%】") {
+	if !strings.Contains(got, "████████░░ 170K/200K 85%") {
 		t.Fatalf("missing context gauge: %q", got)
 	}
 	if strings.Contains(got, "ctx:") {
@@ -69,9 +90,9 @@ func TestFormatContextGauge(t *testing.T) {
 		window int
 		want   string
 	}{
-		{name: "full", used: 0, window: 270000, want: "【██████████ 270K/270K 100%】"},
-		{name: "sixty", used: 108000, window: 270000, want: "【██████░░░░ 162K/270K 60%】"},
-		{name: "empty", used: 300000, window: 270000, want: "【░░░░░░░░░░ 0K/270K 0%】"},
+		{name: "full", used: 0, window: 270000, want: "██████████ 270K/270K 100%"},
+		{name: "sixty", used: 108000, window: 270000, want: "██████░░░░ 162K/270K 60%"},
+		{name: "empty", used: 300000, window: 270000, want: "░░░░░░░░░░ 0K/270K 0%"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

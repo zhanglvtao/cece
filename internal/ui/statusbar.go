@@ -6,6 +6,7 @@ import (
 
 	"github.com/zhanglvtao/cece/internal/logger"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -58,7 +59,7 @@ func (sb *StatusBar) Render(width int) string {
 	var parts []string
 
 	// mode
-	parts = append(parts, sb.styles.Status.Model.Render(statusModeLabel(sb.mode)))
+	parts = append(parts, statusModeStyle(sb.styles, sb.mode).Render(statusModeLabel(sb.mode)))
 
 	// model name
 	if sb.modelName != "" {
@@ -89,17 +90,29 @@ func (sb *StatusBar) Render(width int) string {
 }
 
 func statusModeLabel(mode string) string {
-	if mode == "" {
-		mode = "default"
+	label := "Default"
+	switch mode {
+	case "", "default":
+		label = "Default"
+	case "auto-accept":
+		label = "Auto"
+	case "plan":
+		label = "Plan"
+	default:
+		label = strings.ToUpper(mode[:1]) + mode[1:]
 	}
-	symbol := "○"
+	return "  " + label
+}
+
+func statusModeStyle(styles Styles, mode string) lipgloss.Style {
 	switch mode {
 	case "auto-accept":
-		symbol = "✓"
+		return styles.Status.ModeAuto
 	case "plan":
-		symbol = "✎"
+		return styles.Status.ModePlan
+	default:
+		return styles.Status.ModeDefault
 	}
-	return fmt.Sprintf("%s %s", mode, symbol)
 }
 
 func formatContextGauge(used, window int) string {
@@ -110,7 +123,7 @@ func formatContextGauge(used, window int) string {
 	pct := remaining * 100 / window
 	filled := remaining * 10 / window
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
-	return fmt.Sprintf("【%s %s/%s %d%%】", bar, formatTokenK(remaining), formatTokenK(window), pct)
+	return fmt.Sprintf("%s %s/%s %d%%", bar, formatTokenK(remaining), formatTokenK(window), pct)
 }
 
 func formatTokenK(n int) string {
