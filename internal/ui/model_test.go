@@ -312,6 +312,43 @@ func TestEditToolRendersDiffWithoutParams(t *testing.T) {
 	}
 }
 
+func TestWriteToolRendersDiffWithoutParamsAndLimitsLines(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	input := json.RawMessage(`{"path":"/tmp/report.txt","content":"very long content that should not appear in parameter preview"}`)
+	lines := []string{
+		"--- a/report.txt",
+		"+++ b/report.txt",
+		"@@ -1,3 +1,9 @@",
+		" old1",
+		"-old2",
+		"+new2",
+		" line3",
+		"+line4",
+		"+line5",
+		"+line6",
+		"+line7",
+		"+line8",
+	}
+	diff := strings.Join(lines, "\n")
+
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "tool-write", Name: "Write"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "tool-write", Name: "Write", Input: input})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "tool-write", Name: "Write", Result: protocol.ToolResult{Content: diff}})
+
+	rendered := stripAnsi(m.transcript.render(160, m.styles))
+	if !containsAll(rendered, "Write", "ok:", "--- a/report.txt", "+line4", "... 4 lines hidden ...", "... truncated ...") {
+		t.Fatalf("write diff not rendered/truncated:\n%s", rendered)
+	}
+	for _, hidden := range []string{"content", "path", "very long content", "/tmp/report.txt", "+line5", "+line6", "+line7", "+line8"} {
+		if strings.Contains(rendered, hidden) {
+			t.Fatalf("write params or overflow diff should not be rendered (%q):\n%s", hidden, rendered)
+		}
+	}
+	if strings.Contains(rendered, "\n---\n") {
+		t.Fatalf("write result should not be appended after parameter preview:\n%s", rendered)
+	}
+}
+
 func TestTodoToolRendersCountWithoutParams(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	input := json.RawMessage(`{"todos":[{"content":"Fix UI","activeForm":"Fixing UI","status":"in_progress"},{"content":"Run tests","activeForm":"Running tests","status":"pending"}]}`)

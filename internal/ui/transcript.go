@@ -315,13 +315,13 @@ func (t *transcript) apply(event protocol.Event) {
 			t.toolByID[e.ID] = idx
 		}
 		name, params := formatToolTitleKVs(e.Name, e.Input)
-		if e.Name == "Edit" || e.Name == "Todo" {
+		if e.Name == "Edit" || e.Name == "Write" || e.Name == "Todo" {
 			params = ""
 		}
 		t.blocks[idx].toolName = e.Name
 		t.blocks[idx].title = name
 		t.blocks[idx].toolParams = params
-		if isQuietTool(e.Name) || e.Name == "Edit" {
+		if isQuietTool(e.Name) || e.Name == "Edit" || e.Name == "Write" {
 			t.blocks[idx].text = ""
 		} else {
 			t.blocks[idx].text = formatToolPreview(e.Name, e.Input)
@@ -416,11 +416,11 @@ func (t *transcript) apply(event protocol.Event) {
 			break
 		}
 		var result string
-		maxLines := toolPreviewMaxLines
-		if isDiffTool(e.Name) {
-			maxLines = diffPreviewMaxLines
+		if isDiffTool(e.Name) || looksLikeDiff(e.Result.Content) {
+			result = summarizeDiffPreview(e.Result.Content)
+		} else {
+			result = summarizeText(e.Result.Content, toolPreviewBytes, toolPreviewMaxLines)
 		}
-		result = summarizeText(e.Result.Content, toolPreviewBytes, maxLines)
 		prefix := "ok"
 		if e.Result.IsError {
 			prefix = "error"
@@ -429,7 +429,7 @@ func (t *transcript) apply(event protocol.Event) {
 		beforeOutput := strings.Split(t.blocks[idx].text, "\n---\n")[0]
 		beforeOutput = strings.TrimSuffix(beforeOutput, "running...")
 		beforeOutput = strings.TrimRight(beforeOutput, "\n")
-		if beforeOutput == "" || e.Name == "Edit" {
+		if beforeOutput == "" || e.Name == "Edit" || e.Name == "Write" {
 			t.blocks[idx].text = prefix + ":\n" + result
 		} else {
 			t.blocks[idx].text = beforeOutput + "\n---\n" + prefix + ":\n" + result
@@ -544,7 +544,12 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 						t.blocks[blk].err = true
 					}
 				} else {
-					t.appendDone(blockTool, "tool result", summarizeText(b.ToolResult.Content, toolPreviewBytes, diffAwareMaxLines(b.ToolResult.Content)))
+					content := b.ToolResult.Content
+					if looksLikeDiff(content) {
+						t.appendDone(blockTool, "tool result", summarizeDiffPreview(content))
+					} else {
+						t.appendDone(blockTool, "tool result", summarizeText(content, toolPreviewBytes, toolPreviewMaxLines))
+					}
 				}
 			}
 		}
@@ -563,7 +568,7 @@ func (t *transcript) loadMessageWithNames(msg protocol.Message, toolNames map[st
 				if b.ToolUse != nil {
 					name, params := formatToolTitleKVs(b.ToolUse.Name, b.ToolUse.Input)
 					var preview string
-					if b.ToolUse.Name == "Edit" {
+					if b.ToolUse.Name == "Edit" || b.ToolUse.Name == "Write" {
 						params = ""
 					} else if b.ToolUse.Name == "Todo" {
 						params = ""

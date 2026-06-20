@@ -15,7 +15,7 @@ import (
 const (
 	toolPreviewBytes    = 2000
 	toolPreviewMaxLines = 3
-	diffPreviewMaxLines = 20
+	diffPreviewMaxLines = 10
 )
 
 var (
@@ -85,13 +85,17 @@ func formatBashStatus(isError bool, d time.Duration) string {
 	return statusStyle.Render(status)
 }
 
-// diffAwareMaxLines returns diffPreviewMaxLines if the content looks like
-// unified diff output, otherwise toolPreviewMaxLines.
-func diffAwareMaxLines(content string) int {
-	if strings.Contains(content, "--- a/") || strings.Contains(content, "+++ b/") {
-		return diffPreviewMaxLines
+func looksLikeDiff(content string) bool {
+	return strings.Contains(content, "--- a/") || strings.Contains(content, "+++ b/")
+}
+
+func summarizeDiffPreview(s string) string {
+	lineBudget := diffPreviewMaxLines
+	trimmed := strings.TrimRight(s, "\n")
+	if trimmed != "" && strings.Count(trimmed, "\n")+1 > diffPreviewMaxLines && diffPreviewMaxLines > 2 {
+		lineBudget = diffPreviewMaxLines - 2
 	}
-	return toolPreviewMaxLines
+	return summarizeText(s, toolPreviewBytes, lineBudget)
 }
 
 func formatJSONPreview(raw json.RawMessage) string {

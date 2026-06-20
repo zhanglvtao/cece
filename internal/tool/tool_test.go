@@ -267,6 +267,12 @@ func TestWriteToolRun(t *testing.T) {
 	if string(data) != "hello" {
 		t.Fatalf("file content = %q, want %q", string(data), "hello")
 	}
+	if !strings.Contains(result.Content, "--- a/") || !strings.Contains(result.Content, "+++ b/") {
+		t.Fatalf("result should contain unified diff headers, got: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "+hello") {
+		t.Fatalf("result should contain written content diff, got: %q", result.Content)
+	}
 }
 
 func TestWriteToolCreatesDirs(t *testing.T) {

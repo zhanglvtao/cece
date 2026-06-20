@@ -30,6 +30,17 @@
 - 现象：扫描 `~/Library/Caches/coco/plugins/*/*.yaml` 时会遇到 `._traecli.yaml`，内容不是 UTF-8 YAML，解析报 `special characters are not allowed`。
 - 结论：插件模型发现必须只读取明确文件名 `coco.yaml` / `traecli.yaml`，不要 glob 全部 `*.yaml`。
 
+## Agent 异步完成通知不能只走 UI event
+- 现象：worker agent 已经通过 `SubAgentCompletedEvent` 通知 TUI 完成，但 foreground LLM 不会自动知道；UI event 不进入模型上下文，前台 agent 只能自己记得轮询 `Agent(status)`。
+- 定位：Agent 间异步通信需要模型可见通道。event stream 是观察层，不能承担 agent IPC；artifact path 写入后也必须回填 runtime result，否则后续 status/wait 拿不到完整交付物。
+- 结论：worker terminal/pending 要写 parent inbox，在 foreground 下一次 model request 前作为 synthetic notification 注入；`Agent(wait)` 是不可见等待，不通知 worker。
+
+## 真实 LLM 录制测试需要显式开关
+- 现象：`internal/evals/recording` 已有 cassette record/replay 框架，但缺少一条真实 provider 的录制入口；如果把真实 LLM 调用混进普通单测，会造成网络、鉴权和费用不稳定。
+- 定位：真实录制应复用 `RecordingClient` 包装 provider client，并通过环境变量显式启用；默认 `go test ./...` 只能验证 replay/序列化框架，不应发真实请求。
+- 验证：用 aiden `glm-5.1` 实跑 `CECE_RECORD_LLM=1 ... TestRealLLMRecord_AidenGLM51`，生成 `internal/evals/testdata/aiden-glm-5.1-basic.cassette.json` 并立即 replay 通过。
+- 结论：新增 aiden `glm-5.1` 的 env-gated record 测试，`CECE_RECORD_LLM=1` 时才录制 cassette，并立即 replay 验证 cassette 可用。
+
 ## 默认 plan mode 需要显式告诉模型当前状态
 - 现象：会话启动默认就是 plan mode，但模型仍可能先调用 `EnterPlanMode`，随后工具返回 `Already in plan mode.`。
 - 定位：tool definitions 里仍包含 `EnterPlanMode` 是为了保持工具结构稳定；模型是否知道“已在 plan 中”取决于模型可见的 plan reminder。
@@ -44,3 +55,8 @@
 - 现象：发布前如果让大模型临时扫敏感信息，慢、不可复用，也容易把 `.cece`、`.claude`、构建产物等本地文件混进判断。
 - 定位：发布风险来自会被推送的 Git 内容；脚本默认应以 `git ls-files` 为输入，只检查版本控制内文本文件。
 - 结论：敏感信息扫描脚本默认只扫 Git 跟踪文件，命中时输出 `file:line: rule` 并失败；本地缓存和未跟踪私有配置不属于发布前默认扫描边界。
+
+## Write 工具 UI diff 预览的跨层契约
+- 现象：UI 已把 `Write` 当作 diff tool 截断/高亮，但工具本身只返回 `wrote N bytes`，导致 report 只能看到参数，真正的文件变化不可见。
+- 定位：`internal/tool/write.go` 是结果语义来源；`internal/ui/transcript.go` 只负责渲染与预览策略。只在 UI 隐藏参数会丢信息，必须让 Write 返回和 Edit 一致的 unified diff。
+- 结论：工具结果格式和 UI 展示策略要成对演进；diff 的“10 行内”还要把隐藏/截断提示行计入预算，避免视觉上超过约定。

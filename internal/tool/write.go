@@ -59,9 +59,15 @@ func (writeTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter
 		return Result{Content: fmt.Sprintf("mkdir: %v", err), IsError: true}
 	}
 
+	oldContent, err := os.ReadFile(p.Path)
+	if err != nil && !os.IsNotExist(err) {
+		return Result{Content: fmt.Sprintf("read existing: %v", err), IsError: true}
+	}
+
 	if err := os.WriteFile(p.Path, []byte(p.Content), 0o644); err != nil {
 		return Result{Content: fmt.Sprintf("write: %v", err), IsError: true}
 	}
 
-	return lintAppend(ctx, p.Path, Result{Content: fmt.Sprintf("wrote %d bytes to %s", len(p.Content), p.Path)})
+	diff := UnifiedDiff(p.Path, p.Path, string(oldContent), p.Content)
+	return lintAppend(ctx, p.Path, Result{Content: diff})
 }
