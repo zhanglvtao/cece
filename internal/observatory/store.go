@@ -1,6 +1,7 @@
 package observatory
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
@@ -20,9 +21,10 @@ type ServerInfo struct {
 }
 
 type EvidenceItem struct {
-	Time time.Time `json:"time"`
-	Kind string    `json:"kind"`
-	Text string    `json:"text"`
+	Time   time.Time `json:"time"`
+	Kind   string    `json:"kind"`
+	Text   string    `json:"text"`
+	Detail string    `json:"detail,omitempty"`
 }
 
 type State struct {
@@ -72,7 +74,9 @@ func (s *Store) Apply(ev protocol.Event) {
 	now := time.Now()
 	s.updatedAt = now
 	s.ensureSkeletonLocked()
-	s.addEvidenceLocked(now, eventKind(ev), eventSummary(ev))
+	if text, detail, ok := eventEvidence(ev); ok {
+		s.addEvidenceLocked(now, eventKind(ev), text, detail)
+	}
 
 	switch e := ev.(type) {
 	case protocol.ObservatoryServerStartedEvent:
@@ -339,11 +343,11 @@ func (s *Store) setPhaseLocked(id, label, status string) {
 	s.phases[id] = protocol.ObservatoryPhase{ID: id, Label: label, Status: status}
 }
 
-func (s *Store) addEvidenceLocked(t time.Time, kind, text string) {
+func (s *Store) addEvidenceLocked(t time.Time, kind, text, detail string) {
 	if text == "" {
 		text = kind
 	}
-	s.evidence = append(s.evidence, EvidenceItem{Time: t, Kind: kind, Text: truncate(text, 120)})
+	s.evidence = append(s.evidence, EvidenceItem{Time: t, Kind: kind, Text: truncate(text, 240), Detail: truncate(detail, 1200)})
 	if len(s.evidence) > maxEvidence {
 		s.evidence = append([]EvidenceItem(nil), s.evidence[len(s.evidence)-maxEvidence:]...)
 	}
@@ -362,38 +366,254 @@ func eventKind(ev protocol.Event) string {
 	return name
 }
 
+func eventEvidence(ev protocol.Event) (string, string, bool) {
+	summary := eventSummary(ev)
+	if summary == "" {
+		return "", "", false
+	}
+	return summary, eventDetail(ev), true
+}
+
 func eventSummary(ev protocol.Event) string {
 	switch e := ev.(type) {
 	case protocol.ObservatoryServerStartedEvent:
 		return "observatory server " + e.URL
 	case protocol.ObservatorySnapshotEvent:
 		return "snapshot " + e.Scope
+	case protocol.EngineReadyEvent:
+		return "engine ready " + e.Model
+	case protocol.SessionCreated:
+		return "session created " + nonEmpty(e.Title, e.ID)
+	case protocol.UserMessageAdded:
+		return "user message " + firstLine(e.Message.Content)
+	case protocol.SystemReminderAdded:
+		return "system reminder " + firstLine(e.Content)
 	case protocol.ModelRequestStarted:
-		return "model request " + e.Reason
-	case protocol.StreamStarted:
-		return "stream started " + e.Model
-	case protocol.StreamCompleted:
-		if len(e.ToolCalls) > 0 {
-			return "stream completed tool_use " + strings.Join(e.ToolCalls, ",")
+		parts := []string{"model request", e.Reason}
+		if e.EstimatedInputTokens > 0 {
+			parts = append(parts, fmt.Sprintf("input=%s", formatTokenK(e.EstimatedInputTokens)))
 		}
-		return "stream completed " + e.StopReason
+		if e.ContextWindow > 0 {
+			parts = append(parts, fmt.Sprintf("ctx=%s", formatTokenK(e.ContextWindow)))
+		}
+		if len(e.ToolResults) > 0 {
+			parts = append(parts, "tools="+strings.Join(e.ToolResults, ","))
+		}
+		return strings.Join(parts, " ")
+	case protocol.StreamStarted:
+		parts := []string{"stream started"}
+		if e.Model != "" {
+			parts = append(parts, e.Model)
+		}
+		if e.InputTokens > 0 {
+			parts = append(parts, fmt.Sprintf("input=%s", formatTokenK(e.InputTokens)))
+		}
+		if len(e.Tools) > 0 {
+			parts = append(parts, fmt.Sprintf("tools=%d", len(e.Tools)))
+		}
+		return strings.Join(parts, " ")
+	case protocol.StreamEventDetail:
+		if e.EventType == "content_block_delta" || (e.EventType == "message_delta" && e.Detail != "stop_reason") {
+			return ""
+		}
+		if e.Text != "" {
+			return "stream " + compactJoin(e.EventType, e.Detail, firstLine(e.Text))
+		}
+		return "stream " + compactJoin(e.EventType, e.Detail)
+	case protocol.AssistantStarted:
+		return "assistant started"
+	case protocol.AssistantDelta:
+		return ""
+	case protocol.AssistantCompleted:
+		return "assistant completed " + e.Duration.String()
+	case protocol.StreamCompleted:
+		parts := []string{"stream completed"}
+		if e.StopReason != "" {
+			parts = append(parts, e.StopReason)
+		}
+		if e.OutputTokens > 0 {
+			parts = append(parts, fmt.Sprintf("output=%s", formatTokenK(e.OutputTokens)))
+		}
+		if len(e.ToolCalls) > 0 {
+			parts = append(parts, "tool_use="+strings.Join(e.ToolCalls, ","))
+		}
+		return strings.Join(parts, " ")
+	case protocol.TruncationRetry:
+		return fmt.Sprintf("truncation retry attempt=%d max_tokens %d→%d", e.Attempt, e.PrevMaxTokens, e.NewMaxTokens)
+	case protocol.ToolCallStarted:
+		return "tool call started " + e.Name
+	case protocol.ToolCallDelta:
+		return ""
+	case protocol.ToolCallCompleted:
+		return "tool call completed " + e.Name
+	case protocol.ToolCallsReady:
+		return fmt.Sprintf("tool calls ready %d", len(e.Calls))
 	case protocol.ToolExecStarted:
 		return "tool started " + e.Name
+	case protocol.ToolExecDelta:
+		return ""
 	case protocol.ToolExecCompleted:
-		return "tool completed " + e.Name
+		status := "ok"
+		if e.Result.IsError {
+			status = "error"
+		}
+		return "tool completed " + e.Name + " " + status
+	case protocol.ThinkingStarted:
+		return fmt.Sprintf("thinking started block=%d", e.Index)
+	case protocol.ThinkingDelta:
+		return ""
+	case protocol.ThinkingCompleted:
+		return "thinking completed " + firstLine(e.Text)
+	case protocol.PlanApprovalRequested:
+		return "plan approval requested " + e.PlanFile
+	case protocol.PlanRejected:
+		return "plan rejected"
+	case protocol.ToolCallsRejected:
+		return "tool calls rejected"
+	case protocol.QuestionAsked:
+		return fmt.Sprintf("question asked %d", len(e.Questions))
+	case protocol.QueuedInputPromoted:
+		return "queued input promoted"
+	case protocol.CompactingEvent:
+		return "compacting history"
+	case protocol.CompactedEvent:
+		if e.Err != "" {
+			return "compact failed " + e.Err
+		}
+		return fmt.Sprintf("compacted tokens %s→%s messages %d→%d", formatTokenK(e.TokensBefore), formatTokenK(e.TokensAfter), e.MessagesBefore, e.MessagesAfter)
+	case protocol.TruncatedToolResultsEvent:
+		return fmt.Sprintf("truncated tool results %d tokens %s→%s", e.TruncatedCount, formatTokenK(e.TokensBefore), formatTokenK(e.TokensAfter))
+	case protocol.PrunedEvent:
+		return fmt.Sprintf("pruned %d turns tokens %s→%s", e.PrunedTurns, formatTokenK(e.TokensBefore), formatTokenK(e.TokensAfter))
+	case protocol.ContextNudgedEvent:
+		return fmt.Sprintf("context nudge %d%% %s/%s", e.ContextPct, formatTokenK(e.ContextUsed), formatTokenK(e.ContextWindow))
+	case protocol.TurnCompleted:
+		return fmt.Sprintf("turn completed #%d last=%s total=%s/%s", e.TurnCount, formatTokenK(e.LastInputTokens), formatTokenK(e.TotalInputTokens), formatTokenK(e.TotalOutputTokens))
+	case protocol.SessionTitleGeneratedEvent:
+		if e.Err != "" {
+			return "session title failed " + e.Err
+		}
+		return "session title " + e.Title
+	case protocol.SessionDeletedEvent:
+		return "session deleted " + e.SessionID
+	case protocol.ModelsLoadedEvent:
+		if e.Err != "" {
+			return "models load failed " + e.Err
+		}
+		return fmt.Sprintf("models loaded %d", len(e.Models))
+	case protocol.ModeChangedEvent:
+		return "mode changed " + string(e.Mode)
+	case protocol.EffortChangedEvent:
+		return "effort changed " + e.Effort
+	case protocol.ModeEvent:
+		return "mode " + string(e.Mode)
+	case protocol.HistoryClearedEvent:
+		return "history cleared"
+	case protocol.SessionLoadedEvent:
+		if e.Err != "" {
+			return "session load failed " + e.Err
+		}
+		return "session loaded " + e.SessionID
+	case protocol.MCPServersListedEvent:
+		return fmt.Sprintf("mcp servers listed %d", len(e.Servers))
+	case protocol.MCPServerStatusChangedEvent:
+		status := "disconnected"
+		if e.Connected {
+			status = "connected"
+		}
+		return "mcp " + e.Name + " " + status
+	case protocol.TodoUpdatedEvent:
+		return fmt.Sprintf("todo updated %d", len(e.Tasks))
 	case protocol.SubAgentStartedEvent:
-		return "subagent started " + e.ID
+		return "subagent started " + compactJoin(e.ID, e.Description)
 	case protocol.SubAgentActivityEvent:
-		return "subagent activity " + e.ID + " " + e.Status
+		return "subagent activity " + compactJoin(e.ID, e.Status, e.Activity, e.ToolCall, e.LastAssistantMsg)
 	case protocol.SubAgentCompletedEvent:
-		return "subagent completed " + e.ID
+		return fmt.Sprintf("subagent completed %s turns=%d tokens=%s/%s", e.ID, e.TurnsUsed, formatTokenK(e.InputTokens), formatTokenK(e.OutputTokens))
 	case protocol.SubAgentFailedEvent:
-		return "subagent failed " + e.ID
+		return "subagent failed " + compactJoin(e.ID, e.Error)
+	case protocol.ToolsListedEvent:
+		return fmt.Sprintf("tools listed %d", len(e.Tools))
+	case protocol.StatsEvent:
+		return fmt.Sprintf("stats turns=%d calls=%d tokens=%s/%s", e.Stats.TurnCount, e.Stats.APICalls, formatTokenK(e.Stats.TotalInputTokens), formatTokenK(e.Stats.TotalOutputTokens))
 	case protocol.RunFailed:
-		return "run failed"
+		return "run failed " + e.Err
 	default:
 		return eventKind(ev)
 	}
+}
+
+func eventDetail(ev protocol.Event) string {
+	switch e := ev.(type) {
+	case protocol.ToolCallCompleted:
+		return string(e.Input)
+	case protocol.ToolCallsReady:
+		return marshalDetail(e.Calls)
+	case protocol.ToolExecCompleted:
+		return e.Result.Content
+	case protocol.ToolExecDelta:
+		return e.Text
+	case protocol.AssistantDelta:
+		return e.Text
+	case protocol.ThinkingCompleted:
+		return e.Text
+	case protocol.ThinkingDelta:
+		return e.Text
+	case protocol.CompactedEvent:
+		return e.Summary
+	case protocol.QuestionAsked:
+		return marshalDetail(e.Questions)
+	case protocol.ObservatorySnapshotEvent:
+		return strings.Join(e.Evidence, "\n")
+	case protocol.StreamStarted:
+		return strings.Join(e.Tools, ", ")
+	case protocol.StreamCompleted:
+		return fmt.Sprintf("duration=%s cache_read=%s", e.Duration, formatTokenK(e.CacheReadTokens))
+	case protocol.SubAgentActivityEvent:
+		return compactJoin(e.Activity, e.ToolCall, e.LastAssistantMsg)
+	case protocol.SubAgentFailedEvent:
+		return e.Error
+	case protocol.RunFailed:
+		return e.Err
+	default:
+		return ""
+	}
+}
+
+func marshalDetail(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func compactJoin(parts ...string) string {
+	clean := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			clean = append(clean, p)
+		}
+	}
+	return strings.Join(clean, " ")
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return s
+}
+
+func nonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func edgeKey(e protocol.ObservatoryEdge) string { return e.From + "->" + e.To + ":" + e.Label }

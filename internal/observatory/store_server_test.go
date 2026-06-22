@@ -27,6 +27,37 @@ func TestStoreDerivesToolTopology(t *testing.T) {
 	}
 }
 
+func TestStoreEvidenceSummariesAreReadable(t *testing.T) {
+	store := NewStore()
+	store.Apply(protocol.StreamEventDetail{EventType: "message_start"})
+	store.Apply(protocol.StreamEventDetail{EventType: "content_block_delta", Detail: "input_json_delta", Text: `{"path":"main.go"}`})
+	store.Apply(protocol.ToolCallDelta{ID: "1", Delta: `{"old`})
+	store.Apply(protocol.ToolCallCompleted{ID: "1", Name: "Edit", Input: json.RawMessage(`{"path":"main.go","old_string":"a","new_string":"b"}`)})
+	store.Apply(protocol.ToolExecCompleted{ID: "1", Name: "Edit", Result: protocol.ToolResult{Content: "patched main.go"}})
+	state := store.State()
+	if evidenceText(state, "StreamEventDetail") == "StreamEventDetail" {
+		t.Fatal("stream detail evidence fell back to event type")
+	}
+	if got := evidenceTextContains(state, "StreamEventDetail", "content_block_delta"); got != "" {
+		t.Fatalf("delta stream evidence = %q, want filtered", got)
+	}
+	if got := evidenceText(state, "ToolCallDelta"); got != "" {
+		t.Fatalf("ToolCallDelta evidence = %q, want filtered", got)
+	}
+	if got := evidenceText(state, "ToolCallCompleted"); !strings.Contains(got, "Edit") {
+		t.Fatalf("ToolCallCompleted evidence = %q, want tool name", got)
+	}
+	if got := evidenceDetail(state, "ToolCallCompleted"); !strings.Contains(got, "main.go") {
+		t.Fatalf("ToolCallCompleted detail = %q, want input detail", got)
+	}
+	if got := evidenceText(state, "ToolExecCompleted"); !strings.Contains(got, "ok") {
+		t.Fatalf("ToolExecCompleted evidence = %q, want status", got)
+	}
+	if got := evidenceDetail(state, "ToolExecCompleted"); got != "patched main.go" {
+		t.Fatalf("ToolExecCompleted detail = %q", got)
+	}
+}
+
 func TestServerSnapshotPostUpdatesTUIState(t *testing.T) {
 	hub := NewHub()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -167,6 +198,33 @@ func nodeStatus(state State, id string) string {
 	for _, n := range state.Nodes {
 		if n.ID == id {
 			return n.Status
+		}
+	}
+	return ""
+}
+
+func evidenceText(state State, kind string) string {
+	for _, item := range state.Evidence {
+		if item.Kind == kind {
+			return item.Text
+		}
+	}
+	return ""
+}
+
+func evidenceDetail(state State, kind string) string {
+	for _, item := range state.Evidence {
+		if item.Kind == kind {
+			return item.Detail
+		}
+	}
+	return ""
+}
+
+func evidenceTextContains(state State, kind, text string) string {
+	for _, item := range state.Evidence {
+		if item.Kind == kind && strings.Contains(item.Text, text) {
+			return item.Text
 		}
 	}
 	return ""

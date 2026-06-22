@@ -115,17 +115,61 @@ button {
 }
 
 .evidence-panel {
-  min-height: 300px;
+  min-height: 360px;
 }
 
 .evidence {
+  max-height: 390px;
+  overflow-y: auto;
+  padding-right: 4px;
   color: #aaa;
   font-size: 12px;
-  line-height: 1.65;
+  line-height: 1.45;
+}
+
+.evidence-empty {
+  color: #666;
+  font-size: 12px;
+}
+
+.evidence-item {
+  border-top: 1px solid #1f1f1f;
+  padding: 7px 0;
+}
+
+.evidence-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.evidence-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
 }
 
 .time {
   color: #666;
+}
+
+.evidence-kind {
+  color: #888;
+}
+
+.evidence-text {
+  color: #c9c9c9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evidence-detail {
+  margin-top: 2px;
+  color: #777;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .data-path {
