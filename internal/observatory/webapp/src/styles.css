@@ -1,0 +1,311 @@
+:root {
+  background: #050505;
+  color: #ddd;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 18px;
+  background: #050505;
+  color: #ddd;
+}
+
+button {
+  font: inherit;
+}
+
+.shell {
+  min-height: calc(100vh - 36px);
+  border: 1px solid #444;
+  border-radius: 10px;
+  background: #070707;
+  padding: 14px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 10px;
+  margin-bottom: 18px;
+}
+
+.title {
+  color: #f5f5f5;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #999;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.live.live {
+  color: #7ee787;
+}
+
+.live.waiting,
+.live.reconnecting {
+  color: #d29922;
+}
+
+.live.offline {
+  color: #f85149;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 18px;
+}
+
+.canvas {
+  position: relative;
+  height: 560px;
+  overflow: hidden;
+  border: 1px solid #262626;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #0d0d0d, #080808);
+}
+
+.panel {
+  border: 1px solid #262626;
+  border-radius: 8px;
+  padding: 12px;
+  background: #0b0b0b;
+}
+
+.phase-panel {
+  margin-top: 16px;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.label {
+  margin-bottom: 10px;
+  color: #999;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.k {
+  color: #777;
+}
+
+.evidence-panel {
+  min-height: 300px;
+}
+
+.evidence {
+  color: #aaa;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.time {
+  color: #666;
+}
+
+.data-path {
+  border: 1px solid #262626;
+  border-radius: 8px;
+  padding: 12px;
+  background: #0b0b0b;
+  color: #777;
+  font-size: 12px;
+}
+
+.phases {
+  min-height: 29px;
+}
+
+.chip {
+  display: inline-block;
+  border: 1px solid #333;
+  border-radius: 999px;
+  padding: 5px 9px;
+  margin: 0 6px 6px 0;
+  background: #101010;
+  color: #999;
+  font-size: 12px;
+}
+
+.chip.done {
+  border-color: #555;
+  color: #aaa;
+}
+
+.chip.active {
+  border-color: #7ee787;
+  color: #7ee787;
+}
+
+.chip.waiting {
+  border-color: #d29922;
+  color: #d29922;
+}
+
+.chip.failed {
+  border-color: #f85149;
+  color: #f85149;
+}
+
+.status-node {
+  width: 176px;
+  min-height: 76px;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #111;
+  color: #ddd;
+  text-align: center;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28);
+}
+
+.status-node.active {
+  border-color: #7ee787;
+  box-shadow: 0 0 18px rgba(126, 231, 135, 0.2);
+}
+
+.status-node.waiting {
+  border-color: #d29922;
+  box-shadow: 0 0 18px rgba(210, 153, 34, 0.15);
+}
+
+.status-node.done {
+  border-color: #6e7681;
+  color: #aaa;
+}
+
+.status-node.failed {
+  border-color: #f85149;
+  color: #f85149;
+}
+
+.status-node.idle {
+  border-color: #444;
+  color: #888;
+}
+
+.node-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+  font-size: 13px;
+}
+
+.node-subtitle,
+.node-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #888;
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+.status-node.active .node-subtitle,
+.status-node.active .node-meta {
+  color: #a6e3aa;
+}
+
+.status-node.waiting .node-subtitle,
+.status-node.waiting .node-meta {
+  color: #d29922;
+}
+
+.node-handle {
+  width: 7px;
+  height: 7px;
+  border: 1px solid #777;
+  background: #0b0b0b;
+}
+
+.edge-label {
+  position: absolute;
+  border: 1px solid #333;
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: #080808;
+  color: #777;
+  font-size: 11px;
+  line-height: 1.2;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.edge-label.active {
+  border-color: rgba(126, 231, 135, 0.5);
+  color: #7ee787;
+}
+
+.edge-label.waiting {
+  border-color: rgba(210, 153, 34, 0.5);
+  color: #d29922;
+}
+
+.edge-label.failed {
+  border-color: rgba(248, 81, 73, 0.5);
+  color: #f85149;
+}
+
+.react-flow__pane {
+  cursor: default;
+}
+
+.react-flow__controls {
+  border: 1px solid #333;
+  background: #0b0b0b;
+  box-shadow: none;
+}
+
+.react-flow__controls-button {
+  width: 26px;
+  height: 26px;
+  border-bottom: 1px solid #333;
+  background: #0b0b0b;
+  color: #aaa;
+  fill: #aaa;
+}
+
+.react-flow__controls-button:hover {
+  background: #141414;
+}
+
+.react-flow__attribution {
+  background: transparent;
+  color: #555;
+}
+
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .canvas {
+    height: 520px;
+  }
+}

@@ -91,6 +91,11 @@
 - 定位：权限在 `InteractionGate` 和 `ToolExecutor` 双层判断，提示词也写死“只能编辑 plan file”；安全边界把所有写入都按 code edit 处理，漏掉了计划阶段的非代码 artifact。
 - 结论：plan mode 写权限应按 artifact 路径白名单建模，默认允许 plan 文件和 mockup content，额外范围走配置注入，不能放开整个项目写入。
 
+## Web topology 手写坐标会让视觉连接与语义边漂移
+- 现象：Agent Observatory 页面里的线条是固定 ASCII 文本坐标，工具节点又共用同一位置，运行中多个 tool edge 很容易和实际模块对不上或重叠。
+- 定位：`Store` 已输出 `ObservatoryNode/ObservatoryEdge` 语义关系，但 Web 层用 `slots/edgeSlots` 二次硬编码坐标，没有把边连接到真实节点端点。
+- 结论：观测层应保持语义边由 Store 产生，端点连接、自动布局和多边避让交给图渲染框架；否则拓扑一扩展视觉就会漂移。
+
 ## @ 文件弹窗被深层大目录饿死
 - 现象：在大仓库根目录输入 `@dbatman` 时，`dbatman/` 真实存在但弹窗为空。
 - 定位：`FileWalker` 用深度优先 `filepath.Walk` 扫描，并有 5000 条全局上限；字典序靠前的巨大子目录会先耗尽配额，根目录后续目录无法进入候选缓存。

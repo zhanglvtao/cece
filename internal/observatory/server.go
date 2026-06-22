@@ -56,9 +56,8 @@ func (s *Server) Close(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
 }
 
-func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(indexHTML))
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	serveWebAsset(w, r)
 }
 
 func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {
