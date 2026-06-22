@@ -1,5 +1,10 @@
 # 开发问题记录
 
+## StatusBar ctx 文档与实现语义容易漂移
+- 现象：README 里仍示例 `ctx:150K/200K 75%` 并描述为 usage percentage，但当前 TUI 实现实际渲染 10 格剩余上下文 gauge，百分比也是剩余比例。
+- 定位：ctx 文案和颜色逻辑集中在 `internal/ui/statusbar.go`，但对外文档没有跟随底部 cockpit 改版更新。
+- 结论：状态栏 UI 一旦调整文案/语义，应同步更新 README；尤其“used vs remaining”这种语义会直接影响阈值告警判断。
+
 ## assistant markdown 外层套色与内部高亮的边界
 - 现象：给 cece 正文整体加主色时，直接在渲染后的 markdown 外层套 `lipgloss.Style` 最简单，但可能覆盖 markdown 内部已有的 heading/link/code 颜色。
 - 定位：assistant 流式/完成态分别在 `renderStreamingAssistant` 和 completed assistant 分支拼接 markdown 输出；markdown 颜色来源是 `buildGlamourStyle`。

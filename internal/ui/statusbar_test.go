@@ -103,6 +103,16 @@ func TestFormatContextGauge(t *testing.T) {
 	}
 }
 
+func TestStatusBarContextWarningStyle(t *testing.T) {
+	styles := DefaultStyles()
+	if got := contextStyle(styles, 254000, 270000).GetForeground(); got != theme.Red {
+		t.Fatalf("low remaining context foreground = %v, want %v", got, theme.Red)
+	}
+	if got := contextStyle(styles, 216000, 270000).GetForeground(); got != theme.Green {
+		t.Fatalf("20%% remaining context foreground = %v, want %v", got, theme.Green)
+	}
+}
+
 func TestStatusBarScroll(t *testing.T) {
 	sb := NewStatusBar()
 	sb.UpdateModel("sonnet")

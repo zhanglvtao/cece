@@ -73,7 +73,8 @@ func (sb *StatusBar) Render(width int) string {
 
 	// context
 	if sb.contextWindow > 0 {
-		parts = append(parts, sb.styles.Status.Context.Render(formatContextGauge(sb.contextUsed, sb.contextWindow)))
+		style := contextStyle(sb.styles, sb.contextUsed, sb.contextWindow)
+		parts = append(parts, style.Render(formatContextGauge(sb.contextUsed, sb.contextWindow)))
 	}
 
 	// scroll
@@ -115,12 +116,32 @@ func statusModeStyle(styles Styles, mode string) lipgloss.Style {
 	}
 }
 
+const contextWarningThresholdPct = 20
+
+func contextStyle(styles Styles, used, window int) lipgloss.Style {
+	if window > 0 && contextRemainingPct(used, window) < contextWarningThresholdPct {
+		return styles.Status.Fail
+	}
+	return styles.Status.Context
+}
+
+func contextRemainingPct(used, window int) int {
+	if window <= 0 {
+		return 0
+	}
+	remaining := window - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	return remaining * 100 / window
+}
+
 func formatContextGauge(used, window int) string {
 	remaining := window - used
 	if remaining < 0 {
 		remaining = 0
 	}
-	pct := remaining * 100 / window
+	pct := contextRemainingPct(used, window)
 	filled := remaining * 10 / window
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
 	return fmt.Sprintf("%s %s/%s %d%%", bar, formatTokenK(remaining), formatTokenK(window), pct)
