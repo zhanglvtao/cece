@@ -40,7 +40,7 @@ func (compactTool) Info() Definition {
 			"properties": map[string]any{
 				"turn": map[string]any{
 					"type":        "integer",
-					"description": "Turn number (0-based). Summarize turns before this one, keep this turn and later verbatim. Defaults to keeping the most recent 2 turns if not specified. Turn 0 is the earliest turn in the conversation.",
+					"description": "Turn number (0-based). Summarize turns before this one, keep this turn and later verbatim. May equal the total turn count to summarize through the current end. Defaults to keeping the most recent 2 turns if not specified. Turn 0 is the earliest turn in the conversation.",
 				},
 			},
 		},

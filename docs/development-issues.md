@@ -1,5 +1,10 @@
 # 开发问题记录
 
+## Compact 失败后必须有兜底上下文管理
+- 现象：长会话里模型调用 `Compact{"turn":151}`，当前总 turn 数也是 151；工具按最大合法 turn=150 判错，随后剩余上下文低于 20% 也没有自动降级压缩。
+- 定位：`Compact` 的 turn 语义本应是“保留从该 turn 开始”，因此 `turn == totalTurns` 应代表末尾边界；同时 `TryAutoCompact` 只在 assistant 回复后按 used>=90% 尝试一次 Compact，工具失败写入 `tool_result` 后没有进入兜底链路。
+- 结论：turn 边界应按半开区间处理并 clamp 到末尾；剩余上下文 <20% 时必须执行 `Compact -> TrimToolResults -> Prune` 预算保证器，且触发点要放在 tool_result 写入后、下一次模型请求前。
+
 ## HistoryClearedEvent 的累计 token 与当前 ctx 水位分离
 - 现象：TUI 收到 `HistoryClearedEvent` 后 transcript 已清空，但底部 ctx 状态栏仍显示清理前的剩余上下文，例如 `20K/200K 10%`。
 - 定位：`transcript.reset()` 同时保留累计 token 统计和 `contextUsed`；前者是会话累计指标，后者是当前 API 请求上下文水位，`/clear` 后应归零。
@@ -105,6 +110,11 @@
 - 现象：React Flow Observatory 运行时已经通过 Go `embed.FS` 随二进制分发，但 `build.sh` / source fallback 只跑 `go build` 时，binary 会直接携带仓库里已有的 `webapp/dist`，前端源码变化可能没有进入产物。
 - 定位：`go:embed` 只在 Go 编译时读取磁盘上的 dist 文件，不会触发 Vite 构建；构建链必须显式先跑 `npm ci` / `npm run build`，再跑 `go build`。
 - 结论：前端 Observatory 是运行时零 Node 依赖，但构建时有 Node/npm 依赖；所有发布/安装/交叉编译入口都要先刷新 dist，再编译 Go binary。
+
+## Observatory 高频事件会造成拓扑闪烁与 Evidence 失真
+- 现象：React Flow 拓扑在流式事件期间频繁闪烁，甚至看起来短暂消失；Evidence 面板大量显示 `ToolCallDelta` / `StreamEventDetail` 这类类型名，缺少可读细节。
+- 定位：前端每次 SSE state 更新都重新跑自动布局并触发 `fitView`，高频 delta 事件会不断重置视口；后端 `eventSummary` 对大多数事件没有摘要，Evidence 又只显示最近 12 条短文本。
+- 结论：拓扑布局要与高频 Evidence 更新解耦，视口只在首次加载时 fit；Evidence 应是可读事件日志，过滤无意义 delta，并保留 kind、summary、detail。
 
 ## @ 文件弹窗被深层大目录饿死
 - 现象：在大仓库根目录输入 `@dbatman` 时，`dbatman/` 真实存在但弹窗为空。

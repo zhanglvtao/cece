@@ -156,21 +156,16 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		r.deps.PersistMessage(ctx, assistant)
 		r.deps.UpdateSessionMeta(ctx, resp)
 
-		// Auto-compact: if context usage is >= 90%, compact automatically.
-		// After compact, refresh the message snapshot so the next API call
-		// uses the compacted history.
-		if r.deps.TryAutoCompact != nil && r.deps.TryAutoCompact(ctx) {
-			messages = r.deps.HistorySnapshot()
-		}
-
 		// No tool calls -- either promote queued input first, or finish the turn.
 		if resp.stopReason != "tool_use" || len(resp.toolCalls) == 0 {
 			if r.promoteQueuedInputs(ctx, events, reason) {
+				r.tryAutoCompact(ctx)
 				messages = r.deps.HistorySnapshot()
 				reason = "user"
 				toolResultNames = nil
 				continue
 			}
+			r.tryAutoCompact(ctx)
 			events <- AssistantCompleted{Duration: time.Since(turnStart)}
 			return
 		}
@@ -184,6 +179,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 					}
 					r.deps.AppendMessage(resultMsg)
 					r.deps.PersistMessage(context.Background(), resultMsg)
+					r.tryAutoCompact(ctx)
 					events <- PlanRejected{}
 					events <- AssistantCompleted{Duration: time.Since(turnStart)}
 					return
@@ -196,6 +192,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				}
 				r.deps.AppendMessage(resultMsg)
 				r.deps.PersistMessage(ctx, resultMsg)
+				r.tryAutoCompact(ctx)
 				messages = r.deps.HistorySnapshot()
 				reason = "tool_result"
 				continue
@@ -224,6 +221,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 
 		// Check for queued user inputs between tool calls.
 		r.promoteQueuedInputs(ctx, events, reason)
+		r.tryAutoCompact(ctx)
 
 		messages = r.deps.HistorySnapshot()
 		// Inject mode change reminder if pending.
@@ -237,6 +235,13 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		// Next model call is triggered by tool results (or user intervention).
 		reason = "tool_result"
 	}
+}
+
+func (r *TurnRunner) tryAutoCompact(ctx context.Context) bool {
+	if r.deps.TryAutoCompact == nil {
+		return false
+	}
+	return r.deps.TryAutoCompact(ctx)
 }
 
 func (r *TurnRunner) applyToolUseFallback(messages []Message, system SystemPrompt) []Message {

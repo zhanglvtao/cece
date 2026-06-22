@@ -38,7 +38,7 @@ func (pruneTool) Info() Definition {
 			"properties": map[string]any{
 				"turn": map[string]any{
 					"type":        "integer",
-					"description": "Turn number (0-based). Delete all messages before this turn. Must be >= 1. Turn 0 is the earliest turn in the conversation.",
+					"description": "Turn number (0-based). Delete all messages before this turn. Must be >= 1 and may equal the total turn count to prune through the current end. Turn 0 is the earliest turn in the conversation.",
 				},
 			},
 		},

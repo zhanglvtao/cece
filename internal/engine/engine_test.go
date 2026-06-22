@@ -271,6 +271,98 @@ func TestCompactSummaryUsesSafeUserBoundary(t *testing.T) {
 	}
 }
 
+func TestCompactSummaryAllowsEndBoundaryTurn(t *testing.T) {
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	msgs := []agent.Message{
+		{Role: agent.UserRole, Content: "u0"},
+		{Role: agent.AssistantRole, Content: "a0"},
+		{Role: agent.UserRole, Content: "u1"},
+		{Role: agent.AssistantRole, Content: "a1"},
+	}
+	eng.LoadHistory(context.Background(), "", msgs)
+
+	_, _, _, err := eng.compactSummary(context.Background(), len(agent.TurnBoundaries(msgs)))
+	if err != nil {
+		t.Fatalf("compactSummary end-boundary error = %v", err)
+	}
+	snapshot := eng.HistorySnapshot()
+	if len(snapshot) != 1 || !snapshot[0].CompactBoundary {
+		t.Fatalf("snapshot = %+v, want only compact boundary visible", snapshot)
+	}
+}
+
+func TestCompactPruneAllowsEndBoundaryTurn(t *testing.T) {
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	msgs := []agent.Message{
+		{Role: agent.UserRole, Content: strings.Repeat("u0", 1000)},
+		{Role: agent.AssistantRole, Content: strings.Repeat("a0", 1000)},
+		{Role: agent.UserRole, Content: "u1"},
+		{Role: agent.AssistantRole, Content: "a1"},
+	}
+	eng.LoadHistory(context.Background(), "", msgs)
+
+	before, after := eng.compactPrune(len(agent.TurnBoundaries(msgs)))
+	if after >= before {
+		t.Fatalf("prune tokens before=%d after=%d, want reduction", before, after)
+	}
+	snapshot := eng.HistorySnapshot()
+	if len(snapshot) != 1 || !snapshot[0].CompactBoundary {
+		t.Fatalf("snapshot = %+v, want only prune boundary visible", snapshot)
+	}
+}
+
+func TestTryAutoCompactFallsBackWhenCompactSummaryFails(t *testing.T) {
+	eng := NewEngine(&fakeClient{chunks: []agent.ApiStreamEvent{{Err: errors.New("summary boom")}}}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.SetModelInfo("model", 1000)
+	eng.SetLastInputTokens(900)
+	large := strings.Repeat("x", 8000)
+	eng.LoadHistory(context.Background(), "", []agent.Message{
+		{Role: agent.UserRole, Content: "u0"},
+		{Role: agent.AssistantRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolUseContentType, ToolUse: &agent.ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
+		{Role: agent.UserRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_1", Content: large}}}},
+		{Role: agent.UserRole, Content: "u1"},
+	})
+
+	if !eng.TryAutoCompact(context.Background()) {
+		t.Fatal("TryAutoCompact returned false, want fallback to run")
+	}
+	if got := eng.SessionStats().LastInputTokens; got > 800 {
+		t.Fatalf("last input tokens after fallback = %d, want <= 800", got)
+	}
+	for _, msg := range eng.HistorySnapshot() {
+		for _, block := range msg.ContentBlocks {
+			if tr, ok := block.AsToolResult(); ok && strings.Contains(tr.Content, large[:100]) {
+				t.Fatalf("large tool result still visible after fallback")
+			}
+		}
+	}
+}
+
+func TestTurnAutoCompactRunsAfterFailedCompactToolResult(t *testing.T) {
+	client := &compactToolFailureClient{}
+	eng := NewEngine(client, tool.NewRegistry(failingCompactTool{}), false, 16384, nil, "/tmp")
+	eng.SetModelInfo("model", 1000)
+
+	if err := eng.Input(context.Background(), "start"); err != nil {
+		t.Fatalf("Input error = %v", err)
+	}
+	waitForTurnCompleted(t, eng)
+	if client.calls < 2 {
+		t.Fatalf("client calls = %d, want follow-up request after failed compact tool result", client.calls)
+	}
+	foundTrimmed := false
+	for _, msg := range eng.HistorySnapshot() {
+		for _, block := range msg.ContentBlocks {
+			if tr, ok := block.AsToolResult(); ok && tr.ToolUseID == "call_compact" && tr.Content == "[trimmed]" {
+				foundTrimmed = true
+			}
+		}
+	}
+	if !foundTrimmed {
+		t.Fatalf("failed Compact tool_result was not trimmed: %+v", eng.HistorySnapshot())
+	}
+}
+
 func TestCompactHistoryFailureEmitsError(t *testing.T) {
 	eng := NewEngine(&fakeClient{chunks: []agent.ApiStreamEvent{{Err: errors.New("summary boom")}}}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 	eng.LoadHistory(context.Background(), "", []agent.Message{
@@ -376,6 +468,39 @@ func TestEngineDryRunDoesNotCallModelOrMutateHistory(t *testing.T) {
 		t.Fatal("expected dryrun event")
 	}
 }
+
+type failingCompactTool struct{}
+
+func (failingCompactTool) Info() tool.Definition {
+	return tool.Definition{Name: "Compact", Description: "fail compact", InputSchema: map[string]any{"type": "object"}}
+}
+func (failingCompactTool) Run(context.Context, json.RawMessage, tool.Emitter) tool.Result {
+	return tool.Result{Content: strings.Repeat("compact failed ", 2000), IsError: true}
+}
+
+type compactToolFailureClient struct {
+	calls int
+}
+
+func (c *compactToolFailureClient) Stream(_ context.Context, _ []agent.Message, _ agent.SystemPrompt, _ []tool.Definition, _ int) (<-chan agent.ApiStreamEvent, error) {
+	c.calls++
+	out := make(chan agent.ApiStreamEvent, 8)
+	out <- agent.ApiStreamEvent{EventType: "message_start", InputTokens: 950}
+	if c.calls == 1 {
+		out <- agent.ApiStreamEvent{EventType: "content_block_start", ToolCallID: "call_compact", ToolCallName: "Compact", Index: 0}
+		out <- agent.ApiStreamEvent{EventType: "content_block_delta", Detail: "input_json_delta", ToolCallInput: `{}`, Index: 0}
+		out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: 0}
+		out <- agent.ApiStreamEvent{EventType: "message_delta", StopReason: "tool_use", InputTokens: 950, OutputTokens: 10}
+	} else {
+		out <- agent.ApiStreamEvent{EventType: "content_block_start", Index: 0}
+		out <- agent.ApiStreamEvent{EventType: "content_block_delta", Detail: "text_delta", Delta: "done"}
+		out <- agent.ApiStreamEvent{EventType: "message_delta", StopReason: "end_turn", InputTokens: 100, OutputTokens: 5}
+	}
+	out <- agent.ApiStreamEvent{Done: true, EventType: "message_stop"}
+	close(out)
+	return out, nil
+}
+func (c *compactToolFailureClient) SetReasoningEffort(_ string) {}
 
 // recordingClient records all Stream calls for verification.
 type recordingClient struct {

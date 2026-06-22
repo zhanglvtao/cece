@@ -471,6 +471,19 @@ func TestCompactedEventFailureShowsError(t *testing.T) {
 	}
 }
 
+func TestCompressionFallbackEventsUpdateContextGauge(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp", 1000)
+
+	m.ApplyEventForTest(protocol.TruncatedToolResultsEvent{TruncatedCount: 2, TokensBefore: 900, TokensAfter: 700})
+	if m.transcript.contextUsed != 700 {
+		t.Fatalf("context after trim = %d, want 700", m.transcript.contextUsed)
+	}
+	m.ApplyEventForTest(protocol.PrunedEvent{PrunedTurns: 3, TokensBefore: 700, TokensAfter: 100})
+	if m.transcript.contextUsed != 100 {
+		t.Fatalf("context after prune = %d, want 100", m.transcript.contextUsed)
+	}
+}
+
 func TestSlashModelAndSkill(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")

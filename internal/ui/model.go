@@ -610,10 +610,12 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.status = fmt.Sprintf("Truncated %d tool results, %dK→%dK tokens",
 			e.TruncatedCount,
 			(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
+		m.transcript.contextUsed = e.TokensAfter
 	case protocol.PrunedEvent:
 		m.status = fmt.Sprintf("Pruned %d turns, %dK→%dK tokens",
 			e.PrunedTurns,
 			(e.TokensBefore+999)/1000, (e.TokensAfter+999)/1000)
+		m.transcript.contextUsed = e.TokensAfter
 	case protocol.ContextNudgedEvent:
 		m.status = fmt.Sprintf("Context nudge: %d%% used, %d turns since compact", e.ContextPct, e.TurnsSinceCompact)
 

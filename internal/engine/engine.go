@@ -230,6 +230,33 @@ func (e *Engine) PruneHandler() *tool.PruneHandler {
 	}
 }
 
+func resolveCompactTurnBoundary(messages []agent.Message, keepTurn int) (splitIdx, normalizedTurn, totalTurns int, err error) {
+	boundaries := agent.TurnBoundaries(messages)
+	totalTurns = len(boundaries)
+	if totalTurns == 0 {
+		return 0, 0, 0, fmt.Errorf("no turns to summarize")
+	}
+
+	if keepTurn < 0 {
+		keepTurn = totalTurns - 2
+		if keepTurn < 1 {
+			keepTurn = 1
+		}
+	}
+	if keepTurn > totalTurns {
+		keepTurn = totalTurns
+	}
+	if keepTurn == totalTurns {
+		return len(messages), keepTurn, totalTurns, nil
+	}
+
+	splitIdx, ok := agent.SafeContextBoundaryBeforeTurn(messages, keepTurn)
+	if !ok {
+		return 0, keepTurn, totalTurns, fmt.Errorf("turn %d has no safe user boundary", keepTurn)
+	}
+	return splitIdx, keepTurn, totalTurns, nil
+}
+
 func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int, int, error) {
 	e.mu.Lock()
 	snapshot := make([]agent.Message, len(e.history))
@@ -239,27 +266,9 @@ func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int,
 
 	e.emitEvent(protocol.CompactingEvent{})
 
-	boundaries := agent.TurnBoundaries(snapshot)
-	totalTurns := len(boundaries)
-
-	if totalTurns == 0 {
-		return "", 0, 0, fmt.Errorf("no turns to summarize")
-	}
-
-	// Resolve keepTurn
-	if keepTurn < 0 {
-		keepTurn = totalTurns - 2
-		if keepTurn < 1 {
-			keepTurn = 1
-		}
-	}
-	if keepTurn >= totalTurns {
-		return "", 0, 0, fmt.Errorf("turn %d is beyond the last turn (%d)", keepTurn, totalTurns-1)
-	}
-
-	splitIdx, ok := agent.SafeContextBoundaryBeforeTurn(snapshot, keepTurn)
-	if !ok {
-		return "", 0, 0, fmt.Errorf("turn %d has no safe user boundary", keepTurn)
+	splitIdx, keepTurn, _, err := resolveCompactTurnBoundary(snapshot, keepTurn)
+	if err != nil {
+		return "", 0, 0, err
 	}
 	summarize := snapshot[:splitIdx]
 	keep := snapshot[splitIdx:]
@@ -302,6 +311,8 @@ func (e *Engine) compactSummary(ctx context.Context, keepTurn int) (string, int,
 	e.history = newHistory
 	sessionID := e.sessionID
 	e.lastCompactTurn = len(agent.TurnBoundaries(newHistory))
+	e.lastInputTokens = tokensAfter
+	e.consecutiveCompactFailures = 0
 	e.mu.Unlock()
 
 	if sessionID != "" {
@@ -329,6 +340,7 @@ func (e *Engine) compactTrimToolResults(fromTurn, toTurn int) (int, int, int) {
 	// so we offset them into the full history.
 	visible := agent.MessagesAfterCompactBoundary(history)
 	offset := len(history) - len(visible)
+	turnOffset := len(agent.TurnBoundaries(history[:offset]))
 
 	boundaries := agent.TurnBoundaries(visible)
 	totalTurns := len(boundaries)
@@ -346,7 +358,7 @@ func (e *Engine) compactTrimToolResults(fromTurn, toTurn int) (int, int, int) {
 
 	// Trim on the full history so mutations are reflected in e.history.
 	// Use offset-adjusted turn indices so the correct range is trimmed.
-	truncatedCount, _, _ := agent.TrimToolResultsInRange(history, fromTurn+offset, toTurn+offset)
+	truncatedCount, _, _ := agent.TrimToolResultsInRange(history, fromTurn+turnOffset, toTurn+turnOffset)
 
 	// TrimToolResultsInRange mutates in place, so re-derive visible and estimate after.
 	visible = agent.MessagesAfterCompactBoundary(history)
@@ -354,6 +366,10 @@ func (e *Engine) compactTrimToolResults(fromTurn, toTurn int) (int, int, int) {
 
 	e.mu.Lock()
 	e.history = history
+	e.lastInputTokens = tokensAfter
+	if truncatedCount > 0 {
+		e.consecutiveCompactFailures = 0
+	}
 	e.mu.Unlock()
 
 	e.emitEvent(protocol.TruncatedToolResultsEvent{
@@ -371,19 +387,14 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	copy(snapshot, e.history)
 	e.mu.Unlock()
 
-	boundaries := agent.TurnBoundaries(snapshot)
 	// Only count tokens for API-visible messages (after last compact boundary).
 	// Full history includes pre-boundary messages retained for UI scrollback,
 	// which inflates the estimate far beyond what the API actually sees.
 	visible := agent.MessagesAfterCompactBoundary(snapshot)
 	tokensBefore := agent.EstimateMessagesTokens(visible)
 
-	if turn <= 0 || turn >= len(boundaries) {
-		return tokensBefore, tokensBefore
-	}
-
-	startIdx, ok := agent.SafeContextBoundaryBeforeTurn(snapshot, turn)
-	if !ok {
+	startIdx, turn, _, err := resolveCompactTurnBoundary(snapshot, turn)
+	if err != nil || turn <= 0 {
 		return tokensBefore, tokensBefore
 	}
 
@@ -408,6 +419,8 @@ func (e *Engine) compactPrune(turn int) (int, int) {
 	e.history = newHistory
 	sessionID := e.sessionID
 	e.lastCompactTurn = len(agent.TurnBoundaries(newHistory))
+	e.lastInputTokens = tokensAfter
+	e.consecutiveCompactFailures = 0
 	e.mu.Unlock()
 
 	if sessionID != "" {
@@ -771,62 +784,158 @@ func (e *Engine) IncrementAPICalls() {
 
 // ── Auto Compact ──────────────────────────────────────────────────────────
 
-const autoCompactPctThreshold = 90      // autoCompact triggers at 90% context usage
-const maxConsecutiveCompactFailures = 3 // circuit breaker threshold
+const autoCompactRemainingThresholdPct = 20
+const autoCompactTargetUsedPct = 80
+const autoCompactKeepRecentTurns = 2
 
-// shouldAutoCompact checks whether the system should automatically compact
-// based on context usage. Returns true when lastInputTokens >= 90% of
-// contextWindow and the circuit breaker hasn't tripped.
-func (e *Engine) shouldAutoCompact() bool {
+func (e *Engine) contextRemainingPct() (remainingPct, usedTokens, contextWindow int, ok bool) {
 	e.mu.Lock()
-	lastInputTokens := e.lastInputTokens
-	contextWindow := e.contextWindow
-	failures := e.consecutiveCompactFailures
+	usedTokens = e.lastInputTokens
+	contextWindow = e.contextWindow
+	history := make([]agent.Message, len(e.history))
+	copy(history, e.history)
 	e.mu.Unlock()
 
-	if contextWindow <= 0 || lastInputTokens <= 0 {
+	visibleTokens := agent.EstimateMessagesTokens(agent.MessagesAfterCompactBoundary(history))
+	if visibleTokens > usedTokens {
+		usedTokens = visibleTokens
+	}
+	if contextWindow <= 0 || usedTokens <= 0 {
+		return 0, usedTokens, contextWindow, false
+	}
+	remaining := contextWindow - usedTokens
+	if remaining < 0 {
+		remaining = 0
+	}
+	return remaining * 100 / contextWindow, usedTokens, contextWindow, true
+}
+
+func (e *Engine) shouldAutoCompact() bool {
+	remainingPct, usedTokens, contextWindow, ok := e.contextRemainingPct()
+	if !ok {
 		return false
 	}
-
-	if failures >= maxConsecutiveCompactFailures {
-		slog.Debug("autoCompact skipped: circuit breaker tripped",
-			"consecutiveFailures", failures,
-		)
+	if remainingPct >= autoCompactRemainingThresholdPct {
 		return false
 	}
-
-	contextPct := lastInputTokens * 100 / contextWindow
-	if contextPct < autoCompactPctThreshold {
-		return false
-	}
-
 	slog.Info("autoCompact triggered",
-		"contextPct", contextPct,
-		"lastInputTokens", lastInputTokens,
+		"remainingPct", remainingPct,
+		"threshold", autoCompactRemainingThresholdPct,
+		"lastInputTokens", usedTokens,
 		"contextWindow", contextWindow,
 	)
 	return true
 }
 
-// TryAutoCompact checks if auto-compact is needed and executes it.
-// Returns true if compact was performed (history was modified).
+func (e *Engine) currentVisibleTokens() int {
+	e.mu.Lock()
+	snapshot := make([]agent.Message, len(e.history))
+	copy(snapshot, e.history)
+	e.mu.Unlock()
+	return agent.EstimateMessagesTokens(agent.MessagesAfterCompactBoundary(snapshot))
+}
+
+func (e *Engine) autoCompactTargetTokens() int {
+	e.mu.Lock()
+	contextWindow := e.contextWindow
+	e.mu.Unlock()
+	if contextWindow <= 0 {
+		return 0
+	}
+	return contextWindow * autoCompactTargetUsedPct / 100
+}
+
+func (e *Engine) visibleTurnStats() (turnOffset, visibleTurns int) {
+	e.mu.Lock()
+	history := make([]agent.Message, len(e.history))
+	copy(history, e.history)
+	e.mu.Unlock()
+
+	visible := agent.MessagesAfterCompactBoundary(history)
+	offset := len(history) - len(visible)
+	turnOffset = len(agent.TurnBoundaries(history[:offset]))
+	visibleTurns = len(agent.TurnBoundaries(visible))
+	return turnOffset, visibleTurns
+}
+
+func (e *Engine) runTrimFallback(targetTokens int) bool {
+	_, visibleTurns := e.visibleTurnStats()
+	if visibleTurns <= 0 {
+		return false
+	}
+
+	changed := false
+	toTurn := visibleTurns - autoCompactKeepRecentTurns
+	if toTurn < 1 {
+		toTurn = visibleTurns
+	}
+	trimmed, _, _ := e.compactTrimToolResults(0, toTurn)
+	if trimmed > 0 {
+		changed = true
+	}
+	if e.currentVisibleTokens() <= targetTokens || toTurn >= visibleTurns {
+		return changed
+	}
+	trimmed, _, _ = e.compactTrimToolResults(toTurn, visibleTurns)
+	return changed || trimmed > 0
+}
+
+func (e *Engine) runPruneFallback(targetTokens int) bool {
+	turnOffset, visibleTurns := e.visibleTurnStats()
+	if visibleTurns <= 0 {
+		return false
+	}
+
+	changed := false
+	keepFrom := visibleTurns - autoCompactKeepRecentTurns
+	if keepFrom >= 1 {
+		before, after := e.compactPrune(turnOffset + keepFrom)
+		if after < before {
+			changed = true
+		}
+		if after <= targetTokens {
+			return changed
+		}
+	}
+
+	turnOffset, visibleTurns = e.visibleTurnStats()
+	if visibleTurns <= 0 {
+		return changed
+	}
+	before, after := e.compactPrune(turnOffset + visibleTurns)
+	return changed || after < before
+}
+
+// TryAutoCompact guarantees context management when remaining context is below 20%.
+// It prefers LLM summary compaction and falls back to trimming tool results, then pruning.
 func (e *Engine) TryAutoCompact(ctx context.Context) bool {
 	if !e.shouldAutoCompact() {
 		return false
 	}
 
+	targetTokens := e.autoCompactTargetTokens()
+	before := e.currentVisibleTokens()
+
 	e.CompactHistory(ctx)
-
-	e.mu.Lock()
-	failures := e.consecutiveCompactFailures
-	e.mu.Unlock()
-
-	if failures >= maxConsecutiveCompactFailures {
-		slog.Warn("autoCompact circuit breaker tripped, stopping auto-compact attempts",
-			"consecutiveFailures", failures,
-		)
+	if ctx.Err() != nil {
+		return true
+	}
+	if targetTokens <= 0 || e.currentVisibleTokens() <= targetTokens {
+		return true
 	}
 
+	if e.runTrimFallback(targetTokens) && e.currentVisibleTokens() <= targetTokens {
+		return true
+	}
+	if e.currentVisibleTokens() <= targetTokens {
+		return true
+	}
+
+	e.runPruneFallback(targetTokens)
+	after := e.currentVisibleTokens()
+	if after > targetTokens {
+		slog.Warn("autoCompact fallback exhausted above target", "tokens_before", before, "tokens_after", after, "target", targetTokens)
+	}
 	return true
 }
 
@@ -1024,6 +1133,7 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 	e.history = newHistory
 	sessionID := e.sessionID
 	e.consecutiveCompactFailures = 0 // reset circuit breaker on success
+	e.lastInputTokens = result.TokensAfter
 	e.mu.Unlock()
 
 	// Persist boundary message to session JSONL
