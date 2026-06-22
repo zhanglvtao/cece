@@ -94,9 +94,9 @@ class DockerInstance:
         return self._exec(cmd, workdir=workdir, capture=True)
 
     def get_patch(self) -> str:
-        """Get git diff of source changes only (exclude .cece/ artifacts)."""
+        """Get git diff of source changes only (exclude harness artifacts)."""
         self._exec(["git", "add", "-A"], workdir="/testbed")
-        self._exec(["git", "reset", ".cece/"], workdir="/testbed")
+        self._exec(["git", "reset", "--", ".cece/", "SYSTEM.md", "issue.md"], workdir="/testbed")
         return self._exec(
             ["git", "--no-pager", "diff", "--cached", "--binary", "--no-ext-diff"],
             workdir="/testbed",

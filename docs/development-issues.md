@@ -46,6 +46,11 @@
 - 验证：用 aiden `glm-5.1` 实跑 `CECE_RECORD_LLM=1 ... TestRealLLMRecord_AidenGLM51`，生成 `internal/evals/testdata/aiden-glm-5.1-basic.cassette.json` 并立即 replay 通过。
 - 结论：新增 aiden `glm-5.1` 的 env-gated record 测试，`CECE_RECORD_LLM=1` 时才录制 cassette，并立即 replay 验证 cassette 可用。
 
+## SWE-bench patch 采集不能混入 harness 注入文件
+- 现象：SWE-bench runner 在容器里注入 `SYSTEM.md` 和 `issue.md` 后，`get_patch()` 执行 `git add -A` 只 reset 了 `.cece/`，导致输出预测 patch 包含 prompt artifact，不是纯源码修复。
+- 定位：`swebench/docker.py` 的 patch 边界应该只包含 agent 对仓库源码的修改；评测 harness 写入的控制文件必须在 cached diff 前排除。
+- 结论：生成 patch 时同时 reset `.cece/`、`SYSTEM.md`、`issue.md`；后续新增任何 harness 注入文件，都必须加入同一排除边界，否则会污染 SWE-bench prediction。
+
 ## 默认 plan mode 需要显式告诉模型当前状态
 - 现象：会话启动默认就是 plan mode，但模型仍可能先调用 `EnterPlanMode`，随后工具返回 `Already in plan mode.`。
 - 定位：tool definitions 里仍包含 `EnterPlanMode` 是为了保持工具结构稳定；模型是否知道“已在 plan 中”取决于模型可见的 plan reminder。
