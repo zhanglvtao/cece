@@ -1,5 +1,10 @@
 # 开发问题记录
 
+## HistoryClearedEvent 的累计 token 与当前 ctx 水位分离
+- 现象：TUI 收到 `HistoryClearedEvent` 后 transcript 已清空，但底部 ctx 状态栏仍显示清理前的剩余上下文，例如 `20K/200K 10%`。
+- 定位：`transcript.reset()` 同时保留累计 token 统计和 `contextUsed`；前者是会话累计指标，后者是当前 API 请求上下文水位，`/clear` 后应归零。
+- 结论：reset 可以保留 input/output/cache 累计统计，但不能保留 `contextUsed`；`SessionLoadedEvent` 这类恢复场景应在 reset 后显式写回 `LastInput`。
+
 ## Agent Observatory 控制面与观测面边界
 - 现象：设计 Web Observatory 时，最初尝试让 TUI 通过 IPC action 把快照发回 runtime-side hub，甚至让 Hub 成为 Engine event 的 fan-out 出口；这会让观测系统夹进 TUI → Engine 控制链路，语义别扭且有扩大耦合风险。
 - 定位：TUI 的 `Input/Action` 是业务控制面，必须直接到 `RuntimeHost/Mediator/Engine`；Observatory 只能是旁路观察者。Engine event channel 是 single-consumer，又需要同时给 TUI 和 Web，所以正确边界是 `EventTapRuntime`：唯一读取 `Base.Events()`，一份转发给 IPC/TUI，一份送 sidecar Hub。

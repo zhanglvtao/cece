@@ -420,6 +420,44 @@ func TestSessionLoadedRebuildsTranscript(t *testing.T) {
 	}
 }
 
+func TestHistoryClearedEventResetsTranscriptAndContextGauge(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp", 200000)
+	m.ApplyEventForTest(protocol.SessionLoadedEvent{
+		SessionID:     "sess1",
+		Model:         "sonnet",
+		ContextWindow: 200000,
+		LastInput:     180000,
+		TotalInput:    180000,
+		TotalOutput:   5000,
+		History: []protocol.Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", ContentBlocks: []protocol.ContentBlock{{Type: protocol.TextContentType, Text: "answer"}}},
+		},
+	})
+
+	beforeStatus := stripAnsi(m.statusBar.Render(120))
+	if !strings.Contains(beforeStatus, "20K/200K 10%") {
+		t.Fatalf("status before clear = %q, want remaining ctx 20K/200K 10%%", beforeStatus)
+	}
+	if !containsAll(m.transcript.render(80, m.styles), "hi", "answer") {
+		t.Fatalf("history before clear not rendered:\n%s", m.transcript.render(80, m.styles))
+	}
+
+	m.ApplyEventForTest(protocol.HistoryClearedEvent{})
+
+	if m.status != "Cleared" {
+		t.Fatalf("status = %q, want Cleared", m.status)
+	}
+	afterTranscript := m.transcript.render(80, m.styles)
+	if strings.Contains(afterTranscript, "hi") || strings.Contains(afterTranscript, "answer") {
+		t.Fatalf("history still rendered after clear:\n%s", afterTranscript)
+	}
+	afterStatus := stripAnsi(m.statusBar.Render(120))
+	if !strings.Contains(afterStatus, "200K/200K 100%") {
+		t.Fatalf("status after clear = %q, want remaining ctx 200K/200K 100%%", afterStatus)
+	}
+}
+
 func TestSlashModelAndSkill(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")

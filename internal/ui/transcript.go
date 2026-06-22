@@ -78,18 +78,16 @@ func newTranscript() transcript {
 }
 
 func (t *transcript) reset() {
-	// Preserve token statistics across clears.
+	// Preserve cumulative token statistics across clears.
 	inputTok := t.inputTokens
 	outputTok := t.outputTokens
 	cacheRead := t.cacheReadTokens
 	cacheCreation := t.cacheCreationTokens
-	ctxUsed := t.contextUsed
 	*t = newTranscript()
 	t.inputTokens = inputTok
 	t.outputTokens = outputTok
 	t.cacheReadTokens = cacheRead
 	t.cacheCreationTokens = cacheCreation
-	t.contextUsed = ctxUsed
 	t.streamingMD.Reset()
 }
 
