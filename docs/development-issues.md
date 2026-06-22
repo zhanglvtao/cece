@@ -60,3 +60,8 @@
 - 现象：UI 已把 `Write` 当作 diff tool 截断/高亮，但工具本身只返回 `wrote N bytes`，导致 report 只能看到参数，真正的文件变化不可见。
 - 定位：`internal/tool/write.go` 是结果语义来源；`internal/ui/transcript.go` 只负责渲染与预览策略。只在 UI 隐藏参数会丢信息，必须让 Write 返回和 Edit 一致的 unified diff。
 - 结论：工具结果格式和 UI 展示策略要成对演进；diff 的“10 行内”还要把隐藏/截断提示行计入预算，避免视觉上超过约定。
+
+## Plan mode 权限与 visual companion artifact 冲突
+- 现象：brainstorming 的 visual companion 需要把 HTML mockup 写到 `.superpowers/brainstorm/.../content`，但 plan mode 只允许写 `.cece/plans`，导致只能把完整文本 mockup 贴回对话。
+- 定位：权限在 `InteractionGate` 和 `ToolExecutor` 双层判断，提示词也写死“只能编辑 plan file”；安全边界把所有写入都按 code edit 处理，漏掉了计划阶段的非代码 artifact。
+- 结论：plan mode 写权限应按 artifact 路径白名单建模，默认允许 plan 文件和 mockup content，额外范围走配置注入，不能放开整个项目写入。

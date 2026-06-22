@@ -52,15 +52,16 @@ type LightModelClientFn = func() agent.ModelClient
 // Options drives Build. Required fields: ProjectDir, Model, ModelClient.
 // All other fields are optional with sensible zero-value defaults.
 type Options struct {
-	ProjectDir    string
-	Model         string
-	ContextWindow int    // 0 → defaults to 200000
-	MaxTokens     int    // 0 → 16384
-	Yolo          bool   // auto-approve tool execution
-	DefaultMode   string // "" / "default" / "auto-accept" / "plan"
-	DefaultEffort string // "low" / "medium" / "high" / "xhigh" / "auto"
-	StablePrompt  string // "" → prompt.FormatStableSystemPrompt(ProjectDir)
-	LintConfig    map[string]string
+	ProjectDir             string
+	Model                  string
+	ContextWindow          int    // 0 → defaults to 200000
+	MaxTokens              int    // 0 → 16384
+	Yolo                   bool   // auto-approve tool execution
+	DefaultMode            string // "" / "default" / "auto-accept" / "plan"
+	DefaultEffort          string // "low" / "medium" / "high" / "xhigh" / "auto"
+	StablePrompt           string // "" → prompt.FormatStableSystemPrompt(ProjectDir)
+	LintConfig             map[string]string
+	PlanModeWriteAllowlist []string
 
 	ModelClient agent.ModelClient // required
 	LightClient agent.ModelClient // optional
@@ -95,19 +96,20 @@ func Build(opts Options) (*Bundle, error) {
 		}
 	}
 	builder := NewBuilder(SharedDeps{
-		ProjectDir:       opts.ProjectDir,
-		Store:            opts.Store,
-		Skills:           skillStore,
-		ExtraTools:       opts.ExtraTools,
-		MCPManager:       opts.MCPManager,
-		ProviderResolver: opts.ProviderResolver,
-		CreateClient:     opts.CreateClientFn,
-		ListAllModels:    opts.ListAllModelsFn,
-		ContextWindowFor: opts.ContextWindowFor,
-		ModelClientFor:   opts.ModelClientFor,
-		LightClientFn:    opts.LightClientFn,
-		MaxTokens:        opts.MaxTokens,
-		LintConfig:       opts.LintConfig,
+		ProjectDir:             opts.ProjectDir,
+		Store:                  opts.Store,
+		Skills:                 skillStore,
+		ExtraTools:             opts.ExtraTools,
+		MCPManager:             opts.MCPManager,
+		ProviderResolver:       opts.ProviderResolver,
+		CreateClient:           opts.CreateClientFn,
+		ListAllModels:          opts.ListAllModelsFn,
+		ContextWindowFor:       opts.ContextWindowFor,
+		ModelClientFor:         opts.ModelClientFor,
+		LightClientFn:          opts.LightClientFn,
+		MaxTokens:              opts.MaxTokens,
+		LintConfig:             opts.LintConfig,
+		PlanModeWriteAllowlist: opts.PlanModeWriteAllowlist,
 	})
 
 	built, err := builder.Build(context.Background(), BuildRequest{

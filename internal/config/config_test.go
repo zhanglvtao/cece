@@ -515,3 +515,53 @@ func TestDefaultModeInheritsFromUser(t *testing.T) {
 		t.Fatalf("Model = %q, want global-model (inherited from user)", cfg.Model)
 	}
 }
+
+func TestPlanModeWriteAllowlistFromConfig(t *testing.T) {
+	dir := t.TempDir()
+	settings := `{
+		"provider": {
+			"model": "test-model",
+			"providers": [
+				{ "name": "test", "apiKey": "sk-test", "baseURL": "https://test.example.com" }
+			]
+		},
+		"permissions": {
+			"planModeWriteAllowlist": [".superpowers/brainstorm/**/content/**", "docs/mockups/**"]
+		}
+	}`
+	path := filepath.Join(dir, ".cece", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(cfg.PlanModeWriteAllowlist) != 2 {
+		t.Fatalf("PlanModeWriteAllowlist = %+v, want 2 entries", cfg.PlanModeWriteAllowlist)
+	}
+	if cfg.PlanModeWriteAllowlist[1] != "docs/mockups/**" {
+		t.Fatalf("PlanModeWriteAllowlist[1] = %q", cfg.PlanModeWriteAllowlist[1])
+	}
+}
+
+func TestPlanModeWriteAllowlistProjectOverridesUser(t *testing.T) {
+	var project settingsFile
+	json.Unmarshal([]byte(`{
+		"permissions": { "planModeWriteAllowlist": ["project/**"] }
+	}`), &project)
+
+	var user settingsFile
+	json.Unmarshal([]byte(`{
+		"permissions": { "planModeWriteAllowlist": ["user/**"] }
+	}`), &user)
+
+	merged := mergeSettings(project, user)
+	if len(merged.Permissions.PlanModeWriteAllowlist) != 1 || merged.Permissions.PlanModeWriteAllowlist[0] != "project/**" {
+		t.Fatalf("PlanModeWriteAllowlist = %+v, want project override", merged.Permissions.PlanModeWriteAllowlist)
+	}
+}

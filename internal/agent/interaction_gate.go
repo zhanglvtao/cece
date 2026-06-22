@@ -90,8 +90,8 @@ func (g *InteractionGate) WaitIfNeeded(ctx context.Context, calls []ApiToolUseBl
 		// Auto-approve read/exec/mode-effect tools in plan mode.
 		return nil
 	}
-	if g.isPlansDirOnlyWrites(calls) {
-		// Auto-approve in Plan mode: all writes target the plans directory.
+	if g.isPlanModeAllowedOnlyWrites(calls) {
+		// Auto-approve in Plan mode: all writes target allowed plan-mode paths.
 		return nil
 	}
 	if g.isPlanMode() && g.hasWriteEffectTools(calls) {
@@ -209,15 +209,10 @@ func (g *InteractionGate) hasWriteEffectTools(calls []ApiToolUseBlock) bool {
 	return false
 }
 
-// isPlansDirOnlyWrites returns true when every write-effect tool call in the batch
-// targets a path under the .cece/plans/ directory. Non-write-effect tools are ignored.
-// Returns false if any write-effect tool targets outside plans dir or if plansDir is empty.
-func (g *InteractionGate) isPlansDirOnlyWrites(calls []ApiToolUseBlock) bool {
-	plansDir := ""
-	if g.planState != nil {
-		plansDir = g.planState.PlansDir()
-	}
-	if plansDir == "" {
+// isPlanModeAllowedOnlyWrites returns true when every write-effect tool call
+// targets an allowed plan-mode write path. Non-write-effect tools are ignored.
+func (g *InteractionGate) isPlanModeAllowedOnlyWrites(calls []ApiToolUseBlock) bool {
+	if g.planState == nil {
 		return false
 	}
 	hasWrite := false
@@ -228,7 +223,7 @@ func (g *InteractionGate) isPlansDirOnlyWrites(calls []ApiToolUseBlock) bool {
 		}
 		if tool.EffectOf(t) == tool.EffectWrite {
 			hasWrite = true
-			if !isPlansDirWriteInput(plansDir, c.Input) {
+			if !isPlanModeAllowedWriteInput(g.planState, c.Input) {
 				return false
 			}
 		}

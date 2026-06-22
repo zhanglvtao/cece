@@ -293,18 +293,64 @@ func TestWriteToolCreatesDirs(t *testing.T) {
 }
 
 func TestPlanModeRemindersUseSystemReminderTags(t *testing.T) {
-	fullReminder := BuildFullPlanReminder("/tmp/.cece/plans", false)
+	fullReminder := BuildFullPlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern)
 	if !strings.Contains(fullReminder, "<system-reminder>") {
 		t.Fatalf("full reminder = %q, want system-reminder tag", fullReminder)
 	}
 	if !strings.Contains(fullReminder, "You are already in plan mode.") {
 		t.Fatalf("full reminder = %q, want explicit current plan mode state", fullReminder)
 	}
-	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", false), "<system-reminder>") {
-		t.Fatalf("sparse reminder = %q, want system-reminder tag", BuildSparsePlanReminder("/tmp/.cece/plans", false))
+	if !strings.Contains(fullReminder, DefaultPlanModeMockupAllowPattern) {
+		t.Fatalf("full reminder = %q, want default mockup allow path", fullReminder)
+	}
+	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern), "<system-reminder>") {
+		t.Fatalf("sparse reminder = %q, want system-reminder tag", BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern))
 	}
 	if !strings.Contains(ExitPlanModeReminder(), "<system-reminder>") {
 		t.Fatalf("exit reminder = %q, want system-reminder tag", ExitPlanModeReminder())
+	}
+}
+
+func TestPlanModeStateAllowsPlanAndMockupWrites(t *testing.T) {
+	projectDir := t.TempDir()
+	state := NewPlanModeState()
+	state.SetProjectDir(projectDir)
+	state.Enter()
+
+	if !state.IsPlanModeWriteAllowed(filepath.Join(state.PlansDir(), "plan.md")) {
+		t.Fatal("plan file should be allowed")
+	}
+	if !state.IsPlanModeWriteAllowed(filepath.Join(projectDir, ".superpowers", "brainstorm", "session", "content", "mockup.html")) {
+		t.Fatal("visual companion mockup should be allowed")
+	}
+	if state.IsPlanModeWriteAllowed(filepath.Join(projectDir, "internal", "tool", "x.go")) {
+		t.Fatal("source file should not be allowed in plan mode")
+	}
+}
+
+func TestPlanModeStateAllowsConfiguredWritePatterns(t *testing.T) {
+	projectDir := t.TempDir()
+	state := NewPlanModeState()
+	state.SetProjectDir(projectDir)
+	state.SetPlanModeWriteAllowPatterns([]string{"docs/mockups/**"})
+	state.Enter()
+
+	if !state.IsPlanModeWriteAllowed(filepath.Join(projectDir, "docs", "mockups", "a.html")) {
+		t.Fatal("configured allow pattern should be allowed")
+	}
+	if state.IsPlanModeWriteAllowed(filepath.Join(projectDir, "docs", "notes.md")) {
+		t.Fatal("unconfigured docs path should not be allowed")
+	}
+}
+
+func TestPlanModeStateRejectsEscapedAllowedPath(t *testing.T) {
+	projectDir := t.TempDir()
+	state := NewPlanModeState()
+	state.SetProjectDir(projectDir)
+	state.Enter()
+
+	if state.IsPlanModeWriteAllowed(filepath.Join(projectDir, ".superpowers", "brainstorm", "session", "content", "..", "outside.html")) {
+		t.Fatal("parent traversal should not be allowed")
 	}
 }
 
@@ -1207,27 +1253,27 @@ func TestFindActualStringTrailingWS(t *testing.T) {
 	file := "foo   \nbar  \nbaz\n"
 
 	tests := []struct {
-		name      string
-		oldString string
-		wantIdx   int
+		name       string
+		oldString  string
+		wantIdx    int
 		wantActual string
 	}{
 		{
-			name:      "exact match still works",
-			oldString: "foo   \nbar  \n",
-			wantIdx:   0,
+			name:       "exact match still works",
+			oldString:  "foo   \nbar  \n",
+			wantIdx:    0,
 			wantActual: "foo   \nbar  \n",
 		},
 		{
-			name:      "trailing spaces stripped in old_string",
-			oldString: "foo\nbar\n",
-			wantIdx:   0,
+			name:       "trailing spaces stripped in old_string",
+			oldString:  "foo\nbar\n",
+			wantIdx:    0,
 			wantActual: "foo   \nbar  \n",
 		},
 		{
-			name:      "mixed: some lines have trailing ws, some don't",
-			oldString: "foo\nbar  \nbaz\n",
-			wantIdx:   0,
+			name:       "mixed: some lines have trailing ws, some don't",
+			oldString:  "foo\nbar  \nbaz\n",
+			wantIdx:    0,
 			wantActual: "foo   \nbar  \nbaz\n",
 		},
 	}
@@ -1256,34 +1302,34 @@ func TestFindActualStringTrailingWSNotFound(t *testing.T) {
 
 func TestFindActualStringTrailingNewlineTolerance(t *testing.T) {
 	tests := []struct {
-		name      string
-		file      string
-		oldString string
-		wantIdx   int
+		name       string
+		file       string
+		oldString  string
+		wantIdx    int
 		wantActual string
 	}{
 		{
 			// "foo\nbar" is a precise substring of "foo\nbar\n" — exact match wins
-			name:      "old_string is exact substring (no \n tolerance needed)",
-			file:      "foo\nbar\n",
-			oldString: "foo\nbar",
-			wantIdx:   0,
+			name:       "old_string is exact substring (no \n tolerance needed)",
+			file:       "foo\nbar\n",
+			oldString:  "foo\nbar",
+			wantIdx:    0,
 			wantActual: "foo\nbar",
 		},
 		{
 			// "foo\nbar\n" doesn't exist in "foo\nbar" — trim trailing \n to match
-			name:      "old_string has extra trailing newline",
-			file:      "foo\nbar",
-			oldString: "foo\nbar\n",
-			wantIdx:   0,
+			name:       "old_string has extra trailing newline",
+			file:       "foo\nbar",
+			oldString:  "foo\nbar\n",
+			wantIdx:    0,
 			wantActual: "foo\nbar",
 		},
 		{
 			// "hello\n" is not in file "hello world\n", but trimming \n gives "hello" which matches
-			name:      "single word with trailing newline trim finds substring",
-			file:      "hello world\n",
-			oldString: "hello\n",
-			wantIdx:   0,
+			name:       "single word with trailing newline trim finds substring",
+			file:       "hello world\n",
+			oldString:  "hello\n",
+			wantIdx:    0,
 			wantActual: "hello",
 		},
 	}
@@ -1361,8 +1407,6 @@ func TestEditTrailingNewlineReplacement(t *testing.T) {
 		t.Fatalf("file content = %q", string(data))
 	}
 }
-
-
 
 func TestFindActualStringLastTrailingNewline(t *testing.T) {
 	file := "foo\nbar\nfoo\n"

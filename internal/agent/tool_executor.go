@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/zhanglvtao/cece/internal/tool"
@@ -223,41 +221,34 @@ func (e *ToolExecutor) permissionDeniedResult(name string, mode tool.PermissionM
 		return tool.Result{Content: fmt.Sprintf("unknown tool: %s", name), IsError: true}, true
 	}
 	if tool.EffectOf(t) == tool.EffectWrite {
-		// Allow writes that target the plans directory.
-		if e.isPlansDirWrite(name, input) {
+		if e.isPlanModeAllowedWrite(input) {
 			return tool.Result{}, false
 		}
-		plansDir := e.plansDir()
-		return tool.Result{Content: fmt.Sprintf("Tool %s is not allowed in plan mode. Write-effect tools must target %s/ only. Continue read-only exploration or call ExitPlanMode with a plan.", name, plansDir), IsError: true}, true
+		return tool.Result{Content: fmt.Sprintf("Tool %s is not allowed in plan mode. Write-effect tools must target allowed plan-mode paths only: %s. Continue read-only exploration or call ExitPlanMode with a plan.", name, e.allowedPlanModeWriteLabels()), IsError: true}, true
 	}
 	return tool.Result{}, false
 }
 
-// isPlansDirWrite checks whether a write-effect tool targets a path under the plans directory.
-func (e *ToolExecutor) isPlansDirWrite(name string, input json.RawMessage) bool {
-	return isPlansDirWriteInput(e.plansDir(), input)
+func (e *ToolExecutor) isPlanModeAllowedWrite(input json.RawMessage) bool {
+	return isPlanModeAllowedWriteInput(e.planState, input)
 }
 
-func isPlansDirWriteInput(plansDir string, input json.RawMessage) bool {
+func isPlanModeAllowedWriteInput(planState *tool.PlanModeState, input json.RawMessage) bool {
 	var p struct {
 		Path string `json:"path"`
 	}
-	if plansDir == "" {
+	if planState == nil {
 		return false
 	}
 	if err := json.Unmarshal(input, &p); err != nil || p.Path == "" {
 		return false
 	}
-	abs, err := filepath.Abs(p.Path)
-	if err != nil {
-		return false
-	}
-	return strings.HasPrefix(abs+string(os.PathSeparator), plansDir+string(os.PathSeparator)) || abs == plansDir
+	return planState.IsPlanModeWriteAllowed(p.Path)
 }
 
-func (e *ToolExecutor) plansDir() string {
+func (e *ToolExecutor) allowedPlanModeWriteLabels() string {
 	if e.planState == nil {
 		return ""
 	}
-	return e.planState.PlansDir()
+	return strings.Join(e.planState.PlanModeAllowedWriteLabels(), ", ")
 }

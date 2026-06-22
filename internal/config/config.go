@@ -70,19 +70,20 @@ type MCPs map[string]MCPConfig
 type LintConfig map[string]string
 
 type Config struct {
-	Model               string
-	DefaultProvider     string
-	LightModel          string // lightweight model for title generation etc.
-	Debug               bool
-	Yolo                bool
-	MaxTokens           int
-	DefaultMode         string         // "default", "auto-accept", or "plan"
-	Effort              string         // reasoning effort: "low", "medium", "high", "xhigh", "auto" (default: "xhigh")
-	ModelContextMapping map[string]int // model ID -> max context window
-	Providers           []ProviderConfig
-	MCP                 MCPs
-	Lint                LintConfig
-	EnabledSkills       []string // skill names to enable; empty = all enabled
+	Model                  string
+	DefaultProvider        string
+	LightModel             string // lightweight model for title generation etc.
+	Debug                  bool
+	Yolo                   bool
+	MaxTokens              int
+	DefaultMode            string         // "default", "auto-accept", or "plan"
+	Effort                 string         // reasoning effort: "low", "medium", "high", "xhigh", "auto" (default: "xhigh")
+	ModelContextMapping    map[string]int // model ID -> max context window
+	Providers              []ProviderConfig
+	MCP                    MCPs
+	Lint                   LintConfig
+	PlanModeWriteAllowlist []string // additional project-relative paths allowed in plan mode
+	EnabledSkills          []string // skill names to enable; empty = all enabled
 }
 
 type modelList []string
@@ -155,8 +156,11 @@ type settingsFile struct {
 	Yolo struct {
 		Enabled bool `json:"enabled"`
 	} `json:"yolo"`
-	MCP    MCPs       `json:"mcp"`
-	Lint   LintConfig `json:"lint"`
+	MCP         MCPs       `json:"mcp"`
+	Lint        LintConfig `json:"lint"`
+	Permissions struct {
+		PlanModeWriteAllowlist []string `json:"planModeWriteAllowlist"`
+	} `json:"permissions"`
 	Skills struct {
 		Enabled []string `json:"enabled"`
 	} `json:"skills"`
@@ -178,6 +182,7 @@ func Load(projectDir string) (Config, error) {
 	cfg.Yolo = sf.Yolo.Enabled
 	cfg.MCP = sf.MCP
 	cfg.Lint = sf.Lint
+	cfg.PlanModeWriteAllowlist = append([]string(nil), sf.Permissions.PlanModeWriteAllowlist...)
 	cfg.EnabledSkills = sf.Skills.Enabled
 
 	if v := os.Getenv("ZLAUDE_YOLO"); v == "1" || v == "true" {
@@ -342,6 +347,13 @@ func mergeSettings(project, user settingsFile) settingsFile {
 
 	// Lint: merge maps, project keys win
 	out.Lint = mergeMap(project.Lint, user.Lint)
+
+	// Permissions: project wins if non-empty, otherwise user
+	if len(project.Permissions.PlanModeWriteAllowlist) > 0 {
+		out.Permissions.PlanModeWriteAllowlist = project.Permissions.PlanModeWriteAllowlist
+	} else {
+		out.Permissions.PlanModeWriteAllowlist = user.Permissions.PlanModeWriteAllowlist
+	}
 
 	// Skills: project wins if non-empty, otherwise user
 	if len(project.Skills.Enabled) > 0 {

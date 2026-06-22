@@ -1373,12 +1373,12 @@ func buildTurnSnapshot(history []agent.Message, user agent.Message, planState *t
 		slog.Info("plan mode injection check", "reminderType", reminderType, "plansDir", plansDir)
 		switch reminderType {
 		case "full":
-			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildFullPlanReminder(plansDir, planState.HasWritingPlanSkill())})
+			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildFullPlanReminder(plansDir, planState.HasWritingPlanSkill(), planState.PlanModeWriteAllowPatterns()...)})
 			if consumePlanReminder {
 				planState.SetReminderType("sparse")
 			}
 		case "sparse":
-			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildSparsePlanReminder(plansDir, planState.HasWritingPlanSkill())})
+			snapshot = append(snapshot, agent.Message{Role: agent.UserRole, Content: tool.BuildSparsePlanReminder(plansDir, planState.HasWritingPlanSkill(), planState.PlanModeWriteAllowPatterns()...)})
 		}
 	}
 	return snapshot

@@ -17,19 +17,20 @@ import (
 )
 
 type SharedDeps struct {
-	ProjectDir       string
-	Store            session.Store
-	Skills           *skill.Store
-	ExtraTools       []tool.Tool
-	MCPManager       *mcp.Manager
-	ProviderResolver ProviderResolverFn
-	CreateClient     CreateClientFn
-	ListAllModels    ListAllModelsFn
-	ContextWindowFor ContextWindowFn
-	ModelClientFor   func(model string) agent.ModelClient
-	LightClientFn    LightModelClientFn
-	MaxTokens        int
-	LintConfig       map[string]string
+	ProjectDir             string
+	Store                  session.Store
+	Skills                 *skill.Store
+	ExtraTools             []tool.Tool
+	MCPManager             *mcp.Manager
+	ProviderResolver       ProviderResolverFn
+	CreateClient           CreateClientFn
+	ListAllModels          ListAllModelsFn
+	ContextWindowFor       ContextWindowFn
+	ModelClientFor         func(model string) agent.ModelClient
+	LightClientFn          LightModelClientFn
+	MaxTokens              int
+	LintConfig             map[string]string
+	PlanModeWriteAllowlist []string
 }
 
 type BuildRequest struct {
@@ -123,6 +124,7 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 
 	planState := tool.NewPlanModeState()
 	planState.SetProjectDir(b.shared.ProjectDir)
+	planState.SetPlanModeWriteAllowPatterns(b.shared.PlanModeWriteAllowlist)
 	planState.SetSkillStore(b.shared.Skills)
 	taskList := tool.NewTaskList()
 

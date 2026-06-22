@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -52,6 +55,69 @@ func TestToolExecutorExecuteBatchAllowsNilEventChannel(t *testing.T) {
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("ExecuteBatch blocked with nil event channel")
+	}
+}
+
+func TestToolExecutorAllowsPlanModeMockupContentWrites(t *testing.T) {
+	projectDir := t.TempDir()
+	planState := tool.NewPlanModeState()
+	planState.SetProjectDir(projectDir)
+	planState.Enter()
+
+	registry := tool.NewRegistry(tool.NewWrite())
+	executor := NewToolExecutor(registry, planState, nil, ToolResultPolicy{}, nil)
+	mockupPath := filepath.Join(projectDir, ".superpowers", "brainstorm", "session-1", "content", "mockup.html")
+	input, _ := json.Marshal(map[string]string{"path": mockupPath, "content": "<html>mockup</html>"})
+
+	blocks := executor.ExecuteBatch(context.Background(), []ApiToolUseBlock{{
+		ID:    "write-1",
+		Name:  "Write",
+		Input: input,
+	}}, nil)
+
+	if len(blocks) != 1 || blocks[0].ToolResult == nil {
+		t.Fatalf("blocks = %#v, want one tool result", blocks)
+	}
+	if blocks[0].ToolResult.IsError {
+		t.Fatalf("Write returned error: %s", blocks[0].ToolResult.Content)
+	}
+	data, err := os.ReadFile(mockupPath)
+	if err != nil {
+		t.Fatalf("mockup was not written: %v", err)
+	}
+	if string(data) != "<html>mockup</html>" {
+		t.Fatalf("mockup content = %q", string(data))
+	}
+}
+
+func TestToolExecutorRejectsPlanModeWritesOutsideAllowlist(t *testing.T) {
+	projectDir := t.TempDir()
+	planState := tool.NewPlanModeState()
+	planState.SetProjectDir(projectDir)
+	planState.Enter()
+
+	registry := tool.NewRegistry(tool.NewWrite())
+	executor := NewToolExecutor(registry, planState, nil, ToolResultPolicy{}, nil)
+	sourcePath := filepath.Join(projectDir, "internal", "x.go")
+	input, _ := json.Marshal(map[string]string{"path": sourcePath, "content": "package internal"})
+
+	blocks := executor.ExecuteBatch(context.Background(), []ApiToolUseBlock{{
+		ID:    "write-1",
+		Name:  "Write",
+		Input: input,
+	}}, nil)
+
+	if len(blocks) != 1 || blocks[0].ToolResult == nil {
+		t.Fatalf("blocks = %#v, want one tool result", blocks)
+	}
+	if !blocks[0].ToolResult.IsError {
+		t.Fatalf("Write succeeded outside allowlist: %s", blocks[0].ToolResult.Content)
+	}
+	if !strings.Contains(blocks[0].ToolResult.Content, tool.DefaultPlanModeMockupAllowPattern) {
+		t.Fatalf("error = %q, want allowlist details", blocks[0].ToolResult.Content)
+	}
+	if _, err := os.Stat(sourcePath); !os.IsNotExist(err) {
+		t.Fatalf("source write should be blocked, stat err = %v", err)
 	}
 }
 
