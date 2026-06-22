@@ -35,6 +35,31 @@ func TestBuildListAllModelsUsesModelBaseURLAndDefaultCodebaseHelper(t *testing.T
 	}
 }
 
+func TestBuildAgentModelChoicesIncludesConfiguredModels(t *testing.T) {
+	cfg := config.Config{
+		Model:      "glm-5.1",
+		LightModel: "glm-5.1-mini",
+		Providers: []config.ProviderConfig{{
+			Name: "static",
+			Models: []config.StaticModel{
+				{ID: "glm-5.1", ConfigName: "glm-main"},
+				{ID: "deepseek-v4-pro", ConfigName: "deepseek"},
+			},
+		}},
+	}
+
+	choices := buildAgentModelChoices(cfg)
+	want := []string{"glm-5.1", "glm-5.1-mini", "glm-main", "deepseek-v4-pro", "deepseek"}
+	if len(choices) != len(want) {
+		t.Fatalf("choices = %#v", choices)
+	}
+	for i := range want {
+		if choices[i] != want[i] {
+			t.Fatalf("choices = %#v, want %#v", choices, want)
+		}
+	}
+}
+
 func TestStaticModelsToAgent(t *testing.T) {
 	models := staticModelsToAgent([]config.StaticModel{{ID: "m", DisplayName: "M", MaxContextWindow: 123, ConfigName: "c"}})
 	if len(models) != 1 {

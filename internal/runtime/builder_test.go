@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/engine"
 	"github.com/zhanglvtao/cece/internal/prompt"
 	"github.com/zhanglvtao/cece/internal/protocol"
 	"github.com/zhanglvtao/cece/internal/session"
@@ -209,6 +210,51 @@ func TestBuilderBuildsInteractiveAndWorkerRuntimes(t *testing.T) {
 	assembled := worker.Assembler.Assemble(prompt.TurnContext{})
 	if !strings.Contains(assembled.FullText, "worker-only-instructions") {
 		t.Fatalf("worker prompt missing extra instructions: %q", assembled.FullText)
+	}
+}
+
+func TestSubAgentFactoryFallsBackToDefaultModel(t *testing.T) {
+	llm := stubModelClient{}
+	var gotModel string
+	modelClientFor := func(model string) agent.ModelClient {
+		gotModel = model
+		return llm
+	}
+	contextWindowFor := func(model string) int {
+		if model == "default-model" {
+			return 64000
+		}
+		return 0
+	}
+	builder := NewBuilder(SharedDeps{
+		ProjectDir:       t.TempDir(),
+		Store:            newMemStore(),
+		Skills:           skill.NewStore(nil),
+		MaxTokens:        1024,
+		ModelClientFor:   modelClientFor,
+		ContextWindowFor: contextWindowFor,
+	})
+	parent := engine.NewEngine(llm, tool.NewRegistry(), true, 1024, nil, t.TempDir())
+	factory := &subAgentFactory{
+		builder:          builder,
+		parentEng:        parent,
+		defaultModel:     "default-model",
+		modelClientFor:   modelClientFor,
+		contextWindowFor: contextWindowFor,
+	}
+
+	rt, err := factory.NewSubAgentRuntime(context.Background(), engine.SubAgentBuildConfig{AgentID: "agent-1", Description: "A"})
+	if err != nil {
+		t.Fatalf("NewSubAgentRuntime error = %v", err)
+	}
+	if gotModel != "default-model" {
+		t.Fatalf("modelClientFor model = %q, want default-model", gotModel)
+	}
+	if rt.Model != "default-model" {
+		t.Fatalf("runtime model = %q, want default-model", rt.Model)
+	}
+	if model := rt.Engine.SessionMetaModel(); model != "default-model" {
+		t.Fatalf("engine model = %q, want default-model", model)
 	}
 }
 

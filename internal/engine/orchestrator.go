@@ -86,7 +86,10 @@ func (o *Orchestrator) CancelAll(parent *Engine) {
 
 func (o *Orchestrator) start(ctx context.Context, parent *Engine, cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentResult, error) {
 	parentSessionID := parent.SessionID()
-	parentModel := parent.SessionMetaModel()
+	resolvedModel := strings.TrimSpace(cfg.Model)
+	if resolvedModel == "" {
+		resolvedModel = strings.TrimSpace(parent.SessionMetaModel())
+	}
 
 	o.mu.Lock()
 	o.nextID++
@@ -96,7 +99,7 @@ func (o *Orchestrator) start(ctx context.Context, parent *Engine, cfg tool.Agent
 	rt, err := o.factory.NewSubAgentRuntime(ctx, SubAgentBuildConfig{
 		AgentID:           agentID,
 		Description:       cfg.Description,
-		Model:             cfg.Model,
+		Model:             resolvedModel,
 		ParentSessionID:   parentSessionID,
 		SystemPromptExtra: cfg.SystemPromptExtra,
 		Tools:             cfg.Tools,
@@ -108,12 +111,6 @@ func (o *Orchestrator) start(ctx context.Context, parent *Engine, cfg tool.Agent
 			o.emit(protocol.SubAgentFailedEvent{ID: agentID, Description: cfg.Description, ParentSessionID: parentSessionID, Error: err.Error()})
 		}
 		return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("worker build failed: %v", err), Err: err.Error()}, err
-	}
-
-	if cfg.Model == "" {
-		rt.mu.Lock()
-		rt.Model = parentModel
-		rt.mu.Unlock()
 	}
 	rt.Engine.SetEffort("low")
 

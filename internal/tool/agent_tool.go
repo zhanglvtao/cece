@@ -51,17 +51,51 @@ type AgentSubAgentResult struct {
 }
 
 type agentTool struct {
-	handler *AgentHandler
+	handler       *AgentHandler
+	modelChoices  []string
+	modelProvider func() []string
+}
+
+type AgentOption func(*agentTool)
+
+func WithAgentModels(models []string) AgentOption {
+	return func(t *agentTool) {
+		t.modelChoices = uniqueAgentModels(models)
+	}
+}
+
+func WithAgentModelProvider(provider func() []string) AgentOption {
+	return func(t *agentTool) {
+		t.modelProvider = provider
+	}
 }
 
 // NewAgent creates an Agent tool with the given handler.
-func NewAgent(handler *AgentHandler) Tool {
-	return agentTool{handler: handler}
+func NewAgent(handler *AgentHandler, opts ...AgentOption) Tool {
+	t := agentTool{handler: handler}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&t)
+		}
+	}
+	return t
 }
 
 func (agentTool) Effect() Effect { return EffectMode }
 
-func (agentTool) Info() Definition {
+func (t agentTool) Info() Definition {
+	choices := t.agentModelChoices()
+	description := "Model for this sub-agent. Optional: omit to use the current/default model."
+	if len(choices) > 0 {
+		description += " Available models: " + strings.Join(choices, ", ") + "."
+	}
+	modelSchema := map[string]any{
+		"type":        "string",
+		"description": description,
+	}
+	if len(choices) > 0 {
+		modelSchema["enum"] = choices
+	}
 	return Definition{
 		Name:        AgentToolName,
 		Description: "Start and control worker agents asynchronously. Use operation=start to launch a worker and immediately receive an agent_id, then use status/send/answer/confirm/reject/cancel to drive it. Multiple Agent start calls in a single response can run in parallel. Workers have their own conversation history and tool set, share the project directory, and cannot spawn further agents.",
@@ -104,10 +138,7 @@ func (agentTool) Info() Definition {
 					"type":        "string",
 					"description": "Predefined agent type.",
 				},
-				"model": map[string]any{
-					"type":        "string",
-					"description": "Model for this sub-agent.",
-				},
+				"model": modelSchema,
 				"tools": map[string]any{
 					"type":        "array",
 					"items":       map[string]any{"type": "string"},
@@ -259,4 +290,29 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 	)
 
 	return Result{Content: b.String()}
+}
+
+func (t agentTool) agentModelChoices() []string {
+	models := append([]string(nil), t.modelChoices...)
+	if t.modelProvider != nil {
+		models = append(models, t.modelProvider()...)
+	}
+	return uniqueAgentModels(models)
+}
+
+func uniqueAgentModels(models []string) []string {
+	seen := make(map[string]struct{}, len(models))
+	out := make([]string, 0, len(models))
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		out = append(out, model)
+	}
+	return out
 }

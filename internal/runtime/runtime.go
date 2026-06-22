@@ -6,6 +6,8 @@ package runtime
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/zhanglvtao/cece/internal/agent"
 	"github.com/zhanglvtao/cece/internal/engine"
@@ -62,6 +64,7 @@ type Options struct {
 	StablePrompt           string // "" → prompt.FormatStableSystemPrompt(ProjectDir)
 	LintConfig             map[string]string
 	PlanModeWriteAllowlist []string
+	AgentModelChoices      []string
 
 	ModelClient agent.ModelClient // required
 	LightClient agent.ModelClient // optional
@@ -110,6 +113,7 @@ func Build(opts Options) (*Bundle, error) {
 		MaxTokens:              opts.MaxTokens,
 		LintConfig:             opts.LintConfig,
 		PlanModeWriteAllowlist: opts.PlanModeWriteAllowlist,
+		AgentModelChoices:      opts.AgentModelChoices,
 	})
 
 	built, err := builder.Build(context.Background(), BuildRequest{
@@ -137,6 +141,7 @@ func Build(opts Options) (*Bundle, error) {
 		builder:          builder,
 		projectDir:       opts.ProjectDir,
 		parentEng:        built.Engine,
+		defaultModel:     opts.Model,
 		modelClientFor:   opts.ModelClientFor,
 		contextWindowFor: opts.ContextWindowFor,
 	}, opts.Store, built.Engine.EmitEvent))
@@ -160,14 +165,21 @@ type subAgentFactory struct {
 	builder          *Builder
 	projectDir       string
 	parentEng        *engine.Engine
+	defaultModel     string
 	modelClientFor   func(model string) agent.ModelClient
 	contextWindowFor ContextWindowFn
 }
 
 func (f *subAgentFactory) NewSubAgentRuntime(ctx context.Context, cfg engine.SubAgentBuildConfig) (*engine.AgentRuntime, error) {
-	subModel := cfg.Model
+	subModel := strings.TrimSpace(cfg.Model)
+	if subModel == "" && f.parentEng != nil {
+		subModel = strings.TrimSpace(f.parentEng.SessionMetaModel())
+	}
 	if subModel == "" {
-		subModel = f.parentEng.SessionMetaModel()
+		subModel = strings.TrimSpace(f.defaultModel)
+	}
+	if subModel == "" {
+		return nil, fmt.Errorf("sub-agent model is empty and no default model is configured")
 	}
 	contextWindow := 200000
 	if f.contextWindowFor != nil {

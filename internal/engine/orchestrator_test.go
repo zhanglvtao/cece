@@ -66,6 +66,28 @@ func TestOrchestratorStartReturnsImmediately(t *testing.T) {
 	close(block)
 }
 
+func TestOrchestratorStartUsesParentModelWhenOmitted(t *testing.T) {
+	block := make(chan struct{})
+	workerEngine := NewEngine(&blockingClient{unblock: block}, tool.NewRegistry(), false, 1024, nil, t.TempDir())
+	rt := NewAgentRuntime("agent-1", "A", "parent-model", "parent-session", workerEngine, nil, context.Background(), func() {}, 8)
+	var capturedModel string
+	factory := runtimeFactoryFunc(func(ctx context.Context, cfg SubAgentBuildConfig) (*AgentRuntime, error) {
+		capturedModel = cfg.Model
+		return rt, nil
+	})
+	orch := NewOrchestrator(factory, nil, func(protocol.Event) {})
+	parent := NewEngine(&recordingClient{}, tool.NewRegistry(), true, 1024, nil, t.TempDir())
+	parent.SetModelInfo("parent-model", 123000)
+
+	if _, err := orch.Run(context.Background(), parent, tool.AgentSubAgentConfig{Operation: "start", Prompt: "analyze", Description: "A"}, nil); err != nil {
+		t.Fatalf("Run(start) error = %v", err)
+	}
+	if capturedModel != "parent-model" {
+		t.Fatalf("factory model = %q, want parent-model", capturedModel)
+	}
+	close(block)
+}
+
 func TestOrchestratorStatusAndCancel(t *testing.T) {
 	workerEngine := NewEngine(&blockingClient{unblock: make(chan struct{})}, tool.NewRegistry(), false, 1024, nil, t.TempDir())
 	rt := NewAgentRuntime("agent-1", "A", "worker-model", "parent-session", workerEngine, nil, context.Background(), func() {}, 8)

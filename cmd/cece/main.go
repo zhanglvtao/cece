@@ -73,6 +73,42 @@ func staticModelsToAgent(staticModels []config.StaticModel) []agent.ModelInfo {
 	return models
 }
 
+func buildAgentModelChoices(cfg config.Config) []string {
+	var out []string
+	add := func(model string) {
+		model = strings.TrimSpace(model)
+		if model != "" {
+			out = append(out, model)
+		}
+	}
+	add(cfg.Model)
+	add(cfg.LightModel)
+	for _, p := range cfg.Providers {
+		for _, m := range p.Models {
+			add(m.ID)
+			add(m.ConfigName)
+		}
+		if p.Protocol == "codebase" || p.Name == "codebase" {
+			if discovered, err := codebase.DiscoverCocoPluginModels(); err == nil {
+				for _, m := range discovered {
+					add(m.ID)
+					add(m.ConfigName)
+				}
+			}
+		}
+	}
+	seen := make(map[string]struct{}, len(out))
+	choices := make([]string, 0, len(out))
+	for _, model := range out {
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		choices = append(choices, model)
+	}
+	return choices
+}
+
 func createClient(pc config.ProviderConfig, model string, configName string) agent.ModelClient {
 	if configName == "" {
 		for _, sm := range pc.Models {
@@ -433,6 +469,7 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 		DefaultEffort:          cfg.Effort,
 		LintConfig:             cfg.Lint,
 		PlanModeWriteAllowlist: cfg.PlanModeWriteAllowlist,
+		AgentModelChoices:      buildAgentModelChoices(cfg),
 		ModelClient:            client,
 		Store:                  store,
 		Skills:                 skillStore,

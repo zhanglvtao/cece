@@ -28,6 +28,32 @@ func TestAgentToolStartReturnsRunningStatusWithoutError(t *testing.T) {
 	}
 }
 
+func TestAgentToolModelSchemaExposesChoices(t *testing.T) {
+	agentTool := NewAgent(&AgentHandler{}, WithAgentModels([]string{"glm-5.1", "", "gpt-5.5", "glm-5.1"}))
+	info := agentTool.Info()
+	props := info.InputSchema["properties"].(map[string]any)
+	model := props["model"].(map[string]any)
+	enum := model["enum"].([]string)
+	if len(enum) != 2 || enum[0] != "glm-5.1" || enum[1] != "gpt-5.5" {
+		t.Fatalf("model enum = %#v", enum)
+	}
+	if !strings.Contains(model["description"].(string), "Optional") {
+		t.Fatalf("model description = %q, want optional hint", model["description"])
+	}
+}
+
+func TestAgentToolModelSchemaUsesProvider(t *testing.T) {
+	agentTool := NewAgent(&AgentHandler{}, WithAgentModelProvider(func() []string {
+		return []string{"deepseek-v4-pro"}
+	}))
+	props := agentTool.Info().InputSchema["properties"].(map[string]any)
+	model := props["model"].(map[string]any)
+	enum := model["enum"].([]string)
+	if len(enum) != 1 || enum[0] != "deepseek-v4-pro" {
+		t.Fatalf("model enum = %#v", enum)
+	}
+}
+
 func TestAgentToolDescriptionMentionsAsyncControlPlane(t *testing.T) {
 	agentTool := NewAgent(&AgentHandler{})
 	desc := agentTool.Info().Description

@@ -31,6 +31,7 @@ type SharedDeps struct {
 	MaxTokens              int
 	LintConfig             map[string]string
 	PlanModeWriteAllowlist []string
+	AgentModelChoices      []string
 }
 
 type BuildRequest struct {
@@ -162,7 +163,9 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 	registry.Register(tool.NewTrimToolResults(eng.TrimToolResultsHandler()))
 	registry.Register(tool.NewPrune(eng.PruneHandler()))
 	if req.Profile.Tools.AllowAgentTool {
-		registry.Register(tool.NewAgent(eng.AgentHandler()))
+		registry.Register(tool.NewAgent(eng.AgentHandler(), tool.WithAgentModelProvider(func() []string {
+			return append([]string{eng.SessionMetaModel()}, b.shared.AgentModelChoices...)
+		})))
 	}
 
 	mediator := engine.NewEngineMediator(
