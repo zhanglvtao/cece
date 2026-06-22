@@ -1,5 +1,10 @@
 # 开发问题记录
 
+## Agent Observatory 控制面与观测面边界
+- 现象：设计 Web Observatory 时，最初尝试让 TUI 通过 IPC action 把快照发回 runtime-side hub，甚至让 Hub 成为 Engine event 的 fan-out 出口；这会让观测系统夹进 TUI → Engine 控制链路，语义别扭且有扩大耦合风险。
+- 定位：TUI 的 `Input/Action` 是业务控制面，必须直接到 `RuntimeHost/Mediator/Engine`；Observatory 只能是旁路观察者。Engine event channel 是 single-consumer，又需要同时给 TUI 和 Web，所以正确边界是 `EventTapRuntime`：唯一读取 `Base.Events()`，一份转发给 IPC/TUI，一份送 sidecar Hub。
+- 结论：Observability Hub 不拥有控制面，也不应该伪装成 action sink。TUI 本地状态通过 HTTP `/api/snapshot` 上报到 Hub；Engine events 通过 event tap 被复制到 Hub，避免多 reader 抢 channel 丢事件。
+
 ## StatusBar ctx 文档与实现语义容易漂移
 - 现象：README 里仍示例 `ctx:150K/200K 75%` 并描述为 usage percentage，但当前 TUI 实现实际渲染 10 格剩余上下文 gauge，百分比也是剩余比例。
 - 定位：ctx 文案和颜色逻辑集中在 `internal/ui/statusbar.go`，但对外文档没有跟随底部 cockpit 改版更新。

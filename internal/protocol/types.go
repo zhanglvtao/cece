@@ -107,6 +107,36 @@ const (
 	PermissionModePlan       PermissionMode = "plan"
 )
 
+// ObservatoryNode describes a node in the runtime observability topology.
+type ObservatoryNode struct {
+	ID     string            `json:"id"`
+	Label  string            `json:"label"`
+	Kind   string            `json:"kind"`
+	Status string            `json:"status"`
+	Meta   map[string]string `json:"meta,omitempty"`
+}
+
+// ObservatoryEdge describes a directed relationship between topology nodes.
+type ObservatoryEdge struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Label  string `json:"label,omitempty"`
+	Status string `json:"status"`
+}
+
+// ObservatoryPhase describes a phase in the current agent turn.
+type ObservatoryPhase struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Status string `json:"status"`
+}
+
+// ObservatoryMetric describes a small displayable metric for the observability UI.
+type ObservatoryMetric struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 // SessionStats holds cumulative session statistics for external drivers.
 type SessionStats struct {
 	TurnCount           int            `json:"turn_count"`

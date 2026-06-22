@@ -41,6 +41,8 @@ func TestActionRoundTrip(t *testing.T) {
 
 func TestEventRoundTrip(t *testing.T) {
 	events := []protocol.Event{
+		protocol.ObservatoryServerStartedEvent{URL: "http://127.0.0.1:12345", Host: "127.0.0.1", Port: 12345},
+		protocol.ObservatorySnapshotEvent{Scope: "engine:s1", ActivePhase: "model_stream", Nodes: []protocol.ObservatoryNode{{ID: "engine", Label: "Engine", Kind: "engine", Status: "active"}}},
 		protocol.EngineReadyEvent{Model: "m", ContextWindow: 100, Effort: "xhigh"},
 		protocol.SessionCreated{ID: "s1", Title: "title"},
 		protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: "hi"}},
@@ -78,6 +80,9 @@ func TestEventRoundTrip(t *testing.T) {
 func TestUnknownKindFails(t *testing.T) {
 	if _, err := UnmarshalClientMessage([]byte(`{"type":"action","kind":"missing","payload":{}}`)); err == nil {
 		t.Fatal("expected unknown action kind error")
+	}
+	if _, err := UnmarshalClientMessage([]byte(`{"type":"action","kind":"observatory_snapshot","payload":{}}`)); err == nil {
+		t.Fatal("observatory snapshots must not be IPC actions")
 	}
 	if _, err := UnmarshalServerMessage([]byte(`{"type":"event","kind":"missing","payload":{}}`)); err == nil {
 		t.Fatal("expected unknown event kind error")

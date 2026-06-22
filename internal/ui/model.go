@@ -146,6 +146,9 @@ type Model struct {
 	historyIndex            int
 	viewportDirty           bool // true when transcript content changed, cleared after refresh
 	viewportGotoBottom      bool // when dirty, whether to pin viewport to bottom
+	observatoryURL          string
+	lastObservatoryPost     time.Time
+	lastObservatorySig      string
 	lastViewportWidth       int  // track width changes for refresh
 	scrollToPlanBlock       bool // scroll viewport to plan block's first line after PlanApprovalRequested
 	viewMode                bool // true when file popup is in /view mode (Enter reads file, not inserts path)
@@ -356,6 +359,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.ensureStatusSpinner(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		if cmd := m.maybePostObservatorySnapshot(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		if eventer, ok := m.sender.(Eventer); ok {
 			cmds = append(cmds, consumeGlobalEventsCmd(eventer.Events()))
 		}
@@ -442,6 +448,9 @@ func (m *Model) ApplyEventForTest(event protocol.Event) {
 func (m *Model) applyEvent(event protocol.Event) {
 	m.transcript.apply(event)
 	switch e := event.(type) {
+	case protocol.ObservatoryServerStartedEvent:
+		m.observatoryURL = e.URL
+		return
 	case protocol.EngineReadyEvent:
 		if e.ContextWindow > 0 && e.ContextWindow != m.contextWindow {
 			logger.Info("UI: contextWindow synced from EngineReadyEvent", "old", m.contextWindow, "new", e.ContextWindow)
@@ -950,14 +959,20 @@ func (m *Model) headlineView() string {
 }
 
 func (m *Model) titleBarView() string {
-	if m.currentSessionID == "" {
+	parts := []string{}
+	if m.currentSessionTitle != "" {
+		parts = append(parts, m.currentSessionTitle)
+	}
+	if m.currentSessionID != "" {
+		parts = append(parts, "session-id:"+m.currentSessionID)
+	}
+	if m.observatoryURL != "" {
+		parts = append(parts, "obs:"+m.observatoryURL)
+	}
+	if len(parts) == 0 {
 		return ""
 	}
-	sid := "session-id:" + m.currentSessionID
-	if m.currentSessionTitle != "" {
-		return m.styles.TitleBar.Render(m.currentSessionTitle + " · " + sid)
-	}
-	return m.styles.TitleBar.Render(sid)
+	return m.styles.TitleBar.Render(strings.Join(parts, " · "))
 }
 
 func (m *Model) headerBarView() string {

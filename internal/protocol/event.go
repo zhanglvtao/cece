@@ -8,6 +8,31 @@ import (
 // Event is the sealed interface for all events emitted by the runtime.
 type Event interface{ isEvent() }
 
+// ObservatoryServerStartedEvent is emitted after the local observability
+// HTTP server binds to a concrete port.
+type ObservatoryServerStartedEvent struct {
+	URL  string
+	Host string
+	Port int
+}
+
+func (ObservatoryServerStartedEvent) isEvent() {}
+
+// ObservatorySnapshotEvent carries a full observability snapshot for one scope.
+type ObservatorySnapshotEvent struct {
+	Scope       string
+	Version     int
+	CapturedAt  time.Time
+	ActivePhase string
+	Nodes       []ObservatoryNode
+	Edges       []ObservatoryEdge
+	Phases      []ObservatoryPhase
+	Metrics     []ObservatoryMetric
+	Evidence    []string
+}
+
+func (ObservatorySnapshotEvent) isEvent() {}
+
 // EngineReadyEvent is emitted once when the engine process starts,
 // carrying initial model info so the TUI can sync its state.
 type EngineReadyEvent struct {

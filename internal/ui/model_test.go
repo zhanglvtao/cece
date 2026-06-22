@@ -66,6 +66,32 @@ func TestEngineReadyEventSyncsEffort(t *testing.T) {
 	}
 }
 
+func TestObservatoryServerStartedRendersInTitleBar(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.ApplyEventForTest(protocol.ObservatoryServerStartedEvent{URL: "http://127.0.0.1:49321", Host: "127.0.0.1", Port: 49321})
+	if got := m.ObservatoryURLForTest(); got != "http://127.0.0.1:49321" {
+		t.Fatalf("observatoryURL = %q", got)
+	}
+	view := stripAnsi(m.titleBarView())
+	if !strings.Contains(view, "obs:http://127.0.0.1:49321") {
+		t.Fatalf("title bar missing obs URL: %q", view)
+	}
+}
+
+func TestObservatorySnapshotReflectsTUIState(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.busy = true
+	m.status = "Streaming"
+	m.queued = []string{"next"}
+	snap := m.ObservatorySnapshotForTest()
+	if snap.Scope != "tui:client" || snap.ActivePhase != "busy" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	if len(snap.Nodes) != 1 || snap.Nodes[0].Status != "active" || snap.Nodes[0].Meta["queued"] != "1" {
+		t.Fatalf("snapshot node = %+v", snap.Nodes)
+	}
+}
+
 func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.ApplyEventForTest(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: "hi"}})

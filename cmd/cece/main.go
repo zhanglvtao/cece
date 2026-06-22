@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/zhanglvtao/cece/internal/ipc"
 	"github.com/zhanglvtao/cece/internal/logger"
 	"github.com/zhanglvtao/cece/internal/mcp"
+	"github.com/zhanglvtao/cece/internal/observatory"
 	"github.com/zhanglvtao/cece/internal/protocol"
 	"github.com/zhanglvtao/cece/internal/remote"
 	"github.com/zhanglvtao/cece/internal/runtime"
@@ -184,6 +186,8 @@ func main() {
 		switch os.Args[1] {
 		case "engine":
 			os.Exit(runEngineStdio(projectDir, os.Args[2:]))
+		case "observe":
+			os.Exit(runObserve(projectDir, os.Args[2:]))
 		case "version", "--version", "-v":
 			fmt.Println("cece", version.Version)
 			os.Exit(0)
@@ -205,6 +209,7 @@ func printHelp() {
 Usage:
   cece              Start interactive TUI
   cece engine       Run engine process (internal)
+  cece observe      Start local Web Observatory
   cece setup        Interactive setup wizard
   cece update       Check for updates and install the latest version
   cece version      Print version
@@ -318,10 +323,59 @@ func runEngineStdio(defaultProjectDir string, args []string) int {
 	defer host.Close()
 
 	ctx := context.Background()
-	if err := ipc.Serve(ctx, host, os.Stdin, os.Stdout); err != nil {
+	hub := observatory.NewHub()
+	server, err := observatory.StartServer(ctx, hub, "127.0.0.1", 0)
+	tap := observatory.NewEventTapRuntime(host, hub)
+	if err != nil {
+		logger.Error("observatory server failed", "error", err)
+	} else {
+		tap.Emit(protocol.ObservatoryServerStartedEvent{URL: server.Info().URL, Host: server.Info().Host, Port: server.Info().Port})
+		logger.Info("observatory server started", "url", server.Info().URL)
+	}
+	if err := ipc.Serve(ctx, tap, os.Stdin, os.Stdout); err != nil {
 		logger.Error("engine stdio exited", "error", err)
 		return 1
 	}
+	return 0
+}
+
+func runObserve(defaultProjectDir string, args []string) int {
+	projectDir := defaultProjectDir
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--project-dir":
+			if i+1 < len(args) {
+				projectDir = args[i+1]
+				i++
+			}
+		}
+	}
+	bundle, err := buildRuntime(projectDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "engine init failed: %v\n", err)
+		return 1
+	}
+	host := runtime.NewHost(&runtime.Bundle{
+		Engine:   bundle.mediator.Engine,
+		Mediator: bundle.mediator,
+		Store:    bundle.store,
+		Skills:   bundle.skillStore,
+		Cleanup:  bundle.cleanup,
+	})
+	defer host.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	hub := observatory.NewHub()
+	server, err := observatory.StartServer(ctx, hub, "127.0.0.1", 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "observatory start failed: %v\n", err)
+		return 1
+	}
+	tap := observatory.NewEventTapRuntime(host, hub)
+	tap.Emit(protocol.ObservatoryServerStartedEvent{URL: server.Info().URL, Host: server.Info().Host, Port: server.Info().Port})
+	fmt.Printf("Cece Observatory: %s\n", server.Info().URL)
+	<-ctx.Done()
+	tap.Wait()
 	return 0
 }
 

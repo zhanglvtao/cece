@@ -108,5 +108,13 @@ func (m *Model) PendingQuitForTest() bool { return m.pendingQuit }
 // AppliedEventCountForTest returns how many protocol events have been applied to the UI.
 func (m *Model) AppliedEventCountForTest() int { return m.appliedEventCount }
 
+// ObservatoryURLForTest returns the current Web Observatory URL.
+func (m *Model) ObservatoryURLForTest() string { return m.observatoryURL }
+
+// ObservatorySnapshotForTest returns the current TUI observability snapshot.
+func (m *Model) ObservatorySnapshotForTest() protocol.ObservatorySnapshotEvent {
+	return m.observatorySnapshot()
+}
+
 // OpenSessionsDialogForTest opens the session picker modal directly. For testing only.
 func (m *Model) OpenSessionsDialogForTest() { m.openSessionsDialog() }
