@@ -65,3 +65,8 @@
 - 现象：brainstorming 的 visual companion 需要把 HTML mockup 写到 `.superpowers/brainstorm/.../content`，但 plan mode 只允许写 `.cece/plans`，导致只能把完整文本 mockup 贴回对话。
 - 定位：权限在 `InteractionGate` 和 `ToolExecutor` 双层判断，提示词也写死“只能编辑 plan file”；安全边界把所有写入都按 code edit 处理，漏掉了计划阶段的非代码 artifact。
 - 结论：plan mode 写权限应按 artifact 路径白名单建模，默认允许 plan 文件和 mockup content，额外范围走配置注入，不能放开整个项目写入。
+
+## @ 文件弹窗被深层大目录饿死
+- 现象：在大仓库根目录输入 `@dbatman` 时，`dbatman/` 真实存在但弹窗为空。
+- 定位：`FileWalker` 用深度优先 `filepath.Walk` 扫描，并有 5000 条全局上限；字典序靠前的巨大子目录会先耗尽配额，根目录后续目录无法进入候选缓存。
+- 结论：面向交互补全的索引应浅层优先，先保证根目录和近层目录可见，再用上限控制成本；不要简单调高上限。

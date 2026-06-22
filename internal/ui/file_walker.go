@@ -77,35 +77,59 @@ func (w *FileWalker) Loaded(absRoot string) bool {
 }
 
 func walkDir(root string) []string {
-	var entries []string
-	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
-		}
-		relStr := filepath.ToSlash(rel)
-		if relStr == "." {
-			return nil
-		}
-		if info.IsDir() {
-			base := filepath.Base(path)
-			if skipDirs[base] {
-				return filepath.SkipDir
-			}
-			entries = append(entries, relStr+"/")
-			if len(entries) >= walkerMaxFiles {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		entries = append(entries, relStr)
-		if len(entries) >= walkerMaxFiles {
-			return filepath.SkipDir
-		}
+	return walkDirWithLimit(root, walkerMaxFiles)
+}
+
+func walkDirWithLimit(root string, limit int) []string {
+	if limit <= 0 {
 		return nil
-	})
+	}
+
+	type dirEntry struct {
+		abs string
+		rel string
+	}
+
+	entries := make([]string, 0, min(limit, walkerMaxFiles))
+	queue := []dirEntry{{abs: root}}
+	for len(queue) > 0 && len(entries) < limit {
+		cur := queue[0]
+		queue = queue[1:]
+
+		dirs, err := os.ReadDir(cur.abs)
+		if err != nil {
+			continue
+		}
+
+		for _, d := range dirs {
+			if !d.IsDir() || skipDirs[d.Name()] {
+				continue
+			}
+			rel := childRel(cur.rel, d.Name())
+			entries = append(entries, rel+"/")
+			if len(entries) >= limit {
+				return entries
+			}
+			queue = append(queue, dirEntry{abs: filepath.Join(cur.abs, d.Name()), rel: rel})
+		}
+
+		for _, d := range dirs {
+			if d.IsDir() {
+				continue
+			}
+			rel := childRel(cur.rel, d.Name())
+			entries = append(entries, rel)
+			if len(entries) >= limit {
+				return entries
+			}
+		}
+	}
 	return entries
+}
+
+func childRel(parent, name string) string {
+	if parent == "" {
+		return filepath.ToSlash(name)
+	}
+	return filepath.ToSlash(filepath.Join(parent, name))
 }
