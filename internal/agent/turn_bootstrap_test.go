@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/zhanglvtao/cece/internal/prompt"
@@ -93,4 +95,105 @@ func TestBuildDryRunRequestIncludesLayersMessagesAndTools(t *testing.T) {
 	if dry.EstimatedInputTokens <= 0 {
 		t.Fatalf("EstimatedInputTokens = %d, want > 0", dry.EstimatedInputTokens)
 	}
+}
+
+func TestTurnRunnerExitPlanModeRejectedPersistsRejectToolResult(t *testing.T) {
+	planState := tool.NewPlanModeState()
+	planState.SetProjectDir(t.TempDir())
+	planState.SetMode(tool.PermissionModePlan)
+	planFile := filepath.Join(planState.PlansDir(), "plan.md")
+	if err := os.WriteFile(planFile, []byte("# plan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	streamCalls := 0
+	client := &mockStreamClient{streamFn: func(context.Context, []Message, SystemPrompt, []tool.Definition, int) (<-chan ApiStreamEvent, error) {
+		streamCalls++
+		ch := make(chan ApiStreamEvent, 8)
+		ch <- ApiStreamEvent{EventType: "message_start", InputTokens: 10}
+		ch <- ApiStreamEvent{EventType: "content_block_start", Index: 0, ToolCallID: "call_exit", ToolCallName: tool.ExitPlanModeToolName}
+		ch <- ApiStreamEvent{EventType: "content_block_delta", Detail: "input_json_delta", Index: 0, ToolCallInput: `{"plan_file":"` + planFile + `"}`}
+		ch <- ApiStreamEvent{EventType: "content_block_stop", Index: 0}
+		ch <- ApiStreamEvent{EventType: "message_delta", StopReason: "tool_use", OutputTokens: 5}
+		ch <- ApiStreamEvent{Done: true, EventType: "message_stop"}
+		close(ch)
+		return ch, nil
+	}}
+
+	var history []Message
+	var persisted []Message
+	rejectCh := make(chan struct{}, 1)
+	events := make(chan Event, 32)
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		NewInteractionGate(tool.NewRegistry(), planState, false, nil, rejectCh, nil),
+		nil,
+		4096,
+		TurnDeps{
+			AppendMessage:     func(m Message) { history = append(history, m) },
+			PersistMessage:    func(_ context.Context, m Message) { persisted = append(persisted, m) },
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
+			IncrementAPICalls: func() {},
+		},
+	)
+
+	done := make(chan struct{})
+	go func() {
+		runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "start"}}}, events)
+		close(done)
+	}()
+
+	waitForEventType(t, events, PlanApprovalRequested{})
+	rejectCh <- struct{}{}
+	<-done
+
+	if streamCalls != 1 {
+		t.Fatalf("streamCalls = %d, want 1", streamCalls)
+	}
+	if len(history) != 2 {
+		t.Fatalf("history len = %d, want assistant + reject tool_result", len(history))
+	}
+	resultMsg := history[1]
+	if resultMsg.Role != UserRole || len(resultMsg.ContentBlocks) != 1 {
+		t.Fatalf("reject message = %+v", resultMsg)
+	}
+	tr, ok := resultMsg.ContentBlocks[0].AsToolResult()
+	if !ok || tr.ToolUseID != "call_exit" || !tr.IsError {
+		t.Fatalf("tool result = %+v, ok=%v", resultMsg.ContentBlocks[0], ok)
+	}
+	if !containsMessage(persisted, resultMsg) {
+		t.Fatalf("persisted messages = %+v, missing reject tool_result", persisted)
+	}
+	waitForEventType(t, events, PlanRejected{})
+	waitForEventType(t, events, AssistantCompleted{})
+}
+
+func waitForEventType[T Event](t *testing.T, events <-chan Event, _ T) T {
+	t.Helper()
+	for i := 0; i < 32; i++ {
+		ev := <-events
+		if got, ok := ev.(T); ok {
+			return got
+		}
+	}
+	t.Fatalf("event %T not emitted", *new(T))
+	var zero T
+	return zero
+}
+
+func containsMessage(messages []Message, target Message) bool {
+	for _, msg := range messages {
+		if msg.Role == target.Role && len(msg.ContentBlocks) == len(target.ContentBlocks) {
+			if len(msg.ContentBlocks) == 0 {
+				return msg.Content == target.Content
+			}
+			got, gotOK := msg.ContentBlocks[0].AsToolResult()
+			want, wantOK := target.ContentBlocks[0].AsToolResult()
+			if gotOK && wantOK && got.ToolUseID == want.ToolUseID && got.Content == want.Content && got.IsError == want.IsError {
+				return true
+			}
+		}
+	}
+	return false
 }

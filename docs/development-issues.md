@@ -5,6 +5,11 @@
 - 定位：`transcript.reset()` 同时保留累计 token 统计和 `contextUsed`；前者是会话累计指标，后者是当前 API 请求上下文水位，`/clear` 后应归零。
 - 结论：reset 可以保留 input/output/cache 累计统计，但不能保留 `contextUsed`；`SessionLoadedEvent` 这类恢复场景应在 reset 后显式写回 `LastInput`。
 
+## Plan rejection 必须补齐 tool_result
+- 现象：长会话执行 Compact 时 Aiden 返回 `No tool output found for function call ...`，TUI 又把失败误显示成 `Not enough messages to compact`。
+- 定位：`ExitPlanMode` 被用户拒绝/打断时，assistant 的 `tool_use` 已进入 history，但 `TurnRunner` 直接 `PlanRejected` 后结束，没有追加对应 user `tool_result`；下一次普通 request 或 compact summary 都会携带 orphan tool_use。
+- 结论：所有进入 history 的 tool_use 都必须在同一历史流里补齐 tool_result；plan rejection 也应复用 `rejectToolResults`，但不立即 continue，等下一次用户反馈自然带上拒绝结果。
+
 ## Agent Observatory 控制面与观测面边界
 - 现象：设计 Web Observatory 时，最初尝试让 TUI 通过 IPC action 把快照发回 runtime-side hub，甚至让 Hub 成为 Engine event 的 fan-out 出口；这会让观测系统夹进 TUI → Engine 控制链路，语义别扭且有扩大耦合风险。
 - 定位：TUI 的 `Input/Action` 是业务控制面，必须直接到 `RuntimeHost/Mediator/Engine`；Observatory 只能是旁路观察者。Engine event channel 是 single-consumer，又需要同时给 TUI 和 Web，所以正确边界是 `EventTapRuntime`：唯一读取 `Base.Events()`，一份转发给 IPC/TUI，一份送 sidecar Hub。

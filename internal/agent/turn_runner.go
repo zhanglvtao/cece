@@ -178,6 +178,12 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		if err := r.interactionGate.WaitIfNeeded(ctx, resp.toolCalls, events); err != nil {
 			if errors.Is(err, WaitRejected) {
 				if hasExitPlanMode(resp.toolCalls) {
+					resultMsg := Message{
+						Role:          UserRole,
+						ContentBlocks: rejectToolResults(resp.toolCalls),
+					}
+					r.deps.AppendMessage(resultMsg)
+					r.deps.PersistMessage(context.Background(), resultMsg)
 					events <- PlanRejected{}
 					events <- AssistantCompleted{Duration: time.Since(turnStart)}
 					return

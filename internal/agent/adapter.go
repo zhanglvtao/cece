@@ -152,6 +152,7 @@ func ToDTO(e Event) protocol.Event {
 			MessagesBefore: v.MessagesBefore,
 			MessagesAfter:  v.MessagesAfter,
 			Summary:        v.Summary,
+			Err:            v.Err,
 		}
 
 	case TruncatedToolResults:

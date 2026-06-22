@@ -593,7 +593,10 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.CompactingEvent:
 		m.status = "Compacting"
 	case protocol.CompactedEvent:
-		if e.MessagesBefore == e.MessagesAfter {
+		if e.Err != "" {
+			m.status = errorStatus("Compact failed: " + e.Err)
+			m.transcript.appendDone(blockError, "compact", "Compact failed: "+e.Err)
+		} else if e.MessagesBefore == e.MessagesAfter {
 			m.status = "Not enough messages to compact"
 			m.transcript.appendDone(blockInfo, "compact", "Not enough messages to compact. Send a few more messages first.")
 		} else {

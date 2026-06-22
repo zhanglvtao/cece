@@ -18,7 +18,7 @@ type CompactResult struct {
 	// SummarizeCount is the number of older messages that were summarized.
 	SummarizeCount int
 	// KeepCount is the number of recent messages preserved verbatim.
-	KeepCount int
+	KeepCount    int
 	TokensBefore int
 	TokensAfter  int
 }
@@ -87,6 +87,8 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message) (CompactRes
 // The compact prompt is appended as a final user message (like claude-code),
 // and the system prompt is a short role instruction.
 func (c *Compactor) GenerateSummary(ctx context.Context, messages []Message) (string, error) {
+	messages = ValidateToolResultCoverage(EnsureToolResultCoverage(messages))
+
 	systemPrompt := SystemPrompt{
 		Blocks: []SystemBlock{
 			{Text: "You are a helpful AI assistant tasked with summarizing conversations."},

@@ -271,6 +271,30 @@ func TestCompactSummaryUsesSafeUserBoundary(t *testing.T) {
 	}
 }
 
+func TestCompactHistoryFailureEmitsError(t *testing.T) {
+	eng := NewEngine(&fakeClient{chunks: []agent.ApiStreamEvent{{Err: errors.New("summary boom")}}}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.LoadHistory(context.Background(), "", []agent.Message{
+		{Role: agent.UserRole, Content: "u1"},
+		{Role: agent.AssistantRole, Content: "a1"},
+		{Role: agent.UserRole, Content: "u2"},
+		{Role: agent.AssistantRole, Content: "a2"},
+		{Role: agent.UserRole, Content: "u3"},
+		{Role: agent.AssistantRole, Content: "a3"},
+	})
+
+	eng.CompactHistory(context.Background())
+	for i := 0; i < 4; i++ {
+		ev := <-eng.Events()
+		if compacted, ok := ev.(protocol.CompactedEvent); ok {
+			if !strings.Contains(compacted.Err, "summary boom") {
+				t.Fatalf("CompactedEvent.Err = %q, want summary boom", compacted.Err)
+			}
+			return
+		}
+	}
+	t.Fatal("expected CompactedEvent")
+}
+
 func TestCompactTrimToolResultsUsesSafeUserRange(t *testing.T) {
 	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 	eng.LoadHistory(context.Background(), "", toolBoundaryHistory())

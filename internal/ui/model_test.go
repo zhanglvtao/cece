@@ -458,6 +458,19 @@ func TestHistoryClearedEventResetsTranscriptAndContextGauge(t *testing.T) {
 	}
 }
 
+func TestCompactedEventFailureShowsError(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.ApplyEventForTest(protocol.CompactedEvent{MessagesBefore: 10, MessagesAfter: 10, Err: "summary boom"})
+
+	if !strings.Contains(m.status, "Compact failed: summary boom") {
+		t.Fatalf("status = %q, want compact failure", m.status)
+	}
+	plain := stripAnsi(m.transcript.render(80, m.styles))
+	if !strings.Contains(plain, "Compact failed: summary boom") || strings.Contains(plain, "Not enough messages") {
+		t.Fatalf("transcript = %q", plain)
+	}
+}
+
 func TestSlashModelAndSkill(t *testing.T) {
 	sender := newRecordingSender()
 	m := NewModel(sender, "sonnet", "/tmp")

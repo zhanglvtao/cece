@@ -996,6 +996,7 @@ func (e *Engine) CompactHistory(ctx context.Context) {
 		e.emitEvent(protocol.CompactedEvent{
 			MessagesBefore: len(snapshot),
 			MessagesAfter:  len(snapshot),
+			Err:            err.Error(),
 		})
 		return
 	}

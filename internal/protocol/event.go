@@ -289,6 +289,7 @@ type CompactedEvent struct {
 	MessagesBefore int
 	MessagesAfter  int
 	Summary        string // the generated summary content
+	Err            string // non-empty when compaction failed
 }
 
 func (CompactedEvent) isEvent() {}

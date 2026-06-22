@@ -246,6 +246,7 @@ type Compacted struct {
 	MessagesBefore int
 	MessagesAfter  int
 	Summary        string
+	Err            string
 }
 
 func (Compacted) isEvent() {}

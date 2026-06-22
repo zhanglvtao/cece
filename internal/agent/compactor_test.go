@@ -144,6 +144,40 @@ func TestCompact_NothingToSummarize(t *testing.T) {
 	}
 }
 
+func TestGenerateSummaryEnsuresToolResultCoverage(t *testing.T) {
+	var request []Message
+	mc := &mockStreamClient{streamFn: func(ctx context.Context, messages []Message, system SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan ApiStreamEvent, error) {
+		request = append([]Message(nil), messages...)
+		ch := make(chan ApiStreamEvent, 3)
+		ch <- ApiStreamEvent{Delta: "summary", Detail: "text_delta"}
+		ch <- ApiStreamEvent{Done: true, EventType: "message_stop"}
+		close(ch)
+		return ch, nil
+	}}
+	c := NewCompactor(mc, 2)
+
+	_, err := c.GenerateSummary(context.Background(), []Message{{
+		Role: AssistantRole,
+		ContentBlocks: []ApiContentBlock{{
+			Type:    ApiToolUseContentType,
+			ToolUse: &ApiToolUseBlock{ID: "call_missing", Name: "ExitPlanMode"},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("GenerateSummary error = %v", err)
+	}
+	if len(request) < 3 {
+		t.Fatalf("request messages = %+v, want assistant + synthetic tool_result + compact prompt", request)
+	}
+	if request[1].Role != UserRole || len(request[1].ContentBlocks) != 1 {
+		t.Fatalf("synthetic result message = %+v", request[1])
+	}
+	tr, ok := request[1].ContentBlocks[0].AsToolResult()
+	if !ok || tr.ToolUseID != "call_missing" || !tr.IsError {
+		t.Fatalf("synthetic tool_result = %+v, ok=%v", request[1].ContentBlocks[0], ok)
+	}
+}
+
 func TestBuildCompactSystemPrompt(t *testing.T) {
 	prompt := buildCompactUserPrompt()
 	if !strings.Contains(prompt, "summary") && !strings.Contains(prompt, "Summary") {

@@ -49,6 +49,7 @@ func TestEventRoundTrip(t *testing.T) {
 		protocol.ModelRequestStarted{Reason: "user", EstimatedInputTokens: 12, APICalls: 1},
 		protocol.AssistantStarted{}, protocol.AssistantDelta{Text: "hello"}, protocol.AssistantCompleted{},
 		protocol.RunFailed{Err: "boom"},
+		protocol.CompactedEvent{MessagesBefore: 3, MessagesAfter: 3, Err: "compact boom"},
 		protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "t1", Name: "Read", Input: json.RawMessage(`{"path":"x"}`)}}},
 		protocol.ToolExecCompleted{ID: "t1", Name: "Read", Result: protocol.ToolResult{Content: "ok"}, ToolCounts: map[string]int{"Read": 1}},
 		protocol.PlanApprovalRequested{PlanContent: "# plan", PlanFile: "p.md"},
