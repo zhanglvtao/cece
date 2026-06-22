@@ -66,6 +66,11 @@
 - 定位：`swebench/docker.py` 的 patch 边界应该只包含 agent 对仓库源码的修改；评测 harness 写入的控制文件必须在 cached diff 前排除。
 - 结论：生成 patch 时同时 reset `.cece/`、`SYSTEM.md`、`issue.md`；后续新增任何 harness 注入文件，都必须加入同一排除边界，否则会污染 SWE-bench prediction。
 
+## SWE-bench auto-accept 会绕过 plan reminder
+- 现象：`astropy__astropy-7746` 中 gpt-5.5-paygo 只修了 `np.zeros((0, 2))` 空输入，没有覆盖 issue/test 里的 `([], [1])` 调用形态，官方判分 2/3 resolved。
+- 定位：SWE-bench harness 为了无人值守把 `defaultMode` 强制成 `auto-accept`，导致 agent 首轮缺少 plan mode reminder；而 yolo 已可自动放行 `ExitPlanMode`，不需要牺牲 plan-first 流程。
+- 结论：评测容器应使用 `defaultMode=plan` + `yolo.enabled=true`：让模型先规划复现和边界，同时避免计划审批卡住 batch runner。
+
 ## 默认 plan mode 需要显式告诉模型当前状态
 - 现象：会话启动默认就是 plan mode，但模型仍可能先调用 `EnterPlanMode`，随后工具返回 `Already in plan mode.`。
 - 定位：tool definitions 里仍包含 `EnterPlanMode` 是为了保持工具结构稳定；模型是否知道“已在 plan 中”取决于模型可见的 plan reminder。

@@ -66,7 +66,7 @@ class DockerInstance:
         from swebench.auth import resolve_auth_tokens
         host_config = json.loads(self.config_path.read_text())
         host_config["provider"]["model"] = self.model
-        host_config["defaultMode"] = {"mode": "auto-accept"}
+        host_config["defaultMode"] = {"mode": "plan"}
         host_config["yolo"] = {"enabled": True}
         host_config = resolve_auth_tokens(host_config)
 
