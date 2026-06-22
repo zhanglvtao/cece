@@ -101,6 +101,11 @@
 - 定位：`Store` 已输出 `ObservatoryNode/ObservatoryEdge` 语义关系，但 Web 层用 `slots/edgeSlots` 二次硬编码坐标，没有把边连接到真实节点端点。
 - 结论：观测层应保持语义边由 Store 产生，端点连接、自动布局和多边避让交给图渲染框架；否则拓扑一扩展视觉就会漂移。
 
+## Observatory 前端 embed 的构建顺序
+- 现象：React Flow Observatory 运行时已经通过 Go `embed.FS` 随二进制分发，但 `build.sh` / source fallback 只跑 `go build` 时，binary 会直接携带仓库里已有的 `webapp/dist`，前端源码变化可能没有进入产物。
+- 定位：`go:embed` 只在 Go 编译时读取磁盘上的 dist 文件，不会触发 Vite 构建；构建链必须显式先跑 `npm ci` / `npm run build`，再跑 `go build`。
+- 结论：前端 Observatory 是运行时零 Node 依赖，但构建时有 Node/npm 依赖；所有发布/安装/交叉编译入口都要先刷新 dist，再编译 Go binary。
+
 ## @ 文件弹窗被深层大目录饿死
 - 现象：在大仓库根目录输入 `@dbatman` 时，`dbatman/` 真实存在但弹窗为空。
 - 定位：`FileWalker` 用深度优先 `filepath.Walk` 扫描，并有 5000 条全局上限；字典序靠前的巨大子目录会先耗尽配额，根目录后续目录无法进入候选缓存。

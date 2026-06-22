@@ -84,6 +84,10 @@ build_from_source() {
         die "Go not found and prebuilt binary download failed. Install Go: https://go.dev/dl/"
     fi
 
+    if ! command -v npm &>/dev/null; then
+        die "npm not found and source build needs Observatory webapp assets. Install Node.js: https://nodejs.org/"
+    fi
+
     go_ver=$(go version | awk '{print $3}' | sed 's/go//')
     major_minor=$(echo "$go_ver" | cut -d. -f1,2)
     if [ "$(printf '%s\n' "$need_go_version" "$major_minor" | sort -V | head -n1)" != "$need_go_version" ]; then
@@ -100,6 +104,10 @@ build_from_source() {
 
     info "Downloading dependencies..."
     go mod download
+
+    info "Building Observatory webapp..."
+    npm --prefix internal/observatory/webapp ci
+    npm --prefix internal/observatory/webapp run build
 
     info "Building cece..."
     go build -ldflags="-s -w" -o cece ./cmd/cece
