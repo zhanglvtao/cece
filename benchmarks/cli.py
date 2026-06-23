@@ -87,8 +87,11 @@ def cmd_score(args):
         print("No result directory found. Use --result-dir.")
         return
 
+    dataset = getattr(args, 'dataset', '') or ''
+    split = getattr(args, 'split', '') or ''
+
     print(f"Scoring {args.benchmark} from {result_dir}")
-    report = scorer.score(result_dir, args.dataset or "", args.split or "")
+    report = scorer.score(result_dir, dataset, split)
 
     print(f"  Total: {report.total}")
     print(f"  Resolved: {report.resolved}")
@@ -122,11 +125,24 @@ def _run_one(adapter, inst, cece_bin, config, timeout, store):
         driver.close()
 
         artifact = {}
+        score_result = {}
         if result.exit_status == "completed":
             try:
                 artifact = adapter.collect_artifact(sandbox, inst)
             except Exception as e:
                 artifact = {"collection_error": str(e)}
+
+            # In-place scoring: same container, apply patch + run tests
+            try:
+                from .scorers.swebench import score_in_place
+                container_name = sandbox.extra.get("container_name", "")
+                instance_data = sandbox.extra.get("instance", inst)
+                patch = artifact.get("patch", "")
+                if container_name and patch:
+                    score_result = score_in_place(container_name, patch, instance_data)
+                    artifact["score"] = score_result
+            except Exception as e:
+                score_result = {"status": "score_error", "error": str(e)}
 
         record = RunRecord(
             benchmark=adapter.name,
@@ -143,11 +159,12 @@ def _run_one(adapter, inst, cece_bin, config, timeout, store):
         store.save_run(record)
 
         status = result.exit_status
+        score_status = score_result.get("status", "")
+        resolved = score_result.get("resolved", False)
         if status == "completed":
-            art_size = sum(len(str(v)) for v in artifact.values())
-            print(f"  [done] {inst_id} — {status} | artifact:{art_size}b")
+            print(f"  [{'PASS' if resolved else 'FAIL'}] {inst_id} — {score_status or status}")
         else:
-            print(f"  [fail] {inst_id} — {status}")
+            print(f"  [FAIL] {inst_id} — {status}")
 
     except Exception as e:
         print(f"  [error] {inst_id} — {e}")
@@ -196,7 +213,8 @@ def _print_summary(records):
     done = sum(1 for r in records if r.exit_status == "completed")
     failed = sum(1 for r in records if r.exit_status not in ("completed", "skipped"))
     skipped = sum(1 for r in records if r.exit_status == "skipped")
-    print(f"\nDone: {done} | Failed: {failed} | Skipped: {skipped} | Total: {len(records)}")
+    resolved = sum(1 for r in records if r.artifact.get("score", {}).get("resolved", False))
+    print(f"\nDone: {done} | Failed: {failed} | Skipped: {skipped} | Resolved: {resolved} | Total: {len(records)}")
 
 
 def _load_config_for_benchmark(benchmark: str, config_path: Optional[str] = None) -> dict:

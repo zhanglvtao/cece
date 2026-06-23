@@ -1,4 +1,4 @@
-"""SWE-bench adapter."""
+"""SWE-bench adapter — runtime init from env image, run+score in same container."""
 
 import json
 import subprocess
@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..auth import resolve_auth_tokens
+from ..build_images import get_env_image_for_instance
 from ..prompts import swebench as swebench_prompt
 from . import BenchmarkAdapter, Sandbox
 
@@ -19,10 +20,7 @@ class SWEBenchAdapter(BenchmarkAdapter):
         self._instances: list[dict] = []
 
     def load_instances(self, dataset: str, split: str, slice: Optional[str] = None) -> list[dict]:
-        try:
-            from datasets import load_dataset
-        except ImportError:
-            raise ImportError("pip install datasets")
+        from datasets import load_dataset
         ds = load_dataset(dataset, split=split)
         instances = list(ds)
         if slice:
@@ -30,63 +28,60 @@ class SWEBenchAdapter(BenchmarkAdapter):
         self._instances = instances
         return instances
 
-    def _inst_index(self, inst: dict) -> int:
-        try:
-            return self._instances.index(inst)
-        except ValueError:
-            return 0
-
     def instance_id(self, inst: dict) -> str:
         return inst["instance_id"]
 
     def setup_sandbox(self, inst: dict, cece_bin: str, config: dict) -> Sandbox:
         instance_id = inst["instance_id"]
+        repo = inst["repo"]
         base_commit = inst["base_commit"]
         problem_statement = inst["problem_statement"]
-
         container_name = f"cece-swebench-{instance_id.replace('__', '-')}"
 
-        # 1. Try local native arch image first (built by build_images.py)
-        local_image = f"cece/sweb.inst.{instance_id.replace('__', '_')}:latest"
-        image = None
-
-        r = subprocess.run(["docker", "inspect", "--type=image", local_image],
-                           capture_output=True)
-        if r.returncode == 0:
-            image = local_image
-
-        # 2. Fall back to official SWE-bench image (may be x86_64 + QEMU)
-        if not image:
-            docker_id = instance_id.replace("__", "_1776_")
-            official_image = f"docker.io/swebench/sweb.eval.x86_64.{docker_id}:latest".lower()
-            try:
-                subprocess.run(["docker", "pull", official_image], check=True, stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=120)
-                image = official_image
-            except Exception:
-                pass
-
-        if not image:
+        # Resolve env image
+        env_image = get_env_image_for_instance(inst)
+        r = subprocess.run(["docker", "inspect", "--type=image", env_image], capture_output=True)
+        if r.returncode != 0:
             raise RuntimeError(
-                f"No image found for {instance_id}. "
-                f"Run: python -m benchmarks.build_images --slice :{self._inst_index(inst)} --dataset <ds>"
+                f"Env image not found: {env_image}. "
+                f"Run: python -m benchmarks.build_images"
             )
 
-        # Remove existing container
+        # Clean up old container
         subprocess.run(["docker", "rm", "-f", container_name],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # Start container
-        subprocess.run(["docker", "run", "-d", "--name", container_name, image, "sleep", "infinity"],
-                       check=True, stdout=subprocess.DEVNULL)
+        # Start from env image
+        subprocess.run(
+            ["docker", "run", "-d", "--name", container_name, env_image, "sleep", "infinity"],
+            check=True, stdout=subprocess.DEVNULL,
+        )
 
-        # Copy cece binary (must match container arch)
+        # Copy cece binary
         subprocess.run(["docker", "cp", cece_bin, f"{container_name}:/usr/local/bin/cece"], check=True)
         subprocess.run(["docker", "exec", container_name, "chmod", "+x", "/usr/local/bin/cece"], check=True)
 
-        # Prepare config
+        # Init repo: clone + checkout + pip install
+        self._exec(container_name, [
+            "bash", "-c",
+            f"cd /testbed && "
+            f"if [ ! -d '.git' ]; then "
+            f"  git clone https://github.com/{repo}.git /tmp/_repo && "
+            f"  cp -a /tmp/_repo/. /testbed/ && rm -rf /tmp/_repo; "
+            f"fi && "
+            f"git fetch --unshallow origin 2>/dev/null || true && "
+            f"git checkout {base_commit} && "
+            f"source /opt/miniconda3/etc/profile.d/conda.sh && "
+            f"conda activate testbed && "
+            f"pip install 'setuptools<58' wheel cython && "
+            f"python setup.py develop 2>&1 || pip install . 2>&1 || true && "
+            f"git config user.email cece@swebench.local && "
+            f"git config user.name cece"
+        ], workdir="/testbed")
+
+        # Write config + prompt files
         host_config = {**config}
-        host_config["provider"]["model"] = config.get("model", "deepseek-v4-pro")
+        host_config["provider"]["model"] = config.get("model", "glm-5v")
         host_config["defaultMode"] = {"mode": "plan"}
         host_config["yolo"] = {"enabled": True}
         host_config = resolve_auth_tokens(host_config)
@@ -95,12 +90,8 @@ class SWEBenchAdapter(BenchmarkAdapter):
         self._write_file(container_name, "/testbed/SYSTEM.md", swebench_prompt.TEMPLATE)
         self._write_file(container_name, "/testbed/issue.md", problem_statement)
 
-        # Checkout base commit
-        self._exec(container_name, ["git", "checkout", base_commit], workdir="/testbed")
-        self._exec(container_name, ["git", "config", "user.email", "cece@swebench.local"], workdir="/testbed")
-        self._exec(container_name, ["git", "config", "user.name", "cece"], workdir="/testbed")
-
-        exec_cmd = ["docker", "exec", "-i", container_name, "/usr/local/bin/cece", "engine", "--project-dir", "/testbed"]
+        exec_cmd = ["docker", "exec", "-i", container_name,
+                     "/usr/local/bin/cece", "engine", "--project-dir", "/testbed"]
 
         def cleanup():
             subprocess.run(["docker", "rm", "-f", container_name],
@@ -111,14 +102,13 @@ class SWEBenchAdapter(BenchmarkAdapter):
             project_dir="/testbed",
             exec_cmd=exec_cmd,
             cleanup=cleanup,
-            extra={"container_name": container_name},
+            extra={"container_name": container_name, "instance": inst},
         )
 
     def build_prompt(self, inst: dict) -> str:
-        problem_statement = inst["problem_statement"]
         return (
             f"Please fix the following GitHub issue in the /testbed codebase.\n\n"
-            f"<issue>\n{problem_statement}\n</issue>"
+            f"<issue>\n{inst['problem_statement']}\n</issue>"
         )
 
     def collect_artifact(self, sandbox: Sandbox, inst: dict) -> dict:
@@ -140,11 +130,12 @@ class SWEBenchAdapter(BenchmarkAdapter):
             input=content, check=True, stdout=subprocess.DEVNULL, text=True,
         )
 
-    def _exec(self, container_name: str, cmd: list[str], workdir: str = "/testbed", capture: bool = False) -> str:
+    def _exec(self, container_name: str, cmd: list[str], workdir: str = "/testbed",
+              capture: bool = False, timeout: int = 300) -> str:
         docker_cmd = ["docker", "exec", "-w", workdir, container_name] + cmd
         if capture:
-            result = subprocess.run(docker_cmd, capture_output=True, text=True)
+            result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=timeout)
             return result.stdout
         else:
-            subprocess.run(docker_cmd, check=True)
+            subprocess.run(docker_cmd, check=True, timeout=timeout)
             return ""

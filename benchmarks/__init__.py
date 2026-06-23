@@ -6,7 +6,6 @@ from .adapters.terminal_bench import TerminalBenchAdapter
 from .adapters.aider_polyglot import AiderPolyglotAdapter
 from .adapters.spider2 import Spider2Adapter
 
-from .scorers.swebench import SWEBenchScorer
 from .scorers.mswe import MSWEBenchScorer
 from .scorers.terminal_bench import TerminalBenchScorer
 from .scorers.aider_polyglot import AiderPolyglotScorer
@@ -20,8 +19,8 @@ ADAPTERS = {
     "spider2": Spider2Adapter,
 }
 
+# SWE-bench uses in-place scoring (score_in_place function, not a class)
 SCORERS = {
-    "swebench": SWEBenchScorer,
     "mswe": MSWEBenchScorer,
     "terminal-bench": TerminalBenchScorer,
     "aider-polyglot": AiderPolyglotScorer,
@@ -39,7 +38,7 @@ def get_adapter(name: str):
 def get_scorer(name: str):
     cls = SCORERS.get(name)
     if cls is None:
-        raise ValueError(f"Unknown benchmark: {name}. Available: {list(SCORERS.keys())}")
+        raise ValueError(f"Unknown benchmark scorer: {name}. Available: {list(SCORERS.keys())}")
     return cls()
 
 

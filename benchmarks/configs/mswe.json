@@ -1,10 +1,1 @@
-{
-  "provider": {
-    "model": "glm-5v",
-    "maxTokens": 16384,
-    "providers": []
-  },
-  "defaultMode": {"mode": "plan"},
-  "yolo": {"enabled": true},
-  "tool_result": {"inline_max_lines": 200}
-}
+{"defaultMode": {"mode": "plan"}, "yolo": {"enabled": true}, "tool_result": {"inline_max_lines": 200}}
