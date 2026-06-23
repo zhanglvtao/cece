@@ -28,6 +28,7 @@ type AgentSubAgentConfig struct {
 	Tools             []string
 	SystemPromptExtra string
 	MaxTurns          int
+	TimeoutMS         int
 }
 
 // AgentSubAgentResult is the result of a sub-agent run.
@@ -98,13 +99,13 @@ func (t agentTool) Info() Definition {
 	}
 	return Definition{
 		Name:        AgentToolName,
-		Description: "Start and control worker agents asynchronously. Use operation=start to launch a worker and immediately receive an agent_id, then use status/send/answer/confirm/reject/cancel to drive it. Multiple Agent start calls in a single response can run in parallel. Workers have their own conversation history and tool set, share the project directory, and cannot spawn further agents.",
+		Description: "Start and control worker agents asynchronously. Use operation=start to launch a worker and immediately receive an agent_id, then use status/wait/send/answer/confirm/reject/cancel to drive it. Multiple Agent start calls in a single response can run in parallel. Workers have their own conversation history and tool set, share the project directory, and cannot spawn further agents.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"operation": map[string]any{
 					"type":        "string",
-					"description": "Operation: start (default), status, send, answer, confirm, reject, switch_model, or cancel.",
+					"description": "Operation: start (default), status, wait, send, answer, confirm, reject, switch_model, or cancel.",
 				},
 				"agent_id": map[string]any{
 					"type":        "string",
@@ -152,6 +153,10 @@ func (t agentTool) Info() Definition {
 					"type":        "integer",
 					"description": "Max agentic iterations.",
 				},
+				"timeout_ms": map[string]any{
+					"type":        "integer",
+					"description": "Max wait time in milliseconds for wait operation (default 30000).",
+				},
 			},
 		},
 	}
@@ -169,6 +174,7 @@ type agentParams struct {
 	Tools        []string         `json:"tools,omitempty"`
 	SystemPrompt string           `json:"system_prompt,omitempty"`
 	MaxTurns     int              `json:"max_turns,omitempty"`
+	TimeoutMS    int              `json:"timeout_ms,omitempty"`
 }
 
 func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
@@ -192,6 +198,7 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		"description", p.Description,
 		"model", p.Model,
 		"maxTurns", p.MaxTurns,
+		"timeoutMS", p.TimeoutMS,
 	)
 
 	if operation == "start" && p.Prompt == "" {
@@ -224,6 +231,7 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		Tools:             p.Tools,
 		SystemPromptExtra: p.SystemPrompt,
 		MaxTurns:          p.MaxTurns,
+		TimeoutMS:         p.TimeoutMS,
 	}, emitter)
 
 	if err != nil {

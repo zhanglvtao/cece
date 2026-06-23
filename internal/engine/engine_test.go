@@ -107,6 +107,40 @@ func TestEngineQueueInputStartsTurnImmediatelyWhenIdle(t *testing.T) {
 	}
 }
 
+func TestEngineInjectsUnreadAgentNotificationsIntoNextRequest(t *testing.T) {
+	client := &recordingClient{}
+	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.appendAgentNotification(agentNotification{AgentID: "agent-1", Status: AgentStatusCompleted, Summary: "done", ResultPath: "/tmp/result.txt"})
+
+	if err := eng.Input(context.Background(), "continue"); err != nil {
+		t.Fatalf("Input error = %v", err)
+	}
+	waitForTurnCompleted(t, eng)
+	if len(client.messages) != 1 {
+		t.Fatalf("client calls = %d, want 1", len(client.messages))
+	}
+	found := false
+	for _, msg := range client.messages[0] {
+		if strings.Contains(msg.Content, "Agent notifications from background workers") && strings.Contains(msg.Content, "/tmp/result.txt") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("request messages missing notification: %+v", client.messages[0])
+	}
+
+	if err := eng.Input(context.Background(), "continue again"); err != nil {
+		t.Fatalf("second Input error = %v", err)
+	}
+	waitForTurnCompleted(t, eng)
+	last := client.messages[len(client.messages)-1]
+	for _, msg := range last {
+		if strings.Contains(msg.Content, "Agent notifications from background workers") {
+			t.Fatalf("notification injected twice: %+v", last)
+		}
+	}
+}
+
 func TestEngineInputValidation(t *testing.T) {
 	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 

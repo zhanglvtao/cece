@@ -54,10 +54,28 @@ func TestAgentToolModelSchemaUsesProvider(t *testing.T) {
 	}
 }
 
+func TestAgentToolPassesWaitTimeout(t *testing.T) {
+	var got AgentSubAgentConfig
+	agentTool := NewAgent(&AgentHandler{
+		RunSubAgent: func(ctx context.Context, config AgentSubAgentConfig, emitter Emitter) (AgentSubAgentResult, error) {
+			got = config
+			return AgentSubAgentResult{AgentID: config.AgentID, Status: "running", Content: "waiting"}, nil
+		},
+	})
+	input, _ := json.Marshal(map[string]any{"operation": "wait", "agent_id": "agent-1", "timeout_ms": 1234})
+	result := agentTool.Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+	if got.Operation != "wait" || got.AgentID != "agent-1" || got.TimeoutMS != 1234 {
+		t.Fatalf("config = %+v, want wait agent-1 timeout 1234", got)
+	}
+}
+
 func TestAgentToolDescriptionMentionsAsyncControlPlane(t *testing.T) {
 	agentTool := NewAgent(&AgentHandler{})
 	desc := agentTool.Info().Description
-	for _, want := range []string{"asynchronously", "status", "send", "answer", "confirm", "reject", "cancel"} {
+	for _, want := range []string{"asynchronously", "status", "wait", "send", "answer", "confirm", "reject", "cancel"} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("description missing %q: %q", want, desc)
 		}

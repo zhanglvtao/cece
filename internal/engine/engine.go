@@ -96,6 +96,7 @@ type Engine struct {
 	lastNudgeTurn              int                                  // last turn number when nudge was injected (throttle)
 	inputQueue                 *userInputQueue                      // queued user inputs while agent is busy
 	questionAnswers            []tool.QuestionAnswer
+	agentInbox                 []agentNotification
 	agentController            AgentController
 	eventCh                    chan protocol.Event // global event channel for async responses
 }
@@ -185,6 +186,87 @@ func (e *Engine) AppendHistory(msg agent.Message) {
 
 func (e *Engine) PersistMessage(ctx context.Context, msg agent.Message) {
 	agent.NewSessionCoordinator(e.store).PersistMessage(ctx, e.SessionID(), msg)
+}
+
+type agentNotification struct {
+	AgentID    string
+	Status     AgentStatus
+	Summary    string
+	ResultPath string
+	Error      string
+	Pending    PendingKind
+	Read       bool
+}
+
+func (e *Engine) appendAgentNotification(n agentNotification) {
+	if n.AgentID == "" {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for i := range e.agentInbox {
+		if e.agentInbox[i].AgentID == n.AgentID && e.agentInbox[i].Status == n.Status && e.agentInbox[i].Pending == n.Pending {
+			e.agentInbox[i] = n
+			return
+		}
+	}
+	e.agentInbox = append(e.agentInbox, n)
+}
+
+func (e *Engine) markAgentNotificationRead(agentID string) {
+	if agentID == "" {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for i := range e.agentInbox {
+		if e.agentInbox[i].AgentID == agentID {
+			e.agentInbox[i].Read = true
+		}
+	}
+}
+
+func (e *Engine) drainAgentNotifications() []agentNotification {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]agentNotification, 0, len(e.agentInbox))
+	kept := e.agentInbox[:0]
+	for _, n := range e.agentInbox {
+		if n.Read {
+			continue
+		}
+		n.Read = true
+		out = append(out, n)
+		kept = append(kept, n)
+	}
+	e.agentInbox = kept
+	return out
+}
+
+func (e *Engine) injectAgentNotifications(snapshot []agent.Message) []agent.Message {
+	notifications := e.drainAgentNotifications()
+	if len(notifications) == 0 {
+		return snapshot
+	}
+	var b strings.Builder
+	b.WriteString("Agent notifications from background workers:\n")
+	for _, n := range notifications {
+		fmt.Fprintf(&b, "- Agent %s status: %s", n.AgentID, n.Status)
+		if n.Summary != "" {
+			fmt.Fprintf(&b, "\n  Summary: %s", n.Summary)
+		}
+		if n.ResultPath != "" {
+			fmt.Fprintf(&b, "\n  Result artifact: %s\n  Use Read with this path to inspect the full result.", n.ResultPath)
+		}
+		if n.Pending != PendingNone {
+			fmt.Fprintf(&b, "\n  Pending: %s", n.Pending)
+		}
+		if n.Error != "" {
+			fmt.Fprintf(&b, "\n  Error: %s", n.Error)
+		}
+		b.WriteByte('\n')
+	}
+	return append(snapshot, agent.Message{Role: agent.UserRole, Content: strings.TrimSpace(b.String())})
 }
 
 func (e *Engine) HistorySnapshot() []agent.Message {
@@ -1367,6 +1449,7 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 	user := agent.Message{Role: agent.UserRole, Content: input}
 
 	snapshot := e.beginInputTurn(user)
+	snapshot = e.injectAgentNotifications(snapshot)
 
 	// Check if a context-pressure nudge should be injected.
 	if ok, turns, pct, cw := e.shouldNudge(); ok {
