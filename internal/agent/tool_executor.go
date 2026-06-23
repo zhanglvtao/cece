@@ -153,7 +153,7 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 				ToolUseID:  call.ID,
 				Content:    result.Content,
 				IsError:    result.IsError,
-				Truncated:  false,
+				Truncated:  result.Truncated,
 				TotalLines: totalLines,
 			},
 		}

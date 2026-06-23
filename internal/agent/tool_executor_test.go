@@ -31,6 +31,36 @@ func (staticTestTool) Run(ctx context.Context, input json.RawMessage, emitter to
 	return tool.Result{Content: "ok"}
 }
 
+type truncatedTestTool struct{}
+
+func (truncatedTestTool) Info() tool.Definition {
+	return tool.Definition{
+		Name:        "Truncated",
+		Description: "truncated test tool",
+		InputSchema: map[string]any{"type": "object"},
+	}
+}
+
+func (truncatedTestTool) Run(ctx context.Context, input json.RawMessage, emitter tool.Emitter) tool.Result {
+	return tool.Result{Content: "preview", Truncated: true}
+}
+
+func TestToolExecutorPropagatesTruncatedMetadata(t *testing.T) {
+	registry := tool.NewRegistry(truncatedTestTool{})
+	executor := NewToolExecutor(registry, nil, nil, ToolResultPolicy{}, nil)
+	blocks := executor.ExecuteBatch(context.Background(), []ApiToolUseBlock{{
+		ID:    "tool-1",
+		Name:  "Truncated",
+		Input: json.RawMessage(`{}`),
+	}}, nil)
+	if len(blocks) != 1 || blocks[0].ToolResult == nil {
+		t.Fatalf("blocks = %#v, want one tool result", blocks)
+	}
+	if !blocks[0].ToolResult.Truncated {
+		t.Fatalf("Truncated = false, want true")
+	}
+}
+
 func TestToolExecutorExecuteBatchAllowsNilEventChannel(t *testing.T) {
 	registry := tool.NewRegistry()
 	registry.Register(staticTestTool{})

@@ -235,6 +235,7 @@ func (b *Builder) buildRegistry(profile AgentProfile, toolNames []string, planSt
 		tool.NewSkillTool(b.shared.Skills),
 		tool.NewTodo(taskList),
 	)
+	registry.SetResultStore(tool.NewResultStore(b.shared.ProjectDir))
 	if len(b.shared.LintConfig) > 0 {
 		registry.SetLinter(lint.NewRunner(b.shared.LintConfig, b.shared.ProjectDir))
 	}
@@ -261,6 +262,7 @@ func (b *Builder) buildRegistry(profile AgentProfile, toolNames []string, planSt
 	}
 
 	selected := tool.NewRegistry()
+	selected.SetResultStore(registry.ResultStore())
 	if len(b.shared.LintConfig) > 0 {
 		selected.SetLinter(lint.NewRunner(b.shared.LintConfig, b.shared.ProjectDir))
 	}
@@ -296,6 +298,7 @@ func (b *Builder) buildAssembler(ctx context.Context, req BuildRequest, registry
 
 func cloneRegistryWithout(src *tool.Registry, excluded map[string]struct{}, lintConfig map[string]string, projectDir string) *tool.Registry {
 	out := tool.NewRegistry()
+	out.SetResultStore(src.ResultStore())
 	if len(lintConfig) > 0 {
 		out.SetLinter(lint.NewRunner(lintConfig, projectDir))
 	}

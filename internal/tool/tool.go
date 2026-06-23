@@ -14,8 +14,21 @@ type Definition struct {
 
 // Result is the return value of a tool execution.
 type Result struct {
-	Content string
-	IsError bool
+	Content       string
+	IsError       bool
+	Truncated     bool
+	OutputPath    string
+	OriginalBytes int
+	PreviewBytes  int
+}
+
+type ResultStoragePolicy struct {
+	MaxBytes     int
+	PreviewBytes int
+}
+
+type LargeResultPolicyProvider interface {
+	ResultStoragePolicy() ResultStoragePolicy
 }
 
 // Emitter streams tool output incrementally. May be nil.

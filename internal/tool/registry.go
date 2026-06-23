@@ -11,8 +11,9 @@ import (
 
 // Registry manages registered tools.
 type Registry struct {
-	tools  map[string]Tool
-	linter *lint.Runner
+	tools       map[string]Tool
+	linter      *lint.Runner
+	resultStore *ResultStore
 }
 
 // NewRegistry creates a Registry with the given tools.
@@ -38,6 +39,15 @@ func (r *Registry) Register(t Tool) {
 // SetLinter sets the lint runner for write-effect tools.
 func (r *Registry) SetLinter(l *lint.Runner) {
 	r.linter = l
+}
+
+// SetResultStore sets the store used to persist oversized tool results.
+func (r *Registry) SetResultStore(store *ResultStore) {
+	r.resultStore = store
+}
+
+func (r *Registry) ResultStore() *ResultStore {
+	return r.resultStore
 }
 
 // SetMCPTools replaces all MCP tools in the registry.
@@ -70,14 +80,19 @@ func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessa
 	if !ok {
 		return Result{Content: fmt.Sprintf("unknown tool: %s", name), IsError: true}
 	}
-	if verr := validateInput(t.Info(), input); verr != nil {
+	def := t.Info()
+	if verr := validateInput(def, input); verr != nil {
 		return *verr
 	}
 	// Inject lint runner into context so write-effect tools can run lint.
 	if r.linter != nil {
 		ctx = lint.ContextWithRunner(ctx, r.linter)
 	}
-	return t.Run(ctx, input, emitter)
+	result := t.Run(ctx, input, emitter)
+	if provider, ok := t.(LargeResultPolicyProvider); ok {
+		result = r.resultStore.Apply(def.Name, result, provider.ResultStoragePolicy())
+	}
+	return result
 }
 
 // validateInput checks that all required fields in the tool's InputSchema
@@ -103,7 +118,7 @@ func validateInput(def Definition, input json.RawMessage) *Result {
 
 	props, _ := def.InputSchema["properties"].(map[string]any)
 
-	var missing []string   // truly absent keys
+	var missing []string     // truly absent keys
 	var emptyFields []string // keys present but empty-string
 	var hasNonEmpty bool     // any required field has real content
 

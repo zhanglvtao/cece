@@ -1,5 +1,21 @@
 # CC 开发过程中遇到的问题
 
+## Bash 大输出直接进入 tool_result 的上下文膨胀问题（2026-06-22）
+
+### 问题现象
+
+Bash 工具执行输出很大时，旧实现会先把 stdout/stderr 合并，再截成约 30K 字符放进 `tool_result.content`。这部分内容会进入后续模型上下文；同时被截掉的中间内容不可恢复，`tool_result.truncated` 还标为 false。
+
+### 根因
+
+工具返回值只有 `Content/IsError`，缺少“完整输出已落盘、当前内容只是预览”的通用元数据。Bash 只能在工具内部做字符串截断，导致上下文控制和结果可追溯性混在一起。
+
+### 修复
+
+增加通用 tool result storage：工具可声明大结果策略，Registry 统一把超限结果写到 `.cece/tool-results/`，返回预览、文件路径和 Read/Grep 指引，并透传 `Truncated` 元数据。Bash 首先接入该能力，阈值沿用 30K。
+
+---
+
 ## System Prompt 默认值与仓库 Override 双层来源（2026-06-17）
 
 ### 问题现象

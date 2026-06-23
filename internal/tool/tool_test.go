@@ -420,6 +420,35 @@ func TestRegistryExecuteUnknown(t *testing.T) {
 	}
 }
 
+func TestRegistryPersistsLargeBashOutput(t *testing.T) {
+	r := NewRegistry(NewBash())
+	r.SetResultStore(NewResultStore(t.TempDir()))
+	input, _ := json.Marshal(bashParams{Command: "printf '%030001dTAIL' 0"})
+	result := r.Execute(context.Background(), "Bash", input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+	if !result.Truncated {
+		t.Fatal("Truncated = false, want true")
+	}
+	if result.OutputPath == "" {
+		t.Fatal("OutputPath is empty")
+	}
+	stored, err := os.ReadFile(result.OutputPath)
+	if err != nil {
+		t.Fatalf("read stored output: %v", err)
+	}
+	if !strings.Contains(string(stored), "TAIL") {
+		t.Fatalf("stored output missing TAIL")
+	}
+	if !strings.Contains(result.Content, "Full output saved to:") {
+		t.Fatalf("Content = %q, want saved output hint", result.Content)
+	}
+	if strings.Contains(result.Content, "TAIL") {
+		t.Fatalf("Content should contain preview only, got TAIL")
+	}
+}
+
 // ── Glob ──────────────────────────────────────────────────────────────────────
 
 func TestGlobToolInfo(t *testing.T) {

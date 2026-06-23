@@ -32,7 +32,7 @@ func (bashTool) Effect() Effect { return EffectExec }
 func (bashTool) Info() Definition {
 	return Definition{
 		Name:        "Bash",
-		Description: "Execute a bash command and return its output. In plan mode, use only read-only exploration commands such as ls, pwd, git status, git log, git diff, find, grep, cat, head, and tail. Do not run commands that modify state, including mkdir, touch, rm, mv, cp, redirection writes (> or >>), heredocs that write files, git add/commit/push/checkout/reset, package installs, config changes, or generated-file commands.",
+		Description: "Execute a bash command and return its output. If output exceeds 30000 bytes, the full output is saved to .cece/tool-results and only a preview plus file path is returned. In plan mode, use only read-only exploration commands such as ls, pwd, git status, git log, git diff, find, grep, cat, head, and tail. Do not run commands that modify state, including mkdir, touch, rm, mv, cp, redirection writes (> or >>), heredocs that write files, git add/commit/push/checkout/reset, package installs, config changes, or generated-file commands.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -50,6 +50,10 @@ func (bashTool) Info() Definition {
 			"required": []string{"command"},
 		},
 	}
+}
+
+func (bashTool) ResultStoragePolicy() ResultStoragePolicy {
+	return ResultStoragePolicy{MaxBytes: maxOutputLen, PreviewBytes: maxOutputLen}
 }
 
 func ResolveBashTimeoutSeconds(timeout int) (int, error) {
@@ -142,7 +146,7 @@ func (bashTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 		b.WriteString(waitErr.Error())
 	}
 
-	return Result{Content: truncateOutput(b.String()), IsError: waitErr != nil}
+	return Result{Content: b.String(), IsError: waitErr != nil}
 }
 
 type lineWriter struct {
