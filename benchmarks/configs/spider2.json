@@ -1,6 +1,6 @@
 {
   "provider": {
-    "model": "deepseek-v4-pro",
+    "model": "glm-5v",
     "maxTokens": 16384,
     "providers": []
   },
