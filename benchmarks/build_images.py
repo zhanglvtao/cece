@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 
 def _detect_platform() -> str:
@@ -79,7 +80,7 @@ WORKDIR /testbed/
 
 
 def _build_image(image_name: str, dockerfile: str, build_dir: Path,
-                 setup_scripts: dict | None = None, platform: str = "") -> None:
+                 setup_scripts: Optional[dict] = None, platform: str = "") -> None:
     """Build a single Docker image."""
     build_dir.mkdir(parents=True, exist_ok=True)
 
@@ -105,7 +106,7 @@ def _build_image(image_name: str, dockerfile: str, build_dir: Path,
 
 def build_swebench_images(dataset: str = "princeton-nlp/SWE-bench_Lite",
                           split: str = "test",
-                          slice_str: str | None = None,
+                          slice_str: Optional[str] = None,
                           max_workers: int = 4,
                           force: bool = False) -> None:
     """Build SWE-bench instance images for host architecture."""
@@ -248,18 +249,24 @@ conda activate testbed
 cd /testbed
 
 if [ -d ".git" ]; then
-    git fetch origin
+    echo "Repo already initialized"
 else
-    git init
-    git remote add origin https://github.com/{repo}.git
+    echo "Cloning {repo}..."
+    git clone --depth 1 https://github.com/{repo}.git /tmp/repo_src || \\
+    git clone https://github.com/{repo}.git /tmp/repo_src
+    # Copy all files from cloned repo to /testbed (preserving .git)
+    cp -a /tmp/repo_src/. /testbed/
+    rm -rf /tmp/repo_src
 fi
 
+echo "Checking out {base_commit}..."
+git fetch --unshallow origin 2>/dev/null || true
 git checkout {base_commit}
 
 # Install the repo
 pip install -e . 2>/dev/null || echo "Install may need custom deps"
 
-echo "Repo ready at /testbed"
+echo "Repo ready at /testbed ($(git rev-parse --short HEAD))"
 """
 
 
