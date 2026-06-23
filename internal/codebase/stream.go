@@ -41,11 +41,18 @@ type streamState struct {
 	thinkingOpen      bool
 	thinkingIndex     int
 	activeToolIndices map[int]bool
+	toolCalls         map[int]*accumulatedToolCall
 	textBlockStarted  bool
 	textBlockIndex    int
 	inputTokens       int
 	outputTokens      int
 	doneEmitted       bool
+}
+
+type accumulatedToolCall struct {
+	id         string
+	name       string
+	startFired bool
 }
 
 // DecodeStreamEvent reads a codebase-api SSE stream and emits agent.ApiStreamEvent values.
@@ -214,32 +221,49 @@ func emitOutput(ev *OutputEvent, out chan<- agent.ApiStreamEvent, state *streamS
 	for _, tc := range ev.ToolCalls {
 		if state.activeToolIndices == nil {
 			state.activeToolIndices = make(map[int]bool)
+			state.toolCalls = make(map[int]*accumulatedToolCall)
 		}
+		
+		acc, ok := state.toolCalls[tc.Index]
+		if !ok {
+			acc = &accumulatedToolCall{}
+			state.toolCalls[tc.Index] = acc
+		}
+
+		if tc.ID != "" {
+			acc.id = tc.ID
+		}
+
 		fn := tc.effectiveFunctionCall()
+		if fn != nil && fn.Name != "" {
+			acc.name = fn.Name
+		}
 
 		// First appearance: tool_use start (has id + name)
-		if tc.ID != "" {
-			// Skip tool calls with empty name or missing function info.
-			if fn == nil || fn.Name == "" {
-				logger.Debug("codebase skipping tool call with empty name", "index", tc.Index, "id", tc.ID)
-			} else {
-				state.activeToolIndices[tc.Index] = true
-				out <- agent.ApiStreamEvent{
-					EventType:    "content_block_start",
-					ToolCallID:   tc.ID,
-					ToolCallName: fn.Name,
-					Index:        tc.Index,
-				}
+		if !acc.startFired && acc.id != "" && acc.name != "" {
+			state.activeToolIndices[tc.Index] = true
+			acc.startFired = true
+			out <- agent.ApiStreamEvent{
+				EventType:    "content_block_start",
+				ToolCallID:   acc.id,
+				ToolCallName: acc.name,
+				Index:        tc.Index,
 			}
 		}
 
 		// Subsequent: input_json_delta (always process if arguments present)
 		if fn != nil && fn.Arguments != "" {
-			out <- agent.ApiStreamEvent{
-				EventType:     "content_block_delta",
-				Detail:        "input_json_delta",
-				ToolCallInput: fn.Arguments,
-				Index:         tc.Index,
+			// Don't emit arguments if we haven't fired the start event yet.
+			// This shouldn't happen with well-behaved APIs, but just in case.
+			if acc.startFired {
+				out <- agent.ApiStreamEvent{
+					EventType:     "content_block_delta",
+					Detail:        "input_json_delta",
+					ToolCallInput: fn.Arguments,
+					Index:         tc.Index,
+				}
+			} else {
+				logger.Debug("codebase skipping tool call arguments before start event", "index", tc.Index)
 			}
 		}
 	}
