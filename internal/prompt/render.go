@@ -49,7 +49,6 @@ func FormatProjectInstructions(content string) string {
 	return "<project_instructions>\n" + content + "\n</project_instructions>"
 }
 
-
 func FormatTurnContext(ctx TurnContext) string {
 	var lines []string
 	lines = append(lines, "<turn_context>")
@@ -66,11 +65,63 @@ func FormatTurnContext(ctx TurnContext) string {
 	if ctx.Mode != "" {
 		lines = append(lines, "mode: "+ctx.Mode)
 	}
+	if ctx.PermissionMode != "" {
+		lines = append(lines, "permission_mode: "+ctx.PermissionMode)
+	}
+	lines = append(lines, fmt.Sprintf("yolo: %t", ctx.Yolo))
 	if ctx.ConversationTurnNumber > 0 {
 		lines = append(lines, fmt.Sprintf("conversation_turn: %d", ctx.ConversationTurnNumber))
 	}
 	lines = append(lines, "</turn_context>")
+	if ctx.TaskReminder != "" {
+		lines = append(lines, "", "<task_reminder>", ctx.TaskReminder, "</task_reminder>")
+	}
 	return strings.Join(lines, "\n")
+}
+
+func TaskReminderForInput(input string) string {
+	if !isBugfixLikeRequest(input) {
+		return ""
+	}
+	return "Bugfix/test-failure task detected. Extract every concrete failure example from the user request, build a minimal reproduction when feasible, preserve all input shapes and boundary cases, and verify each reproduction after the patch before claiming completion."
+}
+
+func isBugfixLikeRequest(input string) bool {
+	text := strings.ToLower(input)
+	chineseKeywords := []string{"修复", "修一下", "报错", "失败", "错误", "异常", "复现", "回归"}
+	for _, keyword := range chineseKeywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+
+	for _, phrase := range []string{"test failure", "failing test", "failed test", "test failed", "tests fail", "tests failed", "fix bug", "bug fix"} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+
+	keywords := map[string]bool{
+		"bug":        true,
+		"bugfix":     true,
+		"broken":     true,
+		"error":      true,
+		"exception":  true,
+		"failed":     true,
+		"failing":    true,
+		"failure":    true,
+		"fix":        true,
+		"regression": true,
+		"repro":      true,
+		"reproduce":  true,
+		"traceback":  true,
+	}
+	for _, token := range strings.FieldsFunc(text, isTokenSeparator) {
+		if keywords[token] {
+			return true
+		}
+	}
+	return false
 }
 
 func ShouldInjectTime(input string) bool {

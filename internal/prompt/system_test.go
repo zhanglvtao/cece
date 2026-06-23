@@ -42,6 +42,7 @@ func TestFormatStableSystemPromptContainsAllSections(t *testing.T) {
 	expectedSections := []string{
 		"# Identity",
 		"# Constraints",
+		"# Coding Workflow",
 		"# Architecture Mindset",
 		"# Output Style",
 		"# Tool Usage",
@@ -74,6 +75,26 @@ func TestFormatStableSystemPromptContainsArchitectureMindset(t *testing.T) {
 	for _, value := range expected {
 		if !strings.Contains(got, value) {
 			t.Fatalf("missing architecture mindset phrase %q", value)
+		}
+	}
+}
+
+func TestFormatStableSystemPromptContainsCodingWorkflow(t *testing.T) {
+	got := FormatStableSystemPrompt("")
+
+	expected := []string{
+		"don't leave work half-done",
+		"stopping at the first passing symptom",
+		"extract every concrete example",
+		"identify the root cause",
+		"Verify the original reproduction",
+		"diagnose why before switching tactics",
+		"Report outcomes faithfully",
+	}
+
+	for _, value := range expected {
+		if !strings.Contains(strings.ToLower(got), strings.ToLower(value)) {
+			t.Fatalf("missing coding workflow phrase %q", value)
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zhanglvtao/cece/internal/prompt"
@@ -16,15 +17,22 @@ type dryRunEngine struct {
 	assembler *prompt.ContextAssembler
 	registry  *tool.Registry
 	history   []Message
+	planState *tool.PlanModeState
+	yolo      bool
 }
 
-func (e *dryRunEngine) ProjectDir() string                      { return "/repo" }
-func (e *dryRunEngine) Assembler() *prompt.ContextAssembler     { return e.assembler }
-func (e *dryRunEngine) Client() ModelClient                     { return nil }
-func (e *dryRunEngine) Registry() *tool.Registry                { return e.registry }
-func (e *dryRunEngine) PlanState() *tool.PlanModeState          { return tool.NewPlanModeState() }
+func (e *dryRunEngine) ProjectDir() string                  { return "/repo" }
+func (e *dryRunEngine) Assembler() *prompt.ContextAssembler { return e.assembler }
+func (e *dryRunEngine) Client() ModelClient                 { return nil }
+func (e *dryRunEngine) Registry() *tool.Registry            { return e.registry }
+func (e *dryRunEngine) PlanState() *tool.PlanModeState {
+	if e.planState == nil {
+		return tool.NewPlanModeState()
+	}
+	return e.planState
+}
 func (e *dryRunEngine) TaskList() *tool.TaskList                { return tool.NewTaskList() }
-func (e *dryRunEngine) Yolo() bool                              { return false }
+func (e *dryRunEngine) Yolo() bool                              { return e.yolo }
 func (e *dryRunEngine) MaxTokens() int                          { return 1234 }
 func (e *dryRunEngine) ContextWindow() int                      { return 270000 }
 func (e *dryRunEngine) ToolResultPolicy() ToolResultPolicy      { return ToolResultPolicy{} }
@@ -94,6 +102,33 @@ func TestBuildDryRunRequestIncludesLayersMessagesAndTools(t *testing.T) {
 	}
 	if dry.EstimatedInputTokens <= 0 {
 		t.Fatalf("EstimatedInputTokens = %d, want > 0", dry.EstimatedInputTokens)
+	}
+}
+
+func TestBuildTurnPlanIncludesModeAndTaskReminder(t *testing.T) {
+	assembler := prompt.NewContextAssembler("stable prompt", nil, dryRunCollector{})
+	if _, err := assembler.RefreshSession(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	planState := tool.NewPlanModeState()
+	planState.SetMode(tool.PermissionModePlan)
+	eng := &dryRunEngine{
+		assembler: assembler,
+		registry:  tool.NewRegistry(),
+		planState: planState,
+		yolo:      true,
+	}
+	bootstrap := NewTurnBootstrap(eng, nil, nil, nil)
+	plan := bootstrap.BuildTurnPlan("failing test needs fix", []Message{{Role: UserRole, Content: "failing test needs fix"}})
+
+	if len(plan.AssembleResult.Segments) != 3 {
+		t.Fatalf("segments = %d, want 3", len(plan.AssembleResult.Segments))
+	}
+	turn := plan.AssembleResult.Segments[2].Content
+	for _, want := range []string{"permission_mode: plan", "yolo: true", "<task_reminder>", "Bugfix/test-failure task detected."} {
+		if !strings.Contains(turn, want) {
+			t.Fatalf("turn layer = %q, want %q", turn, want)
+		}
 	}
 }
 

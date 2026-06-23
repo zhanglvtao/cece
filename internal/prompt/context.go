@@ -28,5 +28,8 @@ type TurnContext struct {
 	CurrentWorkingDirectory string
 	CurrentBranch           string
 	Mode                    string
+	PermissionMode          string
+	Yolo                    bool
 	ConversationTurnNumber  int // which turn in the conversation (1-based)
+	TaskReminder            string
 }

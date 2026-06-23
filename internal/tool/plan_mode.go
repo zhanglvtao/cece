@@ -76,6 +76,11 @@ func BuildFullPlanReminder(plansDir string, hasWritingPlanSkill bool, allowedWri
 		"3. **Ask the user** — When you hit an ambiguity only the user can resolve, use\n" +
 		"   the AskUserQuestion tool. Then go back to step 1.\n" +
 		"\n" +
+		"### Asking Good Questions\n" +
+		"- Never ask what you could find out by reading the code.\n" +
+		"- Batch related questions together.\n" +
+		"- Focus on things only the user can answer: requirements, preferences, tradeoffs, and edge-case priorities.\n" +
+		"\n" +
 		"### First Turn\n" +
 		"Quickly scan key files to understand the task scope. Then write a skeleton plan\n" +
 		"(headers and rough notes) and ask the user your first questions using\n" +
@@ -87,6 +92,12 @@ func BuildFullPlanReminder(plansDir string, hasWritingPlanSkill bool, allowedWri
 		"- **Files to modify**: Paths and what changes in each\n" +
 		"- **Reuse**: Existing functions/utilities to reuse, with file paths\n" +
 		"- **Verification**: How to test the changes end-to-end\n" +
+		"\n" +
+		"### Bugfix Plans\n" +
+		"For bugfix tasks, include the failing behavior or reproduction matrix, root cause hypothesis, minimal fix location, and verification commands covering every concrete input shape from the issue.\n" +
+		"\n" +
+		"### When to Converge\n" +
+		"Your plan is ready when it covers what to change, files to modify, existing code to reuse, risks or edge cases, and how to verify the result.\n" +
 		"\n" +
 		"### Ending Your Turn\n" +
 		"Your turn should only end by either:\n" +
@@ -106,7 +117,7 @@ func BuildSparsePlanReminder(plansDir string, hasWritingPlanSkill bool, allowedW
 	}
 	return "<system-reminder>\n" +
 		fmt.Sprintf("Plan mode still active. Read-only except plan files under %s/ and allowed artifacts: %s. DO NOT write to project root.\n", plansDir, strings.Join(planModeAllowedWriteLabels(plansDir, allowedWritePaths), ", ")) +
-		"Continue iterative workflow. End turns with AskUserQuestion or ExitPlanMode.\n" +
+		"Continue iterative workflow. Converge only when the plan covers reuse, risks, and verification. End turns with AskUserQuestion or ExitPlanMode.\n" +
 		skillHint +
 		"</system-reminder>"
 }

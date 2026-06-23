@@ -76,6 +76,11 @@
 - 定位：SWE-bench harness 为了无人值守把 `defaultMode` 强制成 `auto-accept`，导致 agent 首轮缺少 plan mode reminder；而 yolo 已可自动放行 `ExitPlanMode`，不需要牺牲 plan-first 流程。
 - 结论：评测容器应使用 `defaultMode=plan` + `yolo.enabled=true`：让模型先规划复现和边界，同时避免计划审批卡住 batch runner。
 
+## Prompt 分层不能只补 plan reminder
+- 现象：`astropy__astropy-7746` 改为 plan mode 后仍只修了一半，说明 runtime planning shell 本身不足以保证模型覆盖所有失败输入形态。
+- 定位：完整 prompt 行为需要 Stable 的 completion/verification/failure-diagnosis contract、Turn 的 task-aware reminder、Plan reminder 的收敛标准协同；只强化任一层都会留下 half-fix 风险。
+- 结论：bugfix 类任务的通用约束应放 Stable；每轮按输入触发的复现提醒应放 Turn；plan mode 只负责规划协议和审批边界，不承担全部实现质量保证。
+
 ## 默认 plan mode 需要显式告诉模型当前状态
 - 现象：会话启动默认就是 plan mode，但模型仍可能先调用 `EnterPlanMode`，随后工具返回 `Already in plan mode.`。
 - 定位：tool definitions 里仍包含 `EnterPlanMode` 是为了保持工具结构稳定；模型是否知道“已在 plan 中”取决于模型可见的 plan reminder。

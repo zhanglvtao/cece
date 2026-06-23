@@ -73,6 +73,7 @@ func TestFormatTurnContextOmitsTimeByDefault(t *testing.T) {
 		CurrentWorkingDirectory: "/repo",
 		CurrentBranch:           "main",
 		Mode:                    "interactive",
+		PermissionMode:          "default",
 	}
 
 	got := FormatTurnContext(ctx)
@@ -81,6 +82,8 @@ func TestFormatTurnContextOmitsTimeByDefault(t *testing.T) {
 		"current_working_directory: /repo",
 		"current_branch: main",
 		"mode: interactive",
+		"permission_mode: default",
+		"yolo: false",
 		"</turn_context>",
 	}, "\n")
 
@@ -100,6 +103,8 @@ func TestFormatTurnContextIncludesTimeWhenRequested(t *testing.T) {
 		CurrentWorkingDirectory: "/repo",
 		CurrentBranch:           "main",
 		Mode:                    "interactive",
+		PermissionMode:          "plan",
+		Yolo:                    true,
 	}
 
 	got := FormatTurnContext(ctx)
@@ -110,6 +115,8 @@ func TestFormatTurnContextIncludesTimeWhenRequested(t *testing.T) {
 		"current_working_directory: /repo",
 		"current_branch: main",
 		"mode: interactive",
+		"permission_mode: plan",
+		"yolo: true",
 		"</turn_context>",
 	}, "\n")
 
@@ -128,6 +135,40 @@ func TestFormatTurnContextIncludesTurnNumber(t *testing.T) {
 	got := FormatTurnContext(ctx)
 	if !strings.Contains(got, "conversation_turn: 3") {
 		t.Fatalf("FormatTurnContext() missing conversation_turn: %q", got)
+	}
+}
+
+func TestFormatTurnContextIncludesTaskReminder(t *testing.T) {
+	got := FormatTurnContext(TurnContext{
+		CurrentWorkingDirectory: "/repo",
+		Mode:                    "interactive",
+		TaskReminder:            "Bugfix/test-failure task detected.",
+	})
+
+	for _, want := range []string{"<task_reminder>", "Bugfix/test-failure task detected.", "</task_reminder>"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("FormatTurnContext() = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestTaskReminderForInput(t *testing.T) {
+	cases := []struct {
+		input string
+		want  bool
+	}{
+		{"please fix this bug", true},
+		{"这个函数报错，帮我修复", true},
+		{"failing test_zero_size_input", true},
+		{"add a new picker option", false},
+		{"explain this module", false},
+	}
+
+	for _, tc := range cases {
+		got := TaskReminderForInput(tc.input) != ""
+		if got != tc.want {
+			t.Fatalf("TaskReminderForInput(%q) presence = %v, want %v", tc.input, got, tc.want)
+		}
 	}
 }
 

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/zhanglvtao/cece/internal/prompt"
@@ -45,8 +47,12 @@ func (b *TurnBootstrap) BuildTurnPlan(input string, snapshot []Message) TurnPlan
 			IncludeTime:             prompt.ShouldInjectTime(input),
 			Now:                     time.Now(),
 			CurrentWorkingDirectory: eng.ProjectDir(),
+			CurrentBranch:           currentBranch(eng.ProjectDir()),
 			Mode:                    "interactive",
+			PermissionMode:          permissionMode(eng.PlanState()),
+			Yolo:                    eng.Yolo(),
 			ConversationTurnNumber:  eng.HistoryLen()/2 + 1,
+			TaskReminder:            prompt.TaskReminderForInput(input),
 		}
 		assembleResult = eng.Assembler().Assemble(turnCtx)
 	}
@@ -58,6 +64,24 @@ func (b *TurnBootstrap) BuildTurnPlan(input string, snapshot []Message) TurnPlan
 		AssembleResult: assembleResult,
 		Tools:          tools,
 	}
+}
+
+func permissionMode(planState *tool.PlanModeState) string {
+	if planState == nil {
+		return string(tool.PermissionModeDefault)
+	}
+	return string(planState.Mode())
+}
+
+func currentBranch(projectDir string) string {
+	if strings.TrimSpace(projectDir) == "" {
+		return ""
+	}
+	out, err := exec.Command("git", "-C", projectDir, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func (b *TurnBootstrap) BuildDryRunRequest(input string, plan TurnPlan) RequestDryRun {

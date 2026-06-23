@@ -303,6 +303,21 @@ func TestPlanModeRemindersUseSystemReminderTags(t *testing.T) {
 	if !strings.Contains(fullReminder, DefaultPlanModeMockupAllowPattern) {
 		t.Fatalf("full reminder = %q, want default mockup allow path", fullReminder)
 	}
+	if !strings.Contains(fullReminder, "Asking Good Questions") {
+		t.Fatalf("full reminder = %q, want asking good questions guidance", fullReminder)
+	}
+	if !strings.Contains(fullReminder, "Bugfix Plans") {
+		t.Fatalf("full reminder = %q, want bugfix plan guidance", fullReminder)
+	}
+	if !strings.Contains(fullReminder, "When to Converge") {
+		t.Fatalf("full reminder = %q, want convergence guidance", fullReminder)
+	}
+	if !strings.Contains(fullReminder, "every concrete input shape") {
+		t.Fatalf("full reminder = %q, want concrete input shape verification guidance", fullReminder)
+	}
+	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern), "Converge only when") {
+		t.Fatalf("sparse reminder = %q, want convergence guidance", BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern))
+	}
 	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern), "<system-reminder>") {
 		t.Fatalf("sparse reminder = %q, want system-reminder tag", BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern))
 	}
