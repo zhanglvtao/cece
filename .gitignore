@@ -4,6 +4,8 @@ node_modules/
 .claude/
 .aiden/
 .superpowers/
+__pycache__/
+*.pyc
 cece
 cece-bin
 cece-test

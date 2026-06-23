@@ -1,4 +1,4 @@
-.PHONY: build build-web build-linux clean secret-scan
+.PHONY: build build-web build-linux clean secret-scan bench-list bench-setup bench-run bench-score
 
 WEBAPP_DIR := internal/observatory/webapp
 
@@ -23,3 +23,30 @@ clean:
 
 secret-scan:
 	./scripts/secret-scan.sh
+
+# --- benchmarks ---
+BENCH ?= swebench
+MODEL ?= deepseek-v4-pro
+CONFIG ?= $$HOME/.cece/settings.json
+CECE_BIN ?= ./bin/cece-linux-amd64
+
+bench-list:
+	python -m benchmarks list
+
+bench-setup:
+	python -m benchmarks setup --benchmark $(BENCH)
+
+bench-build: build-linux
+	@echo "Binary ready for benchmarks: $(CECE_BIN)"
+
+bench-run: build-linux
+	python -m benchmarks run $(BENCH) \
+		--model $(MODEL) \
+		--config $(CONFIG) \
+		--cece-bin $(CECE_BIN) \
+		--max-workers 1 \
+		--timeout 600 \
+		--slice :1
+
+bench-score:
+	python -m benchmarks score $(BENCH)
