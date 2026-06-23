@@ -15,6 +15,9 @@ class SWEBenchAdapter(BenchmarkAdapter):
     requires_docker = True
     default_timeout = 600
 
+    def __init__(self):
+        self._instances: list[dict] = []
+
     def load_instances(self, dataset: str, split: str, slice: Optional[str] = None) -> list[dict]:
         try:
             from datasets import load_dataset
@@ -24,7 +27,14 @@ class SWEBenchAdapter(BenchmarkAdapter):
         instances = list(ds)
         if slice:
             instances = eval(f"instances[{slice}]")
+        self._instances = instances
         return instances
+
+    def _inst_index(self, inst: dict) -> int:
+        try:
+            return self._instances.index(inst)
+        except ValueError:
+            return 0
 
     def instance_id(self, inst: dict) -> str:
         return inst["instance_id"]
@@ -34,22 +44,43 @@ class SWEBenchAdapter(BenchmarkAdapter):
         base_commit = inst["base_commit"]
         problem_statement = inst["problem_statement"]
 
-        docker_id = instance_id.replace("__", "_1776_")
-        image = f"docker.io/swebench/sweb.eval.x86_64.{docker_id}:latest".lower()
         container_name = f"cece-swebench-{instance_id.replace('__', '-')}"
 
-        # Pull image
-        subprocess.run(["docker", "pull", image], check=True, stdout=subprocess.DEVNULL)
+        # 1. Try local native arch image first (built by build_images.py)
+        local_image = f"cece/sweb.inst.{instance_id.replace('__', '_')}:latest"
+        image = None
 
-        # Remove existing
+        r = subprocess.run(["docker", "inspect", "--type=image", local_image],
+                           capture_output=True)
+        if r.returncode == 0:
+            image = local_image
+
+        # 2. Fall back to official SWE-bench image (may be x86_64 + QEMU)
+        if not image:
+            docker_id = instance_id.replace("__", "_1776_")
+            official_image = f"docker.io/swebench/sweb.eval.x86_64.{docker_id}:latest".lower()
+            try:
+                subprocess.run(["docker", "pull", official_image], check=True, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=120)
+                image = official_image
+            except Exception:
+                pass
+
+        if not image:
+            raise RuntimeError(
+                f"No image found for {instance_id}. "
+                f"Run: python -m benchmarks.build_images --slice :{self._inst_index(inst)} --dataset <ds>"
+            )
+
+        # Remove existing container
         subprocess.run(["docker", "rm", "-f", container_name],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # Start
+        # Start container
         subprocess.run(["docker", "run", "-d", "--name", container_name, image, "sleep", "infinity"],
                        check=True, stdout=subprocess.DEVNULL)
 
-        # Copy cece binary
+        # Copy cece binary (must match container arch)
         subprocess.run(["docker", "cp", cece_bin, f"{container_name}:/usr/local/bin/cece"], check=True)
         subprocess.run(["docker", "exec", container_name, "chmod", "+x", "/usr/local/bin/cece"], check=True)
 

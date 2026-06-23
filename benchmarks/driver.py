@@ -103,6 +103,16 @@ class CeceDriver:
                 exit_status = "completed"
                 break
 
+        # If no events at all, check if process died
+        if not transcript:
+            retcode = self.proc.poll()
+            if retcode is not None:
+                stderr_output = ""
+                if self.proc.stderr:
+                    stderr_output = self.proc.stderr.read().strip()
+                error = f"process exited with code {retcode}" + (f": {stderr_output}" if stderr_output else "")
+                exit_status = "error"
+
         stats = None
         if exit_status == "completed":
             self.send({"type": "action", "kind": "stats"})

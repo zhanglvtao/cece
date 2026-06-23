@@ -206,18 +206,37 @@ def _load_config_for_benchmark(benchmark: str, config_path: Optional[str] = None
         with open(config_path) as f:
             return json.load(f)
 
-    # Default: benchmarks/configs/<benchmark>.json
-    import benchmarks
-    pkg_dir = os.path.dirname(os.path.abspath(benchmarks.__file__))
-    default_path = os.path.join(pkg_dir, "configs", f"{benchmark}.json")
-    if os.path.exists(default_path):
-        with open(default_path) as f:
-            return json.load(f)
+    # 1. Try user's real settings first (~/.cece/settings.json)
+    user_settings = os.path.expanduser("~/.cece/settings.json")
+    if os.path.exists(user_settings):
+        with open(user_settings) as f:
+            config = json.load(f)
+    else:
+        # 2. Fallback to benchmark default
+        import benchmarks
+        pkg_dir = os.path.dirname(os.path.abspath(benchmarks.__file__))
+        default_path = os.path.join(pkg_dir, "configs", f"{benchmark}.json")
+        if os.path.exists(default_path):
+            with open(default_path) as f:
+                config = json.load(f)
+        else:
+            raise FileNotFoundError(
+                f"No config found for {benchmark}. "
+                f"Expected {default_path} or ~/.cece/settings.json or pass --config."
+            )
 
-    raise FileNotFoundError(
-        f"No config found for {benchmark}. "
-        f"Expected {default_path} or pass --config."
-    )
+    # Override benchmark-specific runtime settings
+    import benchmarks as pkg
+    pkg_dir = os.path.dirname(os.path.abspath(pkg.__file__))
+    bench_cfg_path = os.path.join(pkg_dir, "configs", f"{benchmark}.json")
+    if os.path.exists(bench_cfg_path):
+        with open(bench_cfg_path) as f:
+            bench_cfg = json.load(f)
+        for key in ("defaultMode", "yolo", "tool_result"):
+            if key in bench_cfg:
+                config[key] = bench_cfg[key]
+
+    return config
 
 
 def main():
