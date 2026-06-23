@@ -27,7 +27,6 @@ secret-scan:
 # --- benchmarks ---
 BENCH ?= swebench
 MODEL ?= deepseek-v4-pro
-CONFIG ?= $$HOME/.cece/settings.json
 CECE_BIN ?= ./bin/cece-linux-amd64
 
 bench-list:
@@ -42,7 +41,6 @@ bench-build: build-linux
 bench-run: build-linux
 	python -m benchmarks run $(BENCH) \
 		--model $(MODEL) \
-		--config $(CONFIG) \
 		--cece-bin $(CECE_BIN) \
 		--max-workers 1 \
 		--timeout 600 \

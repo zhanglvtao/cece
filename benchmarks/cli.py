@@ -8,6 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from . import get_adapter, get_scorer, list_benchmarks
 from .driver import CeceDriver
@@ -36,7 +37,7 @@ def cmd_list(args):
 
 def cmd_run(args):
     adapter = get_adapter(args.benchmark)
-    config = _load_config(args.config)
+    config = _load_config_for_benchmark(args.benchmark, args.config)
     config["model"] = args.model
 
     output_dir = args.output_dir or default_output_dir()
@@ -198,11 +199,25 @@ def _print_summary(records):
     print(f"\nDone: {done} | Failed: {failed} | Skipped: {skipped} | Total: {len(records)}")
 
 
-def _load_config(config_path):
-    if not os.path.exists(config_path):
-        config_path = os.path.expanduser(config_path)
-    with open(config_path) as f:
-        return json.load(f)
+def _load_config_for_benchmark(benchmark: str, config_path: Optional[str] = None) -> dict:
+    if config_path:
+        if not os.path.exists(config_path):
+            config_path = os.path.expanduser(config_path)
+        with open(config_path) as f:
+            return json.load(f)
+
+    # Default: benchmarks/configs/<benchmark>.json
+    import benchmarks
+    pkg_dir = os.path.dirname(os.path.abspath(benchmarks.__file__))
+    default_path = os.path.join(pkg_dir, "configs", f"{benchmark}.json")
+    if os.path.exists(default_path):
+        with open(default_path) as f:
+            return json.load(f)
+
+    raise FileNotFoundError(
+        f"No config found for {benchmark}. "
+        f"Expected {default_path} or pass --config."
+    )
 
 
 def main():
@@ -223,7 +238,7 @@ def main():
     p_run.add_argument("--dataset", default="princeton-nlp/SWE-bench_Lite")
     p_run.add_argument("--split", default="test")
     p_run.add_argument("--model", default="deepseek-v4-pro")
-    p_run.add_argument("--config", default="~/.cece/settings.json")
+    p_run.add_argument("--config", default=None, help="Path to settings.json (default: benchmarks/configs/<benchmark>.json)")
     p_run.add_argument("--cece-bin", required=True, help="Path to cece linux/amd64 binary")
     p_run.add_argument("--max-workers", type=int, default=4)
     p_run.add_argument("--timeout", type=int, default=600)
