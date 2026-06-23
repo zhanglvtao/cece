@@ -116,6 +116,11 @@
 - 定位：前端每次 SSE state 更新都重新跑自动布局并触发 `fitView`，高频 delta 事件会不断重置视口；后端 `eventSummary` 对大多数事件没有摘要，Evidence 又只显示最近 12 条短文本。
 - 结论：拓扑布局要与高频 Evidence 更新解耦，视口只在首次加载时 fit；Evidence 应是可读事件日志，过滤无意义 delta，并保留 kind、summary、detail。
 
+## Observatory 主链路和观测旁路不能混画
+- 现象：拓扑把 `runtime → hub → engine` 画在主链路中，容易误解为 Observatory Hub 负责调度 Engine，也导致 TUI Client 和 Engine 之间看不到真正的控制路径。
+- 定位：Hub 实际是观测旁路，负责收集事件、写入 Store、通过 SSE 推给 Web；业务控制路径应是 `user → tui → runtime → engine → model`。
+- 结论：拓扑语义要区分 control path 和 telemetry path；观测 Hub 应作为旁路节点，只接收 telemetry，不指向业务模块。
+
 ## @ 文件弹窗被深层大目录饿死
 - 现象：在大仓库根目录输入 `@dbatman` 时，`dbatman/` 真实存在但弹窗为空。
 - 定位：`FileWalker` 用深度优先 `filepath.Walk` 扫描，并有 5000 条全局上限；字典序靠前的巨大子目录会先耗尽配额，根目录后续目录无法进入候选缓存。

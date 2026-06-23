@@ -20,10 +20,10 @@ const MAIN_LAYOUT = new Map([
   ['user', [0, 120]],
   ['tui', [250, 120]],
   ['runtime', [500, 120]],
-  ['hub', [750, 120]],
-  ['engine', [1000, 120]],
-  ['model', [1250, 120]],
-  ['orchestrator', [1250, 330]],
+  ['engine', [750, 120]],
+  ['model', [1000, 120]],
+  ['hub', [625, 330]],
+  ['orchestrator', [1000, 330]],
 ]);
 const NODE_TYPES = { status: StatusNode };
 const EDGE_TYPES = { status: StatusEdge };

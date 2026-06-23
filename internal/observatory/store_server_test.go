@@ -27,6 +27,20 @@ func TestStoreDerivesToolTopology(t *testing.T) {
 	}
 }
 
+func TestStoreSkeletonSeparatesControlPathFromTelemetry(t *testing.T) {
+	store := NewStore()
+	state := store.State()
+	if !hasEdge(state, "runtime", "engine", "turn request") {
+		t.Fatal("missing runtime -> engine control edge")
+	}
+	if hasEdge(state, "hub", "engine", "all events") {
+		t.Fatal("hub -> engine edge should not be in control path")
+	}
+	if !hasEdge(state, "runtime", "hub", "telemetry") || !hasEdge(state, "engine", "hub", "telemetry") {
+		t.Fatal("missing telemetry edges into observatory hub")
+	}
+}
+
 func TestStoreEvidenceSummariesAreReadable(t *testing.T) {
 	store := NewStore()
 	store.Apply(protocol.StreamEventDetail{EventType: "message_start"})
@@ -201,6 +215,15 @@ func nodeStatus(state State, id string) string {
 		}
 	}
 	return ""
+}
+
+func hasEdge(state State, from, to, label string) bool {
+	for _, edge := range state.Edges {
+		if edge.From == from && edge.To == to && edge.Label == label {
+			return true
+		}
+	}
+	return false
 }
 
 func evidenceText(state State, kind string) string {
