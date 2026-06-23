@@ -4,7 +4,7 @@
     "maxTokens": 16384,
     "providers": []
   },
-  "defaultMode": {"mode": "auto-accept"},
+  "defaultMode": {"mode": "plan"},
   "yolo": {"enabled": true},
   "tool_result": {"inline_max_lines": 200}
 }
