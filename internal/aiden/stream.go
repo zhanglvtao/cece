@@ -72,9 +72,11 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 		scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
 
 		state := &parserState{}
+		var lineCount int
 
 		for scanner.Scan() {
 			line := scanner.Text()
+			lineCount++
 			logger.Debug("aiden sse raw line", "line", line)
 
 			if line == "" {
@@ -133,6 +135,7 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 		}
 
 		// Stream ended without [DONE] — close open blocks and emit Done.
+		logger.Warn("aiden stream ended without [DONE]", "total_lines", lineCount, "message_started", state.messageStarted, "terminal_chunk_seen", state.terminalChunkSeen)
 		if state.thinkingOpen {
 			out <- agent.ApiStreamEvent{
 				EventType:  "content_block_stop",

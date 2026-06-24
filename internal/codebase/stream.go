@@ -68,10 +68,12 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 
 		state := &streamState{}
 		var currentEvent string
+		var eventCount int
 
 		for scanner.Scan() {
 			line := scanner.Text()
 			logger.Debug("codebase sse raw line", "line", line)
+			eventCount++
 
 			if line == "" {
 				currentEvent = ""
@@ -111,6 +113,7 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 		} else {
 			// Stream ended without done event — close open blocks and
 			// emit Done so the consumer never waits forever.
+			logger.Warn("codebase stream ended without done event", "total_lines", eventCount, "message_started", state.messageStarted, "done_emitted", state.doneEmitted)
 			emitDone(&DoneEvent{FinishReason: "stop"}, out, state)
 		}
 	}()

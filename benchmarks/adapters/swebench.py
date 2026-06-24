@@ -74,11 +74,13 @@ class SWEBenchAdapter(BenchmarkAdapter):
         ], workdir="/testbed", timeout=600)
 
         # Install dependencies (separate step to avoid monolith timeout)
+        # setuptools<58 and cython should be in env image; skip if already present
         self._exec(container_name, [
             "bash", "-c",
             f"source /opt/miniconda3/etc/profile.d/conda.sh && "
             f"conda activate testbed && "
-            f"pip install 'setuptools<58' wheel cython 2>&1 && "
+            f"python -c 'import setuptools; assert int(setuptools.__version__.split(\".\")[0]) < 58' 2>/dev/null || pip install 'setuptools<58' wheel 2>&1 && "
+            f"python -c 'import Cython' 2>/dev/null || pip install cython 2>&1 && "
             f"python setup.py develop 2>&1 || pip install . 2>&1 || true"
         ], workdir="/testbed", timeout=900)
 

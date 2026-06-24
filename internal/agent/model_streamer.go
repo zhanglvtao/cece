@@ -301,6 +301,27 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				thinkingBuf.Reset()
 			}
 
+			// Flush toolInputStates if content_block_stop was never received
+			// (e.g. stream truncated before terminal chunk). Without this,
+			// tool calls that were started but never closed are silently lost.
+			if len(toolInputStates) > 0 {
+				logger.Warn("flushing unclosed tool call blocks on Done", "count", len(toolInputStates))
+				for idx, ts := range toolInputStates {
+					inputStr := ts.input.String()
+					if !json.Valid([]byte(inputStr)) {
+						logger.Warn("unclosed tool call input is not valid JSON", "name", ts.name, "id", ts.id, "raw", truncate(inputStr, 200))
+						inputStr = "{}"
+					}
+					raw := json.RawMessage(inputStr)
+					resp.toolCalls = append(resp.toolCalls, ApiToolUseBlock{
+						ID:    ts.id,
+						Name:  ts.name,
+						Input: raw,
+					})
+					delete(toolInputStates, idx)
+				}
+			}
+
 			resp.textContent = textBuf.String()
 
 			// Provider compatibility: if stopReason is still empty after
@@ -312,6 +333,17 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				} else {
 					resp.stopReason = "end_turn"
 				}
+			}
+
+			// Diagnostic: log when response appears empty so we can diagnose
+			// "model returned empty response" errors from production logs.
+			if resp.textContent == "" && len(resp.toolCalls) == 0 && len(resp.thinkingBlocks) == 0 {
+				logger.Warn("model stream produced empty response",
+					"input_tokens", resp.inputTokens,
+					"output_tokens", resp.outputTokens,
+					"stop_reason", resp.stopReason,
+					"cache_read", resp.cacheReadTokens,
+				)
 			}
 
 			var callNames []string
