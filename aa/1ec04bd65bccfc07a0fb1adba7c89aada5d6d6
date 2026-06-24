@@ -1,0 +1,35 @@
+.gitignore
+  s_c68621f1095327::t_98d7172bfd8cf0 18
+  s_79e560a63ea094::t_6c799e875d32a1 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "aa1ec04bd65bccfc07a0fb1adba7c89aada5d6d6",
+  "prompts": {},
+  "humans": {
+    "h_d8fa1d07740b86": {
+      "author": "zhanglvtao <zhanglyutao@bytedance.com>"
+    }
+  },
+  "sessions": {
+    "s_79e560a63ea094": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-c517faa4-cdc5-48a5-996e-29d8e9f40703",
+        "model": "default"
+      },
+      "human_author": "zhanglvtao <zhanglyutao@bytedance.com>"
+    },
+    "s_c68621f1095327": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-368481be-df22-46aa-a903-648e9ba4ce71",
+        "model": "default"
+      },
+      "human_author": "zhanglvtao <zhanglyutao@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
