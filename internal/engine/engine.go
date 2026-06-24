@@ -125,7 +125,11 @@ func (e *Engine) ProjectDir() string { return e.projectDir }
 const subAgentResultPreviewMaxLen = 16000
 
 func (e *Engine) Assembler() *prompt.ContextAssembler { return e.assembler }
-func (e *Engine) Client() agent.ModelClient           { return e.client }
+func (e *Engine) Client() agent.ModelClient {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.client
+}
 func (e *Engine) Registry() *tool.Registry            { return e.registry }
 func (e *Engine) PlanState() *tool.PlanModeState      { return e.planState }
 func (e *Engine) TaskList() *tool.TaskList            { return e.taskList }

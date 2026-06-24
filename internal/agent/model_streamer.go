@@ -33,11 +33,12 @@ type toolCallState struct {
 
 // ModelStreamRequest describes one streaming model call within an agent turn.
 type ModelStreamRequest struct {
-	Messages    []Message
-	System      SystemPrompt
-	Reason      string
-	MaxTokens   int
-	ToolResults []string
+	Messages      []Message
+	System        SystemPrompt
+	Reason        string
+	MaxTokens     int
+	ContextWindow int
+	ToolResults   []string
 }
 
 // ModelStreamer converts provider stream chunks into chat events and a modelResponse.
@@ -272,25 +273,25 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			emitModelEvent(ch, AssistantDelta{Text: chunk.Delta})
 		}
 
-		// Flush thinkingBuf if content_block_stop was never received
-		// (e.g. stream truncated, network error, API bug). Without this
-		// flush, thinking content is silently lost and the response looks
-		// empty, triggering the "empty response" retry loop.
-		if thinkingIndex >= 0 {
-			if fullThinking := thinkingBuf.String(); fullThinking != "" {
-				logger.Warn("flushing unclosed thinking block on Done", "textLen", len(fullThinking))
-				resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
-					Type: ApiThinkingContentType,
-					Thinking: &ApiThinkingBlock{
-						Text: fullThinking,
-					},
-				})
-			}
-			thinkingIndex = -1
-			thinkingBuf.Reset()
-		}
-
 		if chunk.Done {
+			// Flush thinkingBuf if content_block_stop was never received
+			// (e.g. stream truncated, network error, API bug). Without this
+			// flush, thinking content is silently lost and the response looks
+			// empty, triggering the "empty response" retry loop.
+			if thinkingIndex >= 0 {
+				if fullThinking := thinkingBuf.String(); fullThinking != "" {
+					logger.Warn("flushing unclosed thinking block on Done", "textLen", len(fullThinking))
+					resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
+						Type: ApiThinkingContentType,
+						Thinking: &ApiThinkingBlock{
+							Text: fullThinking,
+						},
+					})
+				}
+				thinkingIndex = -1
+				thinkingBuf.Reset()
+			}
+
 			resp.textContent = textBuf.String()
 			var callNames []string
 			for _, tc := range resp.toolCalls {

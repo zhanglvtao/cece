@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -45,7 +46,9 @@ func NewClient(apiKey, model, configName, baseURL string) *Client {
 		model:      model,
 		configName: configName,
 		baseURL:    baseURL,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{
+			Timeout: 5 * time.Minute, // overall request timeout (stream reads reset per event)
+		},
 	}
 }
 
