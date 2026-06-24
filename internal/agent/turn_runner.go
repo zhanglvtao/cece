@@ -145,8 +145,10 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				slog.Warn("model returned empty response too many times — stopping",
 					"consecutive_empty", consecutiveEmptyResponses,
 					"stop_reason", resp.stopReason,
+					"input_tokens", resp.inputTokens,
+					"output_tokens", resp.outputTokens,
 				)
-				events <- RunFailed{Err: fmt.Errorf("model returned empty response %d consecutive times", consecutiveEmptyResponses)}
+				events <- RunFailed{Err: fmt.Errorf("model returned empty response %d consecutive times (input_tokens=%d, output_tokens=%d, stop_reason=%q)", consecutiveEmptyResponses, resp.inputTokens, resp.outputTokens, resp.stopReason)}
 				return
 			}
 			slog.Warn("model returned empty response — injecting retry nudge",

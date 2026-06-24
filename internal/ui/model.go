@@ -526,6 +526,13 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.ToolExecCompleted:
 		m.headerBar.IncrementTool(e.Name, !e.Result.IsError)
 	case protocol.StreamCompleted:
+		logger.Info("model stream completed",
+			"input_tokens", e.InputTokens,
+			"output_tokens", e.OutputTokens,
+			"stop_reason", e.StopReason,
+			"duration", e.Duration,
+			"tool_calls", e.ToolCalls,
+		)
 		m.headerBar.IncrementAPI(true)
 	case protocol.ToolCallsReady:
 		m.openToolConfirm(e.Calls)
