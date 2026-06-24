@@ -79,10 +79,20 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		EstimatedInputTokens: estimated,
 	})
 
+	streamStart := time.Now()
+	logger.Debug("model_streamer: Stream called",
+		"messages_count", len(req.Messages),
+		"tools_count", len(tools),
+		"max_tokens", req.MaxTokens,
+		"ctx_err", ctx.Err(),
+	)
 	chunks, err := s.client.Stream(ctx, req.Messages, req.System, tools, req.MaxTokens)
+	streamElapsed := time.Since(streamStart)
 	if err != nil {
+		logger.Warn("model_streamer: client.Stream returned error", "error", err, "stream_call_elapsed", streamElapsed)
 		return modelResponse{}, err
 	}
+	logger.Debug("model_streamer: client.Stream returned channel", "stream_call_elapsed", streamElapsed)
 
 	start := time.Now()
 
@@ -92,9 +102,15 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 	var thinkingIndex int = -1         // index of the current thinking block, -1 = none
 	var redactedThinkingIndex int = -1 // index of the current redacted_thinking block, -1 = none
 	var toolInputStates map[int]*toolCallState
+	var eventCount int
+	var firstEventTime time.Time
 	assistantStarted := false
 
 	for chunk := range chunks {
+		if firstEventTime.IsZero() {
+			firstEventTime = time.Now()
+		}
+		eventCount++
 		if chunk.Err != nil && req.ContextWindow > 0 && !fitsContextBudget(estimated, req.MaxTokens, req.ContextWindow) && isContextBudgetProviderError(chunk.Err.Error()) {
 			logger.Warn("provider rejected over-budget request", "error", chunk.Err.Error(), "estimated_input", estimated, "max_tokens", req.MaxTokens, "context_window", req.ContextWindow)
 			text := fmt.Sprintf("[Context Window Exceeded] %s\nYour request needs about %d input tokens plus %d output tokens, exceeding the %d token context window. Compact, trim, or prune history before continuing.", chunk.Err.Error(), estimated, req.MaxTokens, req.ContextWindow)
@@ -350,18 +366,37 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			for _, tc := range resp.toolCalls {
 				callNames = append(callNames, tc.Name)
 			}
+			totalElapsed := time.Since(start)
+			firstEventDelay := time.Duration(0)
+			if !firstEventTime.IsZero() {
+				firstEventDelay = firstEventTime.Sub(start)
+			}
+			logger.Debug("model_streamer: stream done",
+				"event_count", eventCount,
+				"total_elapsed", totalElapsed,
+				"first_event_delay", firstEventDelay,
+				"input_tokens", resp.inputTokens,
+				"output_tokens", resp.outputTokens,
+				"stop_reason", resp.stopReason,
+				"tool_calls", len(resp.toolCalls),
+				"text_len", len(resp.textContent),
+			)
 			emitModelEvent(ch, StreamCompleted{
 				InputTokens:     resp.inputTokens,
 				OutputTokens:    resp.outputTokens,
 				CacheReadTokens: resp.cacheReadTokens,
 				StopReason:      resp.stopReason,
-				Duration:        time.Since(start),
+				Duration:        totalElapsed,
 				ToolCalls:       callNames,
 			})
 			return resp, nil
 		}
 	}
 
+	logger.Warn("model_streamer: channel closed without Done event",
+		"event_count", eventCount,
+		"elapsed", time.Since(start),
+	)
 	return modelResponse{}, errors.New("stream ended without message_stop")
 }
 
