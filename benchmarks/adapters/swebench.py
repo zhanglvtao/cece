@@ -61,27 +61,37 @@ class SWEBenchAdapter(BenchmarkAdapter):
         subprocess.run(["docker", "cp", cece_bin, f"{container_name}:/usr/local/bin/cece"], check=True)
         subprocess.run(["docker", "exec", container_name, "chmod", "+x", "/usr/local/bin/cece"], check=True)
 
-        # Init repo: clone + checkout + pip install
+        # Init repo: shallow clone + fetch specific commit
         self._exec(container_name, [
             "bash", "-c",
             f"cd /testbed && "
             f"if [ ! -d '.git' ]; then "
-            f"  git clone https://github.com/{repo}.git /tmp/_repo && "
+            f"  git clone --depth 1 https://github.com/{repo}.git /tmp/_repo && "
             f"  cp -a /tmp/_repo/. /testbed/ && rm -rf /tmp/_repo; "
             f"fi && "
-            f"git fetch --unshallow origin 2>/dev/null || true && "
-            f"git checkout {base_commit} && "
+            f"git fetch origin {base_commit} 2>/dev/null || git fetch --unshallow origin 2>/dev/null || true && "
+            f"git checkout {base_commit}"
+        ], workdir="/testbed", timeout=600)
+
+        # Install dependencies (separate step to avoid monolith timeout)
+        self._exec(container_name, [
+            "bash", "-c",
             f"source /opt/miniconda3/etc/profile.d/conda.sh && "
             f"conda activate testbed && "
-            f"pip install 'setuptools<58' wheel cython && "
-            f"python setup.py develop 2>&1 || pip install . 2>&1 || true && "
+            f"pip install 'setuptools<58' wheel cython 2>&1 && "
+            f"python setup.py develop 2>&1 || pip install . 2>&1 || true"
+        ], workdir="/testbed", timeout=900)
+
+        # Git config
+        self._exec(container_name, [
+            "bash", "-c",
             f"git config user.email cece@swebench.local && "
             f"git config user.name cece"
-        ], workdir="/testbed")
+        ], workdir="/testbed", timeout=30)
 
         # Write config + prompt files
         host_config = {**config}
-        host_config["provider"]["model"] = config.get("model", "glm-5v")
+        host_config["provider"]["model"] = config.get("model", "gpt-5.5-paygo")
         host_config["defaultMode"] = {"mode": "plan"}
         host_config["yolo"] = {"enabled": True}
         host_config = resolve_auth_tokens(host_config)
@@ -133,9 +143,10 @@ class SWEBenchAdapter(BenchmarkAdapter):
     def _exec(self, container_name: str, cmd: list[str], workdir: str = "/testbed",
               capture: bool = False, timeout: int = 300) -> str:
         docker_cmd = ["docker", "exec", "-w", workdir, container_name] + cmd
-        if capture:
-            result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=timeout)
-            return result.stdout
-        else:
-            subprocess.run(docker_cmd, check=True, timeout=timeout)
-            return ""
+        result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Command failed (rc={result.returncode}): {' '.join(cmd)}\n"
+                f"stderr: {result.stderr[:2000]}"
+            )
+        return result.stdout

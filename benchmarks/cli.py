@@ -114,15 +114,19 @@ def _run_one(adapter, inst, cece_bin, config, timeout, store):
     started_at = datetime.now(timezone.utc).isoformat()
     t0 = time.monotonic()
 
-    print(f"[run] {inst_id}")
+    print(f"[run] {inst_id}", flush=True)
 
     sandbox = None
     try:
+        print(f"  [setup] creating sandbox...", flush=True)
         sandbox = adapter.setup_sandbox(inst, cece_bin, config)
+        print(f"  [setup] done, starting cece engine...", flush=True)
         driver = CeceDriver.start(sandbox.exec_cmd, env=sandbox.env)
         prompt = adapter.build_prompt(inst)
+        print(f"  [run] sending prompt ({len(prompt)} chars)...", flush=True)
         result = driver.run_until_done(prompt, timeout=timeout)
         driver.close()
+        print(f"  [run] done, exit_status={result.exit_status}", flush=True)
 
         artifact = {}
         score_result = {}
@@ -167,7 +171,9 @@ def _run_one(adapter, inst, cece_bin, config, timeout, store):
             print(f"  [FAIL] {inst_id} — {status}")
 
     except Exception as e:
-        print(f"  [error] {inst_id} — {e}")
+        import traceback
+        print(f"  [error] {inst_id} — {e}", flush=True)
+        traceback.print_exc()
         record = RunRecord(
             benchmark=adapter.name,
             instance_id=inst_id,
