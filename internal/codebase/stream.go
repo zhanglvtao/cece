@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/diag"
 	"github.com/zhanglvtao/cece/internal/logger"
 )
 
@@ -69,11 +71,13 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 		state := &streamState{}
 		var currentEvent string
 		var eventCount int
+		decodeStart := time.Now()
+		diag.Log("stream_decode: START")
 
 		for scanner.Scan() {
 			line := scanner.Text()
-			logger.Debug("codebase sse raw line", "line", line)
 			eventCount++
+			diag.Log("stream_decode: line[%d] event=%q data=%q", eventCount, currentEvent, truncate(line, 200))
 
 			if line == "" {
 				currentEvent = ""
@@ -109,10 +113,10 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 		}
 
 		if err := scanner.Err(); err != nil {
+			diag.Log("stream_decode: END with error err=%v lines=%d elapsed=%v", err, eventCount, time.Since(decodeStart))
 			out <- agent.ApiStreamEvent{Err: err}
 		} else {
-			// Stream ended without done event — close open blocks and
-			// emit Done so the consumer never waits forever.
+			diag.Log("stream_decode: END normal lines=%d message_started=%v done_emitted=%v input_tokens=%d output_tokens=%d elapsed=%v", eventCount, state.messageStarted, state.doneEmitted, state.inputTokens, state.outputTokens, time.Since(decodeStart))
 			logger.Warn("codebase stream ended without done event", "total_lines", eventCount, "message_started", state.messageStarted, "done_emitted", state.doneEmitted)
 			emitDone(&DoneEvent{FinishReason: "stop"}, out, state)
 		}
@@ -122,6 +126,7 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 }
 
 func processEvent(eventType, data string, out chan<- agent.ApiStreamEvent, state *streamState) {
+	diag.Log("processEvent: type=%q data=%q", eventType, truncate(data, 150))
 	switch eventType {
 	case "", "output":
 		var ev OutputEvent
@@ -356,4 +361,11 @@ func mapStopReason(reason string) string {
 // is retryable (e.g. backend model temporarily unavailable).
 func isCodebaseRetryable(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "code=3003")
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
