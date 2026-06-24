@@ -44,10 +44,45 @@ def score_in_place(container_name: str, patch: str, inst: dict, timeout: int = 3
     # Build test command
     is_django = any("(" in t and ")" in t for t in fail_to_pass)
     if is_django:
-        test_cmd = "python manage.py test --verbosity=2 2>&1; echo 'EXIT_CODE=$?'"
+        # Django tests: find manage.py or use django test runner
+        # Django test IDs are like "test_name (module.Class)"
+        django_tests = []
+        for t in fail_to_pass:
+            # Parse "test_name (module.Class)" → "module.Class.test_name"
+            if "(" in t and ")" in t:
+                paren = t[t.index("(") + 1:t.index(")")]
+                test_name = t[:t.index("(")].strip()
+                if "." in paren:
+                    django_tests.append(f"{paren}.{test_name}")
+                else:
+                    django_tests.append(t)
+            else:
+                django_tests.append(t)
+        test_labels = " ".join(django_tests)
+        test_cmd = (
+            f"if [ -f manage.py ]; then "
+            f"python manage.py test {test_labels} --verbosity=2 2>&1; "
+            f"elif [ -f tests/manage.py ]; then "
+            f"cd tests && python manage.py test {test_labels} --verbosity=2 2>&1; "
+            f"else "
+            f"python -m django test {test_labels} --verbosity=2 2>&1; "
+            f"fi; echo 'EXIT_CODE=$?'"
+        )
     elif fail_to_pass:
-        escaped = " ".join(f'"{t}"' for t in fail_to_pass)
-        test_cmd = f"pytest {escaped} --tb=short -q 2>&1; echo 'EXIT_CODE=$?'"
+        # For pytest, strip parametrized brackets and use -k for filtering
+        # e.g. "test_separable[compound_model6-result6]" → -k "test_separable"
+        test_names = set()
+        for t in fail_to_pass:
+            base = t.split("[")[0] if "[" in t else t
+            test_names.add(base)
+        # Try running specific test files if path-like, else use -k
+        if any("/" in t or ".py" in t for t in fail_to_pass):
+            escaped = " ".join(f'"{t}"' for t in fail_to_pass)
+            test_cmd = f"pytest {escaped} --tb=short -q 2>&1; echo 'EXIT_CODE=$?'"
+        else:
+            # Use -k for parametrized / named tests
+            k_args = " or ".join(test_names)
+            test_cmd = f"pytest -k '{k_args}' --tb=short -q 2>&1; echo 'EXIT_CODE=$?'"
     else:
         test_cmd = "pytest --tb=short -q 2>&1; echo 'EXIT_CODE=$?'"
 
