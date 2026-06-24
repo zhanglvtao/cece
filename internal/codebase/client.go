@@ -192,6 +192,10 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 		return nil, err
 	}
 
+	// Diagnostic: log request body (truncated) to compare 1st vs 2nd+ calls
+	diag.Log("[DIAG] codebase.Stream: REQUEST body_len=%d model=%s messages=%d tools=%d max_tokens=%d body_preview=%q",
+		len(body), c.model, len(payload.Messages), len(tools), maxTokens, truncate(string(body), 500))
+
 	key, err := c.resolveAPIKey(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("resolve api key: %w", err)
