@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -80,6 +81,8 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 	})
 
 	streamStart := time.Now()
+	// Diagnostic: write to stderr to bypass any slog buffering issues
+	fmt.Fprintf(os.Stderr, "[DIAG] model_streamer.Stream() called messages=%d tools=%d max_tokens=%d ctx_err=%v\n", len(req.Messages), len(tools), req.MaxTokens, ctx.Err())
 	logger.Debug("model_streamer: Stream called",
 		"messages_count", len(req.Messages),
 		"tools_count", len(tools),
@@ -89,9 +92,11 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 	chunks, err := s.client.Stream(ctx, req.Messages, req.System, tools, req.MaxTokens)
 	streamElapsed := time.Since(streamStart)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[DIAG] model_streamer: client.Stream ERROR err=%v elapsed=%v\n", err, streamElapsed)
 		logger.Warn("model_streamer: client.Stream returned error", "error", err, "stream_call_elapsed", streamElapsed)
 		return modelResponse{}, err
 	}
+	fmt.Fprintf(os.Stderr, "[DIAG] model_streamer: client.Stream OK elapsed=%v\n", streamElapsed)
 	logger.Debug("model_streamer: client.Stream returned channel", "stream_call_elapsed", streamElapsed)
 
 	start := time.Now()

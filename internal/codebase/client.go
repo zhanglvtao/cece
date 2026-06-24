@@ -170,6 +170,7 @@ func expandHeaderValue(ctx context.Context, value string, c *Client) string {
 }
 
 func (c *Client) Stream(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
+	fmt.Fprintf(os.Stderr, "[DIAG] codebase.Stream() ENTERED model=%s config=%s messages=%d tools=%d max_tokens=%d\n", c.model, c.configName, len(messages), len(tools), maxTokens)
 	slog.Info("codebase.Stream: entered", "model", c.model, "config_name", c.configName, "messages_count", len(messages), "tools_count", len(tools), "max_tokens", maxTokens)
 
 	projectedMessages := agent.ProjectMessagesForRequest(messages)
@@ -279,10 +280,11 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 
 	reader, err := doRequest()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[DIAG] codebase.Stream: doRequest FAILED err=%v\n", err)
 		slog.Warn("codebase.Stream: doRequest failed", "error", err)
 		return nil, err
 	}
-
+	fmt.Fprintf(os.Stderr, "[DIAG] codebase.Stream: doRequest OK, starting decode goroutine\n")
 	slog.Info("codebase stream connected", "status", 200)
 
 	out := make(chan agent.ApiStreamEvent, 64)

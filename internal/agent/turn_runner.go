@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"reflect"
 	"time"
 
@@ -63,7 +64,9 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 	var toolResultNames []string
 	consecutiveEmptyResponses := 0
 	const maxEmptyRetries = 3
+	loopIter := 0
 	for {
+		loopIter++
 		prepared, err := r.prepareModelStreamRequest(ctx, messages, plan.System, r.maxTokens)
 		if err != nil {
 			events <- RunFailed{Err: err}
@@ -72,6 +75,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		messages = prepared.messages
 		r.deps.IncrementAPICalls()
 
+		fmt.Fprintf(os.Stderr, "[DIAG] turn_runner: calling streamer.Stream() loop_iter=%d reason=%q messages=%d\n", loopIter, reason, len(messages))
 		resp, err := r.streamer.Stream(ctx, ModelStreamRequest{
 			Messages:      messages,
 			System:        plan.System,
@@ -80,6 +84,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 			ContextWindow: r.deps.ContextWindow,
 			ToolResults:   toolResultNames,
 		}, events)
+		fmt.Fprintf(os.Stderr, "[DIAG] turn_runner: streamer.Stream() returned err=%v resp_text=%q tool_calls=%d\n", err, resp.textContent, len(resp.toolCalls))
 		if err != nil {
 			if ctx.Err() != nil {
 				// Context cancelled (user interrupted): insert interrupt message
