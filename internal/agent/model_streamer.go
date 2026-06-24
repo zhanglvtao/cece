@@ -272,6 +272,24 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			emitModelEvent(ch, AssistantDelta{Text: chunk.Delta})
 		}
 
+		// Flush thinkingBuf if content_block_stop was never received
+		// (e.g. stream truncated, network error, API bug). Without this
+		// flush, thinking content is silently lost and the response looks
+		// empty, triggering the "empty response" retry loop.
+		if thinkingIndex >= 0 {
+			if fullThinking := thinkingBuf.String(); fullThinking != "" {
+				logger.Warn("flushing unclosed thinking block on Done", "textLen", len(fullThinking))
+				resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
+					Type: ApiThinkingContentType,
+					Thinking: &ApiThinkingBlock{
+						Text: fullThinking,
+					},
+				})
+			}
+			thinkingIndex = -1
+			thinkingBuf.Reset()
+		}
+
 		if chunk.Done {
 			resp.textContent = textBuf.String()
 			var callNames []string
@@ -339,6 +357,14 @@ func isRecoverableProviderError(err error) bool {
 			strings.Contains(msg, "trae_permanent_error") {
 			return true
 		}
+	}
+
+	// Rate limit errors — treat as recoverable so the agent loop
+	// retries instead of crashing.
+	if strings.Contains(strings.ToLower(msg), "too_many_requests") ||
+		strings.Contains(strings.ToLower(msg), "rate_limit") ||
+		strings.Contains(strings.ToLower(msg), "rate limit") {
+		return true
 	}
 
 	// Aiden API parameter errors (400 Bad Request with validation messages)

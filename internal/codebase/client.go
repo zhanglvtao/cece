@@ -8,7 +8,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/zhanglvtao/cece/internal/agent"
 	"github.com/zhanglvtao/cece/internal/auth"
@@ -94,7 +97,11 @@ func (c *Client) GetModelInfo(ctx context.Context) (agent.ModelInfo, error) {
 	return agent.ModelInfo{}, fmt.Errorf("model %q not found in codebase models", c.model)
 }
 
-func (c *Client) resolveAPIKey(ctx context.Context) (string, error) {
+func (c *Client) resolveAPIKey(ctx context.Context, defaultKey string) (string, error) {
+	// Only use defaultKey if it doesn't look like a macro
+	if defaultKey != "" && !strings.Contains(defaultKey, "${") {
+		return defaultKey, nil
+	}
 	if c.tokenCache != nil {
 		return c.tokenCache.GetToken(ctx)
 	}
@@ -109,6 +116,54 @@ func extractRequestID(resp *http.Response) string {
 		return "request_id=" + id
 	}
 	return ""
+}
+
+func expandHeaderValue(ctx context.Context, value string, c *Client) string {
+	if !strings.Contains(value, "${") {
+		return value
+	}
+
+	// Helper to resolve the key only if needed
+	keyResolved := false
+	var key string
+	getKey := func() string {
+		if !keyResolved {
+			var err error
+			// If APIKey is configured in the model, use it as default
+			var defaultKey string
+			if c != nil {
+				for _, m := range c.models {
+					if m.ID == c.model || m.ConfigName == c.model || m.ConfigName == c.configName {
+						defaultKey = m.APIKey
+						break
+					}
+				}
+			}
+			key, err = c.resolveAPIKey(ctx, defaultKey)
+			if err != nil {
+				logger.Debug("failed to resolve api key for macro expansion", "error", err)
+			}
+			keyResolved = true
+		}
+		return key
+	}
+
+	// Expand standard coco variables
+	jwtValue := getKey()
+	value = strings.ReplaceAll(value, "${CODE_USER_JWT}", jwtValue)
+	value = strings.ReplaceAll(value, "${LOGID}", uuid.New().String())
+	value = strings.ReplaceAll(value, "${SESSION_ID}", uuid.New().String()) // In real impl, pass actual session ID
+	value = strings.ReplaceAll(value, "${COCO_BUSINESS_ID}", cocoBusinessID)
+	value = strings.ReplaceAll(value, "${COCO_VERSION}", "cece-agent")
+	value = strings.ReplaceAll(value, "${BATCH_MODE}", "false")
+
+	repoURL := os.Getenv("REPO_URL")
+	if repoURL == "" {
+		repoURL = "unknown"
+	}
+	value = strings.ReplaceAll(value, "${REPO_URL}", repoURL)
+
+	return value
 }
 
 func (c *Client) Stream(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
@@ -130,7 +185,7 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 		return nil, err
 	}
 
-	key, err := c.resolveAPIKey(ctx)
+	key, err := c.resolveAPIKey(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("resolve api key: %w", err)
 	}
@@ -142,6 +197,14 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 	logger.Debug("codebase api request", "url", url, "body", string(body))
 	slog.Info("codebase stream request", "url", url, "model", c.model, "config_name", c.configName, "messages", len(payload.Messages))
 
+	var modelInfo agent.ModelInfo
+	for _, m := range c.models {
+		if m.ID == c.model || m.ConfigName == c.model || m.ConfigName == c.configName {
+			modelInfo = m
+			break
+		}
+	}
+
 	makeRequest := func() (*http.Request, error) {
 		r, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
@@ -149,13 +212,36 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 		}
 		h := r.Header
 		h.Set("Content-Type", "application/json")
-		h.Set("X-Coco-Business-ID", cocoBusinessID)
 		h.Set("User-Agent", ceceUserAgent)
-		key, err := c.resolveAPIKey(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("resolve api key: %w", err)
+
+		// Expand and apply headers from modelInfo
+		if modelInfo.Headers != nil {
+			for k, v := range modelInfo.Headers {
+				expanded := expandHeaderValue(ctx, v, c)
+				h.Set(k, expanded)
+			}
+			if modelInfo.APIKey != "" {
+				expanded := expandHeaderValue(ctx, modelInfo.APIKey, c)
+				if !strings.HasPrefix(expanded, "Bearer ") && expanded != "" {
+					h.Set("Authorization", "Bearer "+expanded)
+				} else if expanded != "" {
+					h.Set("Authorization", expanded)
+				}
+			}
+			if h.Get("Authorization") == "" || h.Get("Authorization") == "Bearer " {
+				// Fallback if macro expansion yielded empty
+				key, _ := c.resolveAPIKey(ctx, "")
+				h.Set("Authorization", "Bearer "+key)
+			}
+		} else {
+			h.Set("X-Coco-Business-ID", cocoBusinessID)
+			key, err := c.resolveAPIKey(ctx, "")
+			if err != nil {
+				return nil, fmt.Errorf("resolve api key: %w", err)
+			}
+			h.Set("Authorization", "Bearer "+key)
 		}
-		h.Set("Authorization", "Bearer "+key)
+
 		return r, nil
 	}
 
@@ -193,7 +279,7 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 
 	slog.Info("codebase stream connected", "status", 200)
 
-	out := make(chan agent.ApiStreamEvent)
+	out := make(chan agent.ApiStreamEvent, 64)
 	go func() {
 		defer close(out)
 

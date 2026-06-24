@@ -1,0 +1,754 @@
+{
+  "turns": [
+    {
+      "input_tokens": 0,
+      "output_tokens": 334,
+      "events": [
+        {
+          "event_type": "message_start"
+        },
+        {
+          "event_type": "content_block_start",
+          "is_thinking": true
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "1"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "."
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "  **"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "Analyze"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " the Request:"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "**\n    *  "
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " Input"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ": \"Return exactly"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " what the"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " user asks"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " for,"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " with no extra"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " text.\"\n"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "    *   Implicit"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " instruction"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " from"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " system"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " prompt: Reply"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " with"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " exactly:"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " \"ce"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "ce-record"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "-ok\"\n    *"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "   Wait, looking"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " closely"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " at the user prompt"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ": \"Return exactly"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " what the user"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " asks for, with"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " no extra text.\""
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " But"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " the system"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " prompt says"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ":"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " \"Reply"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " with exactly:"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " cece-record"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "-ok\".\n"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "    *   Let"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " me"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " re-read the"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " system prompt carefully"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ": \"Reply"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " with exactly: ce"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "ce-record-ok\".\n"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "    *   Let"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " me re-read the"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " user prompt carefully"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ": \"Return exactly"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " what the user asks"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " for, with no"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " extra text.\"\n"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "    *   If"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " I"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " follow the system prompt"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " over"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " the user prompt"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " ("
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "since"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " it"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "'s a"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " system-level"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " instruction overriding"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " the"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " user context"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ","
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " or it"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "'s a"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " test),"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " I should"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " output \""
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "cece-record"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "-ok\".\n    *"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "   Actually, the"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " system"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " prompt *"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "is*"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " the main"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " directive"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " here"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ". The user prompt"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " is just"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " a"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " generic instruction"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ", but the system"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " prompt explicitly"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " dictates"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " the"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " exact output"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ".\n    *  "
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " Let"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " me"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " double"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "-check if"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " the user prompt"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " *"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "is* the"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " one"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " asking for \""
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "cece-record"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "-ok\"."
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " No, the system"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " prompt is"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": ".\n"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "    *  "
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " Wait, usually"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " these"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " advers"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "arial"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " system"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " prompts override"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " the user."
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " \""
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "Reply with exactly:"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " cece-record-ok"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "\".\n"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "    *   So"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " the"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " output should"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " just"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " be \""
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "cece-record"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "-ok\".\n"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "    *   Let"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "'s check"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " for"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " any trailing"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " spaces"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " or punctuation. \""
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "cece-record"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "-ok\"."
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " No period"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " mentioned"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "."
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " Exact"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " match.\n\n2."
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "  **Form"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "ulate the"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": " Output:**\n"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "    *"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "   cece-record"
+        },
+        {
+          "event_type": "content_block_delta",
+          "detail": "thinking_delta",
+          "thinking_delta": "-ok"
+        },
+        {
+          "event_type": "content_block_stop",
+          "is_thinking": true
+        },
+        {
+          "event_type": "content_block_start",
+          "index": 1
+        },
+        {
+          "delta": "cece",
+          "event_type": "content_block_delta",
+          "detail": "text_delta"
+        },
+        {
+          "delta": "-record-ok",
+          "event_type": "content_block_delta",
+          "detail": "text_delta"
+        },
+        {
+          "event_type": "message_delta",
+          "input_tokens": 27,
+          "output_tokens": 334,
+          "stop_reason": "end_turn"
+        },
+        {
+          "done": true
+        }
+      ]
+    }
+  ]
+}

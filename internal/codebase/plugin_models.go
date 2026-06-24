@@ -26,12 +26,17 @@ type cocoPluginFile struct {
 type cocoPluginModel struct {
 	Name          string         `yaml:"name"`
 	ContextWindow int            `yaml:"context_window"`
+	PromptHint    string         `yaml:"prompt_hint"`
+	MergeSystemPrompt bool     `yaml:"merge_system_prompt"`
 	BytedTrae     *cocoBytedTrae `yaml:"byted_trae"`
 }
 
 type cocoBytedTrae struct {
 	BaseURL    string `yaml:"base_url"`
 	ConfigName string `yaml:"config_name"`
+	APIKey     string `yaml:"api_key"`
+	Headers    map[string]string `yaml:"headers"`
+	MaxTokens  int `yaml:"max_tokens"`
 	Model      string `yaml:"model"`
 }
 
@@ -138,6 +143,9 @@ func readCocoPluginModels(path string) ([]agent.ModelInfo, error) {
 			BaseURL:          normalizeBaseURL(m.BytedTrae.BaseURL),
 			Protocol:         "codebase",
 			ConfigName:       configName,
+			PromptHint:       m.PromptHint,
+			Headers:          m.BytedTrae.Headers,
+			APIKey:           m.BytedTrae.APIKey,
 		})
 	}
 	return models, nil

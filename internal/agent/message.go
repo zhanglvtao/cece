@@ -137,6 +137,8 @@ type ModelInfo struct {
 	AuthHelper       string // shell command to fetch dynamic token
 	Protocol         string // "anthropic" (default) or "aiden" or "codebase"
 	ConfigName       string // codebase-api needs config_name
+	PromptHint       string
+	Headers          map[string]string
 }
 
 type ModelClient interface {

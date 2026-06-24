@@ -66,7 +66,7 @@ func TestStaticModelsToAgent(t *testing.T) {
 		t.Fatalf("models len = %d", len(models))
 	}
 	want := agent.ModelInfo{ID: "m", DisplayName: "M", MaxContextWindow: 123, ConfigName: "c"}
-	if models[0] != want {
+	if models[0].ID != want.ID || models[0].DisplayName != want.DisplayName || models[0].MaxContextWindow != want.MaxContextWindow || models[0].ConfigName != want.ConfigName {
 		t.Fatalf("model = %+v, want %+v", models[0], want)
 	}
 }

@@ -48,6 +48,8 @@ type ModelInfo struct {
 	AuthHelper       string `json:"auth_helper,omitempty"`
 	Protocol         string `json:"protocol,omitempty"`
 	ConfigName       string `json:"config_name,omitempty"`
+	PromptHint       string `json:"prompt_hint,omitempty"`
+	Headers          map[string]string `json:"headers,omitempty"`
 }
 
 // Message represents a chat message for UI rendering.

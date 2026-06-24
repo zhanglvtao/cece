@@ -82,7 +82,7 @@ def _make_setup_env_script(inst: dict) -> str:
     ]
 
     installs = {
-        "astropy/astropy": "pip install numpy pytest extension-helpers hypothesis pytest-astropy",
+        "astropy/astropy": "pip install 'numpy<2' pytest extension-helpers hypothesis pytest-astropy 'pyerfa>=2.0'",
         "django/django": "pip install pytest",
         "sympy/sympy": "pip install pytest mpmath",
         "matplotlib/matplotlib": "pip install numpy pytest pillow hypothesis",

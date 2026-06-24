@@ -57,7 +57,7 @@ type accumulatedToolCall struct {
 
 // DecodeStreamEvent reads a codebase-api SSE stream and emits agent.ApiStreamEvent values.
 func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
-	out := make(chan agent.ApiStreamEvent)
+	out := make(chan agent.ApiStreamEvent, 64)
 
 	go func() {
 		defer close(out)
@@ -83,7 +83,18 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 				continue
 			}
 
+			// Handle potentially malformed proxy output with XML-like tags, like:
+			// _delta detail=text_delta delta="xxx"
+			// <id>...</id>
+			if strings.HasPrefix(line, "<id>") || strings.HasPrefix(line, "_delta") {
+				continue
+			}
+
 			if !strings.HasPrefix(line, "data:") {
+				// We still need to handle empty events if the line starts with '{' (OpenAI format fallback)
+				if strings.HasPrefix(line, "{") {
+					processEvent("", line, out, state)
+				}
 				continue
 			}
 
@@ -109,9 +120,15 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 
 func processEvent(eventType, data string, out chan<- agent.ApiStreamEvent, state *streamState) {
 	switch eventType {
-	case "output":
+	case "", "output":
 		var ev OutputEvent
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			if eventType == "" {
+				// If we don't have an explicit event type and it fails to parse as OutputEvent,
+				// it might be a malformed line or another format. Log and ignore.
+				logger.Debug("codebase empty event type unmarshal error", "error", err, "data", data)
+				return
+			}
 			out <- agent.ApiStreamEvent{Err: err}
 			return
 		}
