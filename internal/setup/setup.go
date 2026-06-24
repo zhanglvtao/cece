@@ -13,7 +13,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/zhanglvtao/cece/internal/codebase"
 	"github.com/zhanglvtao/cece/internal/ui/picker"
 	"github.com/zhanglvtao/cece/internal/ui/theme"
 )
@@ -79,7 +78,6 @@ type modeOption struct {
 
 var protocols = []protocolOption{
 	{id: "anthropic"},
-	{id: "codebase"},
 	{id: "aiden"},
 	{id: "bytedance"},
 }
@@ -255,16 +253,6 @@ func (m *SetupModel) goToStep(s step) (tea.Model, tea.Cmd) {
 	case stepProtocol:
 		m.openPicker()
 	case stepBaseURL:
-		if m.col.protocol == "codebase" {
-			m.col.baseURL = codebase.DefaultBaseURL
-			m.step = stepLoading
-			m.textInput = ""
-			m.fetchErr = ""
-			m.fetchedModels = nil
-			cmd := m.fetchModelsCmd()
-			tickCmd := tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg{} })
-			return m, tea.Batch(cmd, tickCmd)
-		}
 		m.textInput = m.col.baseURL
 	case stepAPIKey:
 		m.textInput = m.col.apiKey
@@ -457,26 +445,12 @@ func (m SetupModel) updateTextInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.step == stepAPIKey {
 				field = "API key"
 			}
-			if m.col.protocol == "codebase" && m.step == stepBaseURL {
-				input = codebase.DefaultBaseURL
-			} else {
-				m.err = field + " is required"
-				return m, nil
-			}
+			m.err = field + " is required"
+			return m, nil
 		}
 		switch m.step {
 		case stepBaseURL:
 			m.col.baseURL = input
-			if m.col.protocol == "codebase" {
-				m.col.apiKey = ""
-				m.step = stepLoading
-				m.textInput = ""
-				m.fetchErr = ""
-				m.fetchedModels = nil
-				cmd := m.fetchModelsCmd()
-				tickCmd := tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg{} })
-				return m, tea.Batch(cmd, tickCmd)
-			}
 			m.step = stepAPIKey
 			m.textInput = ""
 			return m, nil
@@ -559,14 +533,6 @@ func (m SetupModel) handleSelect(value string) (tea.Model, tea.Cmd) {
 		if value == "bytedance" {
 			m.col.baseURL = "https://aiden-aiproxy.bytedance.net"
 			m.step = stepAPIKey
-		} else if value == "codebase" {
-			m.col.baseURL = codebase.DefaultBaseURL
-			m.step = stepLoading
-			m.fetchErr = ""
-			m.fetchedModels = nil
-			cmd := m.fetchModelsCmd()
-			tickCmd := tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg{} })
-			return m, tea.Batch(cmd, tickCmd)
 		} else {
 			m.step = stepBaseURL
 		}
@@ -612,11 +578,7 @@ func (m *SetupModel) openPicker() {
 		}
 		p := picker.New("[1/5] Provider protocol", items, 8, func(item any, selected bool) string {
 			id := item.(protocolOption).id
-			line := id
-			if id == "codebase" {
-				line += "  coco plugin models"
-			}
-			return picker.FormatItem(line, selected)
+			return picker.FormatItem(id, selected)
 		})
 		p.SetOnSelect(func(item any) tea.Cmd {
 			return func() tea.Msg { return selectMsg{value: item.(protocolOption).id} }
@@ -694,18 +656,6 @@ func (m *SetupModel) save() error {
 			APIKey:   m.col.apiKey,
 			BaseURL:  m.col.baseURL,
 		},
-	}
-	if m.col.protocol == "codebase" {
-		providers[0].AuthHelper = codebase.DefaultAuthHelper
-		providers[0].Models = []staticModelEntry{{
-			ID:               m.col.model,
-			DisplayName:      m.col.model,
-			MaxContextWindow: m.col.maxContextWindow,
-			ConfigName:       m.col.configName,
-		}}
-		if providers[0].Models[0].ConfigName == "" {
-			providers[0].Models[0].ConfigName = m.col.model
-		}
 	}
 
 	sf := settingsFile{
@@ -806,15 +756,8 @@ func (m SetupModel) loadingView() string {
 	frame := spinnerFrames[m.spinnerIdx]
 	var b strings.Builder
 	target := m.col.baseURL
-	if m.col.protocol == "codebase" {
-		target = "coco plugins"
-	}
 	fmt.Fprintf(&b, "%s %s Fetching models from %s...\n\n", styleStep.Render("[4/5]"), styleSpinner.Render(frame), styleValue.Render(target))
-	if m.col.protocol == "codebase" {
-		b.WriteString(styleHelp.Render("Reading local coco plugin model configs") + "\n\n")
-	} else {
-		b.WriteString(styleHelp.Render("Querying available models from the provider") + "\n\n")
-	}
+	b.WriteString(styleHelp.Render("Querying available models from the provider") + "\n\n")
 	b.WriteString(key(&styleKeyOther, "ctrl+c") + " cancel")
 	return b.String()
 }
@@ -827,21 +770,10 @@ func (m SetupModel) doneView() string {
 	fmt.Fprintf(&inner, "  %s  %s\n", styleLabel.Render("protocol:"), styleValue.Render(m.col.protocol))
 	fmt.Fprintf(&inner, "  %s  %s\n", styleLabel.Render("base URL:"), styleValue.Render(m.col.baseURL))
 	fmt.Fprintf(&inner, "  %s     %s\n", styleLabel.Render("model:"), styleValue.Render(m.col.model))
-	if m.col.protocol == "codebase" {
-		if m.col.configName != "" {
-			fmt.Fprintf(&inner, "  %s  %s\n", styleLabel.Render("config:"), styleValue.Render(m.col.configName))
-		}
-		if m.col.maxContextWindow > 0 {
-			fmt.Fprintf(&inner, "  %s     %s\n", styleLabel.Render("ctx:"), styleValue.Render(fmt.Sprintf("%d", m.col.maxContextWindow)))
-		}
-	}
 	fmt.Fprintf(&inner, "  %s      %s\n", styleLabel.Render("mode:"), styleValue.Render(m.col.mode))
 	keyPreview := m.col.apiKey
 	if len(keyPreview) > 4 {
 		keyPreview = keyPreview[:4] + "****"
-	}
-	if m.col.protocol == "codebase" && keyPreview == "" {
-		keyPreview = "authHelper"
 	}
 	fmt.Fprintf(&inner, "  %s    %s\n", styleLabel.Render("apiKey:"), styleValue.Render(keyPreview))
 	inner.WriteString("\n" + styleHelp.Render("Config written to "+m.configPath))

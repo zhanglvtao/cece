@@ -16,7 +16,6 @@ import (
 	"github.com/zhanglvtao/cece/internal/agent"
 	"github.com/zhanglvtao/cece/internal/aiden"
 	"github.com/zhanglvtao/cece/internal/claude"
-	"github.com/zhanglvtao/cece/internal/codebase"
 	"github.com/zhanglvtao/cece/internal/config"
 	"github.com/zhanglvtao/cece/internal/engine"
 	"github.com/zhanglvtao/cece/internal/ipc"
@@ -90,14 +89,6 @@ func buildAgentModelChoices(cfg config.Config) []string {
 			add(m.ID)
 			add(m.ConfigName)
 		}
-		if p.Protocol == "codebase" || p.Name == "codebase" {
-			if discovered, err := codebase.DiscoverCocoPluginModels(); err == nil {
-				for _, m := range discovered {
-					add(m.ID)
-					add(m.ConfigName)
-				}
-			}
-		}
 	}
 	seen := make(map[string]struct{}, len(out))
 	choices := make([]string, 0, len(out))
@@ -121,37 +112,6 @@ func createClient(pc config.ProviderConfig, model string, configName string) age
 		}
 	}
 	switch pc.Protocol {
-	case "codebase":
-		var models []agent.ModelInfo
-		if len(pc.Models) > 0 {
-			models = staticModelsToAgent(pc.Models)
-		} else if discovered, err := codebase.DiscoverCocoPluginModels(); err == nil {
-			models = discovered
-			if model != "" && configName == "" {
-				for _, m := range models {
-					if m.ID == model || m.ConfigName == model {
-						model = m.ID
-						configName = m.ConfigName
-						if pc.BaseURL == "" && m.BaseURL != "" {
-							pc.BaseURL = m.BaseURL
-						}
-						break
-					}
-				}
-			}
-		}
-		c := codebase.NewClient(pc.APIKey, model, configName, pc.BaseURL)
-		if len(models) > 0 {
-			c.SetModels(models)
-		}
-		authHelper := pc.AuthHelper
-		if authHelper == "" && pc.APIKey == "" {
-			authHelper = codebase.DefaultAuthHelper
-		}
-		if authHelper != "" {
-			c.SetAuthHelper(authHelper)
-		}
-		return c
 	case "aiden":
 		c := aiden.NewClient(pc.APIKey, model, pc.BaseURL)
 		if pc.AuthHelper != "" {
@@ -437,23 +397,6 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 	providerResolver := func(configName string) (string, string, string, string, string) {
 		for _, p := range cfg.Providers {
 			if configName != "" {
-				if p.Protocol == "codebase" {
-					if models, err := codebase.DiscoverCocoPluginModels(); err == nil {
-						for _, m := range models {
-							if m.ConfigName == configName || m.ID == configName {
-								baseURL := p.BaseURL
-								if m.BaseURL != "" {
-									baseURL = m.BaseURL
-								}
-								authHelper := p.AuthHelper
-								if authHelper == "" && p.APIKey == "" {
-									authHelper = codebase.DefaultAuthHelper
-								}
-								return p.APIKey, baseURL, p.AuthMode, authHelper, p.Protocol
-							}
-						}
-					}
-				}
 				for _, m := range p.Models {
 					if m.ConfigName == configName {
 						return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
@@ -461,20 +404,12 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 				}
 			}
 			if p.Name == configName {
-				authHelper := p.AuthHelper
-				if p.Protocol == "codebase" && authHelper == "" && p.APIKey == "" {
-					authHelper = codebase.DefaultAuthHelper
-				}
-				return p.APIKey, p.BaseURL, p.AuthMode, authHelper, p.Protocol
+				return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
 			}
 		}
 		if len(cfg.Providers) > 0 {
 			p := defaultProvider
-			authHelper := p.AuthHelper
-			if p.Protocol == "codebase" && authHelper == "" && p.APIKey == "" {
-				authHelper = codebase.DefaultAuthHelper
-			}
-			return p.APIKey, p.BaseURL, p.AuthMode, authHelper, p.Protocol
+			return p.APIKey, p.BaseURL, p.AuthMode, p.AuthHelper, p.Protocol
 		}
 		return "", "", "", "", ""
 	}
@@ -484,19 +419,6 @@ func buildRuntime(projectDir string) (runtimeBundle, error) {
 			for _, m := range p.Models {
 				if m.ID == model || m.ConfigName == model {
 					return createClient(p, model, m.ConfigName)
-				}
-			}
-			if p.Protocol == "codebase" {
-				if models, err := codebase.DiscoverCocoPluginModels(); err == nil {
-					for _, m := range models {
-						if m.ID == model || m.ConfigName == model {
-							pc := p
-							if m.BaseURL != "" {
-								pc.BaseURL = m.BaseURL
-							}
-							return createClient(pc, m.ID, m.ConfigName)
-						}
-					}
 				}
 			}
 		}
@@ -643,10 +565,6 @@ func buildListAllModelsFn(cfg config.Config) runtime.ListAllModelsFn {
 					if m.BaseURL != "" {
 						baseURL = m.BaseURL
 					}
-					authHelper := pc.AuthHelper
-					if pc.Protocol == "codebase" && authHelper == "" && pc.APIKey == "" {
-						authHelper = codebase.DefaultAuthHelper
-					}
 					dtoModels[i] = protocol.ModelInfo{
 						ID:               m.ID,
 						DisplayName:      m.DisplayName,
@@ -655,7 +573,7 @@ func buildListAllModelsFn(cfg config.Config) runtime.ListAllModelsFn {
 						APIKey:           pc.APIKey,
 						BaseURL:          baseURL,
 						AuthMode:         pc.AuthMode,
-						AuthHelper:       authHelper,
+						AuthHelper:       pc.AuthHelper,
 						Protocol:         pc.Protocol,
 						ConfigName:       m.ConfigName,
 					}
