@@ -311,6 +311,7 @@ func TestDecodeErrorChunk(t *testing.T) {
 func TestMapStopReason(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"stop", "end_turn"},
+		{"", "end_turn"},
 		{"tool_calls", "tool_use"},
 		{"length", "max_tokens"},
 		{"unknown", "unknown"},
@@ -423,5 +424,128 @@ func TestDecodeDeepSeekStyleUsageOnlyChunk(t *testing.T) {
 	}
 	if outputTokens != 10 {
 		t.Errorf("expected OutputTokens=10, got %d", outputTokens)
+	}
+}
+
+// TestDecodeEmptyFinishReasonWithText verifies that when a proxy omits
+// finish_reason (sends "" or null) but includes text content, the [DONE]
+// handler synthesizes message_delta with stopReason=end_turn.
+func TestDecodeEmptyFinishReasonWithText(t *testing.T) {
+	body := sseBody(
+		`data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant","content":"hello"}}]}`,
+		``,
+		`data: {"id":"2","choices":[{"index":0,"delta":{"content":" world"}}]}`,
+		``,
+		`data: [DONE]`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var text string
+	var stopReason string
+	var doneSeen bool
+	for _, e := range events {
+		if e.Delta != "" {
+			text += e.Delta
+		}
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+		if e.Done {
+			doneSeen = true
+		}
+	}
+	if text != "hello world" {
+		t.Errorf("expected text 'hello world', got %q", text)
+	}
+	if stopReason != "end_turn" {
+		t.Errorf("expected stopReason 'end_turn', got %q", stopReason)
+	}
+	if !doneSeen {
+		t.Error("expected Done event")
+	}
+}
+
+// TestDecodeEmptyFinishReasonWithToolCalls verifies that when a proxy omits
+// finish_reason but tool calls are present, the [DONE] handler synthesizes
+// message_delta with stopReason=tool_use and closes the tool blocks.
+func TestDecodeEmptyFinishReasonWithToolCalls(t *testing.T) {
+	body := sseBody(
+		`data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","function":{"name":"Bash"}}]}}]}`,
+		``,
+		`data: {"id":"2","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"cmd\":\"ls\"}"}}]}}]}`,
+		``,
+		`data: [DONE]`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var stopReason string
+	var blockStopSeen bool
+	var toolInput string
+	for _, e := range events {
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+		if e.EventType == "content_block_stop" {
+			blockStopSeen = true
+		}
+		if e.Detail == "input_json_delta" {
+			toolInput += e.ToolCallInput
+		}
+	}
+	if stopReason != "tool_use" {
+		t.Errorf("expected stopReason 'tool_use', got %q", stopReason)
+	}
+	if !blockStopSeen {
+		t.Error("expected content_block_stop for tool call")
+	}
+	if toolInput != `{"cmd":"ls"}` {
+		t.Errorf("expected tool input '{\"cmd\":\"ls\"}', got %q", toolInput)
+	}
+}
+
+// TestDecodeDoneClosesThinkingBlock verifies that [DONE] closes an open
+// thinking block and synthesizes message_delta.
+func TestDecodeDoneClosesThinkingBlock(t *testing.T) {
+	body := sseBody(
+		`data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"thinking..."}}]}`,
+		``,
+		`data: [DONE]`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var thinkingText string
+	var thinkingStopSeen bool
+	var stopReason string
+	for _, e := range events {
+		if e.ThinkingDelta != "" {
+			thinkingText += e.ThinkingDelta
+		}
+		if e.EventType == "content_block_stop" && e.IsThinking {
+			thinkingStopSeen = true
+		}
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+	}
+	if thinkingText != "thinking..." {
+		t.Errorf("expected thinking text 'thinking...', got %q", thinkingText)
+	}
+	if !thinkingStopSeen {
+		t.Error("expected content_block_stop for thinking block")
+	}
+	if stopReason != "end_turn" {
+		t.Errorf("expected stopReason 'end_turn', got %q", stopReason)
 	}
 }

@@ -86,6 +86,31 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 
 			dataStr := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if dataStr == "[DONE]" {
+				// Close any open blocks before signaling Done.
+				// Some OpenAI-compatible proxies send finish_reason="" or omit
+				// it entirely, so blocks may still be open at [DONE].
+				if state.thinkingOpen {
+					out <- agent.ApiStreamEvent{
+						EventType:  "content_block_stop",
+						Index:      state.thinkingIndex,
+						IsThinking: true,
+					}
+					state.thinkingOpen = false
+				}
+				for idx := range state.activeToolIndices {
+					out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+				}
+				if !state.terminalChunkSeen && state.messageStarted {
+					state.terminalChunkSeen = true
+					stopReason := "end_turn"
+					if len(state.activeToolIndices) > 0 {
+						stopReason = "tool_use"
+					}
+					out <- agent.ApiStreamEvent{
+						EventType:  "message_delta",
+						StopReason: stopReason,
+					}
+				}
 				if !state.doneEmitted {
 					state.doneEmitted = true
 					out <- agent.ApiStreamEvent{Done: true}
@@ -244,7 +269,7 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 
 func mapStopReason(reason string) string {
 	switch reason {
-	case "stop":
+	case "stop", "": // OpenAI-compatible proxies may send empty finish_reason
 		return "end_turn"
 	case "tool_calls":
 		return "tool_use"
