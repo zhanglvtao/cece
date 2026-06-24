@@ -169,7 +169,7 @@ func ProjectMessagesForRequest(messages []Message) []Message {
 	for i, message := range messages {
 		projected[i] = projectMessageForRequest(message)
 	}
-	return projected
+	return RemoveOrphanToolResults(projected)
 }
 
 // MessagesAfterCompactBoundary returns messages from the last compact boundary
@@ -250,6 +250,51 @@ func EnsureToolResultCoverage(messages []Message) []Message {
 		})
 	}
 
+	return result
+}
+
+// RemoveOrphanToolResults drops tool_result blocks whose ToolUseID has no
+// matching assistant tool_use in the same visible request history. This repairs
+// old or compacted sessions where stale tool_result messages survived but their
+// originating assistant tool_use was trimmed away.
+func RemoveOrphanToolResults(messages []Message) []Message {
+	visibleToolUses := make(map[string]struct{})
+	for _, m := range messages {
+		if m.Role != AssistantRole {
+			continue
+		}
+		for _, cb := range m.ContentBlocks {
+			if cb.Type == ApiToolUseContentType && cb.ToolUse != nil {
+				visibleToolUses[cb.ToolUse.ID] = struct{}{}
+			}
+		}
+	}
+
+	result := make([]Message, 0, len(messages))
+	for _, m := range messages {
+		if !HasToolResultBlocks(m) {
+			result = append(result, m)
+			continue
+		}
+
+		filteredBlocks := make([]ApiContentBlock, 0, len(m.ContentBlocks))
+		for _, cb := range m.ContentBlocks {
+			tr, ok := cb.AsToolResult()
+			if !ok {
+				filteredBlocks = append(filteredBlocks, cb)
+				continue
+			}
+			if _, exists := visibleToolUses[tr.ToolUseID]; exists {
+				filteredBlocks = append(filteredBlocks, cb)
+			}
+		}
+		if len(filteredBlocks) == 0 {
+			continue
+		}
+		clone := m
+		clone.ContentBlocks = filteredBlocks
+		result = append(result, clone)
+	}
 	return result
 }
 

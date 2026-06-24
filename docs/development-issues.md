@@ -131,7 +131,7 @@
 - 定位：cece 内部定义了 `xhigh` 级别（比 `high` 更高），但 OpenAI / Aiden 的 Chat Completions 和 Responses API 只接受 `low`/`medium`/`high`。同时，非推理模型（如 `glm-5.1`）不应发送 `reasoning_effort` 字段，Aiden proxy 在转换 Responses API 时会注入 `__chat_completion_model` 内部字段，非推理模型携带 `reasoning_effort` 会触发这条异常路径。
 - 结论：1) 发送 API 前将 `xhigh` 映射为 `high`；2) 只有 reasoning model（o1/o3/o4/gpt-5*）才发送 `reasoning_effort` / `reasoning` 对象，非推理模型不发送。
 
-## @ 文件弹窗被深层大目录饿死
-- 现象：在大仓库根目录输入 `@dbatman` 时，`dbatman/` 真实存在但弹窗为空。
-- 定位：`FileWalker` 用深度优先 `filepath.Walk` 扫描，并有 5000 条全局上限；字典序靠前的巨大子目录会先耗尽配额，根目录后续目录无法进入候选缓存。
-- 结论：面向交互补全的索引应浅层优先，先保证根目录和近层目录可见，再用上限控制成本；不要简单调高上限。
+## Aiden Responses API 会被孤儿 tool_result 打爆
+- 现象：Aiden Responses API 返回 `400 Bad Request: No tool call found for function call output with call_id ...`。
+- 定位：`internal/aiden/responses_serialize.go` 会把 `tool_result` 无条件序列化成 `function_call_output`；但请求快照此前只会补“缺失的 tool_result”，不会删除“没有对应 assistant tool_use 的 tool_result”。compact boundary / 旧 session 恢复后，坏历史会把孤儿 `tool_result` 带进请求。
+- 结论：要在 provider 序列化前统一做请求历史归一化：先删孤儿 `tool_result`，再跑 `EnsureToolResultCoverage/ValidateToolResultCoverage`。这种修法比在 Aiden serializer 里特判更稳，也能修复旧 session。

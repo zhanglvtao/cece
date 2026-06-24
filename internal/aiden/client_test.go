@@ -298,6 +298,47 @@ func TestStreamStripsThinkingFromPayload(t *testing.T) {
 	}
 }
 
+func TestStreamResponsesDropsOnlyOrphanFunctionCallOutput(t *testing.T) {
+	var gotBody ResponsesAPIRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("expected path /v1/responses, got %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("content-type", "text/event-stream")
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "gpt-5.5-paygo", server.URL)
+	client.SetUseResponsesAPI(true)
+	ch, err := client.Stream(context.Background(), []agent.Message{
+		{Role: agent.UserRole, Content: "summary", CompactBoundary: true},
+		{Role: agent.ToolRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_old", Content: "stale replay"}}}},
+		{Role: agent.UserRole, Content: "continue"},
+	}, agent.SystemPrompt{}, nil, 256)
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for range ch {
+	}
+
+	var outputs []string
+	for _, item := range gotBody.Input {
+		if item.Type == "function_call_output" {
+			outputs = append(outputs, item.Output)
+		}
+	}
+	if len(outputs) != 0 {
+		t.Fatalf("function_call_output count = %d, want 0", len(outputs))
+	}
+	if len(gotBody.Input) != 2 {
+		t.Fatalf("input len = %d, want 2", len(gotBody.Input))
+	}
+}
+
 func TestStreamNoRetryOnNon401Error(t *testing.T) {
 	var callCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

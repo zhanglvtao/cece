@@ -285,6 +285,7 @@ func safeRequestHistory(messages []agent.Message) []agent.Message {
 	raw := agent.MessagesAfterCompactBoundary(messages)
 	snapshot := make([]agent.Message, len(raw))
 	copy(snapshot, raw)
+	snapshot = agent.RemoveOrphanToolResults(snapshot)
 	return agent.ValidateToolResultCoverage(agent.EnsureToolResultCoverage(snapshot))
 }
 

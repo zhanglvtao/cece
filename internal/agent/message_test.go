@@ -304,7 +304,99 @@ func TestValidateToolResultCoverage_PatchesOrphans(t *testing.T) {
 	}
 }
 
-func TestProjectMessagesForRequestKeepsUserToolResults(t *testing.T) {
+func TestRemoveOrphanToolResults_KeepsMatchedResults(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "run ls"},
+		{
+			Role: AssistantRole,
+			ContentBlocks: []ApiContentBlock{{
+				Type: ApiToolUseContentType,
+				ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Bash", Input: json.RawMessage(`{"cmd":"ls"}`)},
+			}},
+		},
+		{
+			Role: ToolRole,
+			ContentBlocks: []ApiContentBlock{{
+				Type: ApiToolResultContentType,
+				ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"},
+			}},
+		},
+	}
+
+	result := RemoveOrphanToolResults(msgs)
+	if len(result) != 3 {
+		t.Fatalf("result len = %d, want 3", len(result))
+	}
+	tr, ok := result[2].ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatalf("message[2] = %+v, want tool_result", result[2])
+	}
+	if tr.ToolUseID != "call_1" {
+		t.Fatalf("tool_use_id = %q, want call_1", tr.ToolUseID)
+	}
+}
+
+func TestRemoveOrphanToolResults_DropsResultsWithoutVisibleToolUse(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "summary", CompactBoundary: true},
+		{
+			Role: ToolRole,
+			ContentBlocks: []ApiContentBlock{{
+				Type: ApiToolResultContentType,
+				ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "stale"},
+			}},
+		},
+		{Role: UserRole, Content: "continue"},
+	}
+
+	result := RemoveOrphanToolResults(msgs)
+	if len(result) != 2 {
+		t.Fatalf("result len = %d, want 2", len(result))
+	}
+	if !result[0].CompactBoundary || result[0].Content != "summary" {
+		t.Fatalf("result[0] = %+v, want boundary summary", result[0])
+	}
+	if result[1].Role != UserRole || result[1].Content != "continue" {
+		t.Fatalf("result[1] = %+v, want plain user continue", result[1])
+	}
+}
+
+func TestRemoveOrphanToolResults_DropsOnlyOrphanBlocks(t *testing.T) {
+	msgs := []Message{
+		{Role: UserRole, Content: "run both"},
+		{
+			Role: AssistantRole,
+			ContentBlocks: []ApiContentBlock{{
+				Type: ApiToolUseContentType,
+				ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{"path":"/tmp/x"}`)},
+			}},
+		},
+		{
+			Role: ToolRole,
+			ContentBlocks: []ApiContentBlock{
+				{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "file"}},
+				{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_2", Content: "stale"}},
+			},
+		},
+	}
+
+	result := RemoveOrphanToolResults(msgs)
+	if len(result) != 3 {
+		t.Fatalf("result len = %d, want 3", len(result))
+	}
+	if got := len(result[2].ContentBlocks); got != 1 {
+		t.Fatalf("tool message block count = %d, want 1", got)
+	}
+	tr, ok := result[2].ContentBlocks[0].AsToolResult()
+	if !ok {
+		t.Fatalf("message[2] = %+v, want tool_result", result[2])
+	}
+	if tr.ToolUseID != "call_1" || tr.Content != "file" {
+		t.Fatalf("tool result = %+v, want call_1/file", tr)
+	}
+}
+
+func TestProjectMessagesForRequestDropsOrphanToolResults(t *testing.T) {
 	messages := []Message{
 		{
 			Role: ToolRole,
@@ -321,18 +413,8 @@ func TestProjectMessagesForRequestKeepsUserToolResults(t *testing.T) {
 	}
 
 	projected := ProjectMessagesForRequest(messages)
-	if len(projected) != 1 {
-		t.Fatalf("projected len = %d, want 1", len(projected))
-	}
-	if len(projected[0].ContentBlocks) != 1 {
-		t.Fatalf("projected content blocks = %d, want 1", len(projected[0].ContentBlocks))
-	}
-	tr, ok := projected[0].ContentBlocks[0].AsToolResult()
-	if !ok {
-		t.Fatal("expected tool_result block to be preserved")
-	}
-	if tr.ToolUseID != "call_1" || tr.Content != "file1\nfile2" {
-		t.Fatalf("tool result = %+v, want call_1/file1\\nfile2", tr)
+	if len(projected) != 0 {
+		t.Fatalf("projected len = %d, want 0", len(projected))
 	}
 }
 

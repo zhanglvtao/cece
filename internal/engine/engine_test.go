@@ -267,6 +267,35 @@ func TestEngineHistorySnapshotReturnsSafeRequestHistory(t *testing.T) {
 	}
 }
 
+func TestEngineHistorySnapshotRemovesOrphanToolResultsAfterCompactBoundary(t *testing.T) {
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.LoadHistory(context.Background(), "test-session", []agent.Message{
+		{Role: agent.UserRole, Content: "old user"},
+		{
+			Role: agent.AssistantRole,
+			ContentBlocks: []agent.ApiContentBlock{{
+				Type: agent.ApiToolUseContentType,
+				ToolUse: &agent.ApiToolUseBlock{ID: "call_old", Name: "Bash", Input: json.RawMessage(`{"command":"pwd"}`)},
+			}},
+		},
+		{Role: agent.ToolRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_old", Content: "ok"}}}},
+		{Role: agent.UserRole, Content: "summary", CompactBoundary: true},
+		{Role: agent.ToolRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_old", Content: "stale replay"}}}},
+		{Role: agent.UserRole, Content: "continue"},
+	})
+
+	snapshot := eng.HistorySnapshot()
+	if len(snapshot) != 2 {
+		t.Fatalf("snapshot len = %d, want compact boundary + plain user", len(snapshot))
+	}
+	if !snapshot[0].CompactBoundary || snapshot[0].Content != "summary" {
+		t.Fatalf("snapshot[0] = %+v, want compact boundary summary", snapshot[0])
+	}
+	if snapshot[1].Role != agent.UserRole || snapshot[1].Content != "continue" {
+		t.Fatalf("snapshot[1] = %+v, want plain user continue", snapshot[1])
+	}
+}
+
 func TestCompactPruneUsesSafeUserBoundary(t *testing.T) {
 	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 	eng.LoadHistory(context.Background(), "", toolBoundaryHistory())

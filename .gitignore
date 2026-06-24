@@ -15,3 +15,5 @@ cece-darwin-*
 cece-linux-*
 *.tar.gz
 checksums.txt
+arch.md
+interview/*
