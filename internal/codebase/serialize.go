@@ -93,7 +93,11 @@ func SerializeMessages(messages []agent.Message, system agent.SystemPrompt) []Co
 		})
 	}
 
-	for _, m := range messages {
+	// Merge consecutive assistant messages before serialization.
+	// This prevents codebase API from rejecting requests with adjacent
+	// assistant messages (e.g. retry nudges after empty responses).
+	merged := mergeConsecutiveAssistant(messages)
+	for _, m := range merged {
 		result = append(result, serializeMessageExpanded(m)...)
 	}
 
@@ -175,6 +179,35 @@ func ConvertTools(tools []tool.Definition) []CodebaseTool {
 				Parameters:  t.InputSchema,
 			},
 		}
+	}
+	return result
+}
+
+// mergeConsecutiveAssistant merges consecutive assistant-role messages into one.
+// Codebase API (like OpenAI Chat Completions) rejects requests with adjacent
+// assistant messages. This can happen when empty-response retry nudges
+// accumulate: [assistant(tool_use), assistant("[Empty response — retrying]"), ...].
+func mergeConsecutiveAssistant(messages []agent.Message) []agent.Message {
+	if len(messages) < 2 {
+		return messages
+	}
+	var result []agent.Message
+	for i := 0; i < len(messages); i++ {
+		m := messages[i]
+		if m.Role != agent.AssistantRole || len(result) == 0 || result[len(result)-1].Role != agent.AssistantRole {
+			result = append(result, m)
+			continue
+		}
+		// Merge into previous assistant message.
+		prev := &result[len(result)-1]
+		if m.Content != "" {
+			if prev.Content != "" {
+				prev.Content += "\n" + m.Content
+			} else {
+				prev.Content = m.Content
+			}
+		}
+		prev.ContentBlocks = append(prev.ContentBlocks, m.ContentBlocks...)
 	}
 	return result
 }
