@@ -126,6 +126,11 @@
 - 定位：Hub 实际是观测旁路，负责收集事件、写入 Store、通过 SSE 推给 Web；业务控制路径应是 `user → tui → runtime → engine → model`。
 - 结论：拓扑语义要区分 control path 和 telemetry path；观测 Hub 应作为旁路节点，只接收 telemetry，不指向业务模块。
 
+## reasoning_effort 和 __chat_completion_model 导致 Aiden API 400
+- 现象：Aiden API 返回 `Invalid reasoning_effort: xhigh` 和 `json: unknown field "__chat_completion_model"` 两种 400 错误。
+- 定位：cece 内部定义了 `xhigh` 级别（比 `high` 更高），但 OpenAI / Aiden 的 Chat Completions 和 Responses API 只接受 `low`/`medium`/`high`。同时，非推理模型（如 `glm-5.1`）不应发送 `reasoning_effort` 字段，Aiden proxy 在转换 Responses API 时会注入 `__chat_completion_model` 内部字段，非推理模型携带 `reasoning_effort` 会触发这条异常路径。
+- 结论：1) 发送 API 前将 `xhigh` 映射为 `high`；2) 只有 reasoning model（o1/o3/o4/gpt-5*）才发送 `reasoning_effort` / `reasoning` 对象，非推理模型不发送。
+
 ## @ 文件弹窗被深层大目录饿死
 - 现象：在大仓库根目录输入 `@dbatman` 时，`dbatman/` 真实存在但弹窗为空。
 - 定位：`FileWalker` 用深度优先 `filepath.Walk` 扫描，并有 5000 条全局上限；字典序靠前的巨大子目录会先耗尽配额，根目录后续目录无法进入候选缓存。

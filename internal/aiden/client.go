@@ -54,6 +54,15 @@ func (c *Client) SetUseResponsesAPI(v bool) { c.useResponsesAPI = v }
 // SetReasoningEffort sets the reasoning effort for future requests.
 func (c *Client) SetReasoningEffort(effort string) { c.reasoningEffort = effort }
 
+// mapAPIEffort maps cece-internal effort levels to API-compatible values.
+// "xhigh" is cece's own level; the API only accepts low/medium/high.
+func mapAPIEffort(effort string) string {
+	if effort == "xhigh" {
+		return "high"
+	}
+	return effort
+}
+
 func (c *Client) SetProvider(apiKey, baseURL string, _ int) {
 	c.apiKey = apiKey
 	c.baseURL = baseURL
@@ -174,9 +183,9 @@ func (c *Client) streamResponses(ctx context.Context, messages []agent.Message, 
 		req.Tools = ConvertResponsesTools(ConvertTools(tools))
 	}
 
-	if c.reasoningEffort != "" {
+	if c.reasoningEffort != "" && isReasoningModel(c.model) {
 		req.Reasoning = &ResponsesReasoning{
-			Effort:  c.reasoningEffort,
+			Effort:  mapAPIEffort(c.reasoningEffort),
 			Summary: "concise",
 		}
 	}
@@ -198,11 +207,16 @@ func (c *Client) streamResponses(ctx context.Context, messages []agent.Message, 
 
 func (c *Client) streamChatCompletions(ctx context.Context, messages []agent.Message, system agent.SystemPrompt, tools []tool.Definition, maxTokens int) (<-chan agent.ApiStreamEvent, error) {
 	payload := ChatCompletionRequest{
-		Model:           c.model,
-		Messages:        SerializeMessages(agent.ProjectMessagesForRequest(messages), system),
-		Stream:          true,
-		MaxTokens:       maxTokens,
-		ReasoningEffort: c.reasoningEffort,
+		Model:     c.model,
+		Messages:  SerializeMessages(agent.ProjectMessagesForRequest(messages), system),
+		Stream:    true,
+		MaxTokens: maxTokens,
+	}
+
+	// Only send reasoning_effort for reasoning models (o1/o3/o4/gpt-5*).
+	// Non-reasoning models don't support this field and may reject it.
+	if c.reasoningEffort != "" && isReasoningModel(c.model) {
+		payload.ReasoningEffort = mapAPIEffort(c.reasoningEffort)
 	}
 
 	if len(tools) > 0 {
