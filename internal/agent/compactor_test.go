@@ -78,7 +78,7 @@ func TestSplitMessagesForCompact_WithToolResults(t *testing.T) {
 	msgs := []Message{
 		{Role: UserRole, Content: "u1"},
 		{Role: AssistantRole, Content: "a1"},
-		{Role: UserRole, ContentBlocks: []ApiContentBlock{
+		{Role: ToolRole, ContentBlocks: []ApiContentBlock{
 			{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "t1", Content: "result1"}},
 		}},
 		{Role: AssistantRole, Content: "a2"},
@@ -169,7 +169,7 @@ func TestGenerateSummaryEnsuresToolResultCoverage(t *testing.T) {
 	if len(request) < 3 {
 		t.Fatalf("request messages = %+v, want assistant + synthetic tool_result + compact prompt", request)
 	}
-	if request[1].Role != UserRole || len(request[1].ContentBlocks) != 1 {
+	if request[1].Role != ToolRole || len(request[1].ContentBlocks) != 1 {
 		t.Fatalf("synthetic result message = %+v", request[1])
 	}
 	tr, ok := request[1].ContentBlocks[0].AsToolResult()

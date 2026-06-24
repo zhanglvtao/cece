@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/zhanglvtao/cece/internal/prompt"
@@ -63,15 +64,21 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 	consecutiveEmptyResponses := 0
 	const maxEmptyRetries = 3
 	for {
-		messages = r.applyToolUseFallback(messages, plan.System)
+		prepared, err := r.prepareModelStreamRequest(ctx, messages, plan.System, r.maxTokens)
+		if err != nil {
+			events <- RunFailed{Err: err}
+			return
+		}
+		messages = prepared.messages
 		r.deps.IncrementAPICalls()
 
 		resp, err := r.streamer.Stream(ctx, ModelStreamRequest{
-			Messages:    messages,
-			System:      plan.System,
-			Reason:      reason,
-			MaxTokens:   r.maxTokens,
-			ToolResults: toolResultNames,
+			Messages:      messages,
+			System:        plan.System,
+			Reason:        reason,
+			MaxTokens:     prepared.maxTokens,
+			ContextWindow: r.deps.ContextWindow,
+			ToolResults:   toolResultNames,
 		}, events)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -88,20 +95,26 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 
 		// Silent escalation: if output was truncated, retry once with 64K.
 		if resp.stopReason == "max_tokens" {
+			prepared, err := r.prepareModelStreamRequest(ctx, messages, plan.System, escalatedMaxTokens)
+			if err != nil {
+				events <- RunFailed{Err: err}
+				return
+			}
+			messages = prepared.messages
 			events <- TruncationRetry{
 				Attempt:       1,
 				PrevMaxTokens: r.maxTokens,
-				NewMaxTokens:  escalatedMaxTokens,
+				NewMaxTokens:  prepared.maxTokens,
 			}
-			slog.Info("output truncated, escalating max_tokens", "from", r.maxTokens, "to", escalatedMaxTokens)
-			messages = r.applyToolUseFallback(messages, plan.System)
+			slog.Info("output truncated, escalating max_tokens", "from", r.maxTokens, "to", prepared.maxTokens)
 			r.deps.IncrementAPICalls()
 			resp, err = r.streamer.Stream(ctx, ModelStreamRequest{
-				Messages:    messages,
-				System:      plan.System,
-				Reason:      reason,
-				MaxTokens:   escalatedMaxTokens,
-				ToolResults: toolResultNames,
+				Messages:      messages,
+				System:        plan.System,
+				Reason:        reason,
+				MaxTokens:     prepared.maxTokens,
+				ContextWindow: r.deps.ContextWindow,
+				ToolResults:   toolResultNames,
 			}, events)
 			if err != nil {
 				if ctx.Err() != nil {
@@ -174,7 +187,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 			if errors.Is(err, WaitRejected) {
 				if hasExitPlanMode(resp.toolCalls) {
 					resultMsg := Message{
-						Role:          UserRole,
+						Role:          ToolRole,
 						ContentBlocks: rejectToolResults(resp.toolCalls),
 					}
 					r.deps.AppendMessage(resultMsg)
@@ -187,7 +200,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				// User rejected: construct rejection tool_results and continue the loop.
 				events <- ToolCallsRejected{}
 				resultMsg := Message{
-					Role:          UserRole,
+					Role:          ToolRole,
 					ContentBlocks: rejectToolResults(resp.toolCalls),
 				}
 				r.deps.AppendMessage(resultMsg)
@@ -211,9 +224,9 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 			toolResultNames[i] = tc.Name
 		}
 
-		// Append tool_result as a user message.
+		// Append tool_result as a tool message.
 		resultMsg := Message{
-			Role:          UserRole,
+			Role:          ToolRole,
 			ContentBlocks: toolResults,
 		}
 		r.deps.AppendMessage(resultMsg)
@@ -237,6 +250,74 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 	}
 }
 
+const contextBudgetSafetyMargin = 1024
+const minContextBudgetMaxTokens = 1024
+
+type preparedModelRequest struct {
+	messages  []Message
+	maxTokens int
+}
+
+func (r *TurnRunner) prepareModelStreamRequest(ctx context.Context, messages []Message, system SystemPrompt, requestedMaxTokens int) (preparedModelRequest, error) {
+	if requestedMaxTokens <= 0 || r.deps.ContextWindow <= 0 {
+		return preparedModelRequest{messages: r.applyToolUseFallback(messages, system), maxTokens: requestedMaxTokens}, nil
+	}
+
+	tools := r.toolDefinitions()
+	preparedMessages := messages
+	estimated := EstimateRequestTokens(system, preparedMessages, tools)
+	if !fitsContextBudget(estimated, requestedMaxTokens, r.deps.ContextWindow) {
+		slog.Warn("context budget preflight exceeded", "estimated_input", estimated, "max_tokens", requestedMaxTokens, "context_window", r.deps.ContextWindow)
+		if r.tryAutoCompact(ctx) {
+			if refreshed, ok := r.refreshedHistorySnapshot(messages); ok {
+				preparedMessages = refreshed
+				estimated = EstimateRequestTokens(system, preparedMessages, tools)
+			}
+		}
+	}
+
+	preparedMessages = r.applyToolUseFallback(preparedMessages, system)
+	estimated = EstimateRequestTokens(system, preparedMessages, tools)
+	if fitsContextBudget(estimated, requestedMaxTokens, r.deps.ContextWindow) {
+		return preparedModelRequest{messages: preparedMessages, maxTokens: requestedMaxTokens}, nil
+	}
+
+	available := r.deps.ContextWindow - estimated - contextBudgetSafetyMargin
+	if available < minContextBudgetMaxTokens {
+		slog.Warn("context budget extremely tight — using minimum max_tokens", "estimated_input", estimated, "context_window", r.deps.ContextWindow)
+		requestedMaxTokens = minContextBudgetMaxTokens
+	} else if available < requestedMaxTokens {
+		slog.Warn("shrinking max_tokens to fit context budget", "from", requestedMaxTokens, "to", available, "estimated_input", estimated, "context_window", r.deps.ContextWindow)
+		requestedMaxTokens = available
+	}
+	return preparedModelRequest{messages: preparedMessages, maxTokens: requestedMaxTokens}, nil
+}
+
+func fitsContextBudget(estimatedInput, maxTokens, contextWindow int) bool {
+	if contextWindow <= 0 || maxTokens <= 0 {
+		return true
+	}
+	return estimatedInput+maxTokens+contextBudgetSafetyMargin <= contextWindow
+}
+
+func (r *TurnRunner) toolDefinitions() []tool.Definition {
+	if r.streamer == nil || r.streamer.registry == nil {
+		return nil
+	}
+	return r.streamer.registry.Definitions()
+}
+
+func (r *TurnRunner) refreshedHistorySnapshot(current []Message) ([]Message, bool) {
+	if r.deps.HistorySnapshot == nil {
+		return nil, false
+	}
+	refreshed := r.deps.HistorySnapshot()
+	if len(refreshed) == 0 || reflect.DeepEqual(refreshed, current) {
+		return nil, false
+	}
+	return refreshed, true
+}
+
 func (r *TurnRunner) tryAutoCompact(ctx context.Context) bool {
 	if r.deps.TryAutoCompact == nil {
 		return false
@@ -248,10 +329,7 @@ func (r *TurnRunner) applyToolUseFallback(messages []Message, system SystemPromp
 	if r.deps.ContextWindow <= 0 {
 		return messages
 	}
-	tools := []tool.Definition(nil)
-	if r.streamer != nil && r.streamer.registry != nil {
-		tools = r.streamer.registry.Definitions()
-	}
+	tools := r.toolDefinitions()
 	estimated := EstimateRequestTokens(system, messages, tools)
 	if estimated <= r.deps.ContextWindow {
 		return messages

@@ -77,6 +77,8 @@ func SerializeResponsesInput(messages []agent.Message, system agent.SystemPrompt
 		switch m.Role {
 		case agent.UserRole:
 			items = append(items, serializeUserMessageItems(m)...)
+		case agent.ToolRole:
+			items = append(items, serializeToolResultItems(m)...)
 		case agent.AssistantRole:
 			items = append(items, serializeAssistantMessageItems(m)...)
 		}
@@ -123,28 +125,25 @@ func ConvertResponsesTools(tools []AidenTool) []ResponsesTool {
 // serializeUserMessageItems converts a user message to Responses API items.
 // Plain user text → message item with input_text content.
 // Tool results → function_call_output items.
-func serializeUserMessageItems(m agent.Message) []ResponsesItem {
-	// Check if this is a tool-result message
-	if len(m.ContentBlocks) > 0 {
-		if _, ok := m.ContentBlocks[0].AsToolResult(); ok {
-			var items []ResponsesItem
-			for _, cb := range m.ContentBlocks {
-				if tr, ok := cb.AsToolResult(); ok {
-					output := tr.Content
-					if output == "" {
-						output = " "
-					}
-					items = append(items, ResponsesItem{
-						Type:   "function_call_output",
-						CallID: tr.ToolUseID,
-						Output: output,
-					})
-				}
+func serializeToolResultItems(m agent.Message) []ResponsesItem {
+	var items []ResponsesItem
+	for _, cb := range m.ContentBlocks {
+		if tr, ok := cb.AsToolResult(); ok {
+			output := tr.Content
+			if output == "" {
+				output = " "
 			}
-			return items
+			items = append(items, ResponsesItem{
+				Type:   "function_call_output",
+				CallID: tr.ToolUseID,
+				Output: output,
+			})
 		}
 	}
+	return items
+}
 
+func serializeUserMessageItems(m agent.Message) []ResponsesItem {
 	// Plain user message
 	content := m.Content
 	if content == "" {

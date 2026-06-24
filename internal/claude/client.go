@@ -232,8 +232,8 @@ func serializeMessage(m agent.Message) any {
 		IsError   bool   `json:"is_error,omitempty"`
 	}
 
-	// tool_result messages (user role with ToolResult blocks)
-	if m.Role == agent.UserRole && len(m.ContentBlocks) > 0 {
+	// tool_result messages — Anthropic API requires role="user" for tool_result
+	if m.Role == agent.ToolRole && len(m.ContentBlocks) > 0 {
 		if _, ok := m.ContentBlocks[0].AsToolResult(); ok {
 			var blocks []any
 			for _, cb := range m.ContentBlocks {
@@ -247,7 +247,7 @@ func serializeMessage(m agent.Message) any {
 				}
 			}
 			return map[string]any{
-				"role":    string(m.Role),
+				"role":    "user",
 				"content": blocks,
 			}
 		}

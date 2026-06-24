@@ -95,6 +95,15 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 	assistantStarted := false
 
 	for chunk := range chunks {
+		if chunk.Err != nil && req.ContextWindow > 0 && !fitsContextBudget(estimated, req.MaxTokens, req.ContextWindow) && isContextBudgetProviderError(chunk.Err.Error()) {
+			logger.Warn("provider rejected over-budget request", "error", chunk.Err.Error(), "estimated_input", estimated, "max_tokens", req.MaxTokens, "context_window", req.ContextWindow)
+			text := fmt.Sprintf("[Context Window Exceeded] %s\nYour request needs about %d input tokens plus %d output tokens, exceeding the %d token context window. Compact, trim, or prune history before continuing.", chunk.Err.Error(), estimated, req.MaxTokens, req.ContextWindow)
+			emitModelEvent(ch, RunFailed{Err: chunk.Err})
+			return modelResponse{
+				stopReason:  "end_turn",
+				textContent: text,
+			}, nil
+		}
 		if chunk.Err != nil {
 			// Provider API parameter/validation errors (code=4001, InvalidParameter,
 			// required field, etc.) are non-fatal: return them as text so the
@@ -377,6 +386,14 @@ func isRecoverableProviderError(err error) bool {
 	}
 
 	return false
+}
+
+func isContextBudgetProviderError(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "1210:api") ||
+		strings.Contains(msg, "API 调用参数有误") ||
+		strings.Contains(msg, "\"code\":\"-4316\"") ||
+		strings.Contains(lower, "-4316")
 }
 
 // isContextTooLongError checks whether the error indicates the input exceeded

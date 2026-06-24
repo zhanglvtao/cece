@@ -254,7 +254,7 @@ func TestStreamSecondRequestReplayUsesEmptyContentArrayForToolOnlyAssistant(t *t
 			},
 		},
 		{
-			Role: agent.UserRole,
+			Role: agent.ToolRole,
 			ContentBlocks: []agent.ApiContentBlock{{
 				Type: agent.ApiToolResultContentType,
 				ToolResult: &agent.ApiToolResultBlock{

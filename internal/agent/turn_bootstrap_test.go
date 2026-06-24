@@ -190,7 +190,7 @@ func TestTurnRunnerExitPlanModeRejectedPersistsRejectToolResult(t *testing.T) {
 		t.Fatalf("history len = %d, want assistant + reject tool_result", len(history))
 	}
 	resultMsg := history[1]
-	if resultMsg.Role != UserRole || len(resultMsg.ContentBlocks) != 1 {
+	if resultMsg.Role != ToolRole || len(resultMsg.ContentBlocks) != 1 {
 		t.Fatalf("reject message = %+v", resultMsg)
 	}
 	tr, ok := resultMsg.ContentBlocks[0].AsToolResult()
@@ -231,4 +231,151 @@ func containsMessage(messages []Message, target Message) bool {
 		}
 	}
 	return false
+}
+
+func TestTurnRunnerPreflightCompactsAndRefreshesSnapshot(t *testing.T) {
+	original := []Message{{Role: UserRole, Content: strings.Repeat("x ", 4000)}}
+	compacted := []Message{{Role: UserRole, Content: "summary"}}
+	requestedMaxTokens := 4096
+	contextWindow := EstimateRequestTokens(SystemPrompt{}, original, nil) + requestedMaxTokens + contextBudgetSafetyMargin - 1
+
+	compactCalls := 0
+	var streamMessages []Message
+	var streamMaxTokens int
+	compactCallsAtStream := -1
+	client := &mockStreamClient{streamFn: func(_ context.Context, messages []Message, _ SystemPrompt, _ []tool.Definition, maxTokens int) (<-chan ApiStreamEvent, error) {
+		compactCallsAtStream = compactCalls
+		streamMessages = append([]Message(nil), messages...)
+		streamMaxTokens = maxTokens
+		return textStream("ok"), nil
+	}}
+
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		requestedMaxTokens,
+		TurnDeps{
+			AppendMessage:     func(Message) {},
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			TryAutoCompact: func(context.Context) bool {
+				compactCalls++
+				return true
+			},
+			HistorySnapshot:   func() []Message { return append([]Message(nil), compacted...) },
+			IncrementAPICalls: func() {},
+			ContextWindow:     contextWindow,
+		},
+	)
+
+	runner.Run(context.Background(), TurnPlan{Messages: original}, make(chan Event, 64))
+
+	if compactCallsAtStream != 1 {
+		t.Fatalf("compactCallsAtStream = %d, want 1", compactCallsAtStream)
+	}
+	if len(streamMessages) != 1 || streamMessages[0].Content != "summary" {
+		t.Fatalf("streamMessages = %+v, want compacted snapshot", streamMessages)
+	}
+	if streamMaxTokens != requestedMaxTokens {
+		t.Fatalf("stream maxTokens = %d, want %d", streamMaxTokens, requestedMaxTokens)
+	}
+}
+
+func TestTurnRunnerPreflightShrinksMaxTokensToFitBudget(t *testing.T) {
+	messages := []Message{{Role: UserRole, Content: strings.Repeat("x ", 4000)}}
+	requestedMaxTokens := 4096
+	wantMaxTokens := minContextBudgetMaxTokens + 500
+	contextWindow := EstimateRequestTokens(SystemPrompt{}, messages, nil) + wantMaxTokens + contextBudgetSafetyMargin
+
+	compactCalls := 0
+	var streamMaxTokens int
+	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, maxTokens int) (<-chan ApiStreamEvent, error) {
+		streamMaxTokens = maxTokens
+		return textStream("ok"), nil
+	}}
+
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		requestedMaxTokens,
+		TurnDeps{
+			AppendMessage:     func(Message) {},
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			TryAutoCompact: func(context.Context) bool {
+				compactCalls++
+				return false
+			},
+			HistorySnapshot:   func() []Message { return append([]Message(nil), messages...) },
+			IncrementAPICalls: func() {},
+			ContextWindow:     contextWindow,
+		},
+	)
+
+	runner.Run(context.Background(), TurnPlan{Messages: messages}, make(chan Event, 64))
+
+	if compactCalls != 2 {
+		t.Fatalf("compactCalls = %d, want 2", compactCalls)
+	}
+	if streamMaxTokens != wantMaxTokens {
+		t.Fatalf("stream maxTokens = %d, want %d", streamMaxTokens, wantMaxTokens)
+	}
+}
+
+func TestTurnRunnerPreflightKeepsMaxTokensWhenBudgetFits(t *testing.T) {
+	messages := []Message{{Role: UserRole, Content: "small"}}
+	requestedMaxTokens := 4096
+	contextWindow := EstimateRequestTokens(SystemPrompt{}, messages, nil) + requestedMaxTokens + contextBudgetSafetyMargin
+
+	compactCalls := 0
+	var streamMaxTokens int
+	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, maxTokens int) (<-chan ApiStreamEvent, error) {
+		streamMaxTokens = maxTokens
+		return textStream("ok"), nil
+	}}
+
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		requestedMaxTokens,
+		TurnDeps{
+			AppendMessage:     func(Message) {},
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			TryAutoCompact: func(context.Context) bool {
+				compactCalls++
+				return false
+			},
+			HistorySnapshot:   func() []Message { return append([]Message(nil), messages...) },
+			IncrementAPICalls: func() {},
+			ContextWindow:     contextWindow,
+		},
+	)
+
+	runner.Run(context.Background(), TurnPlan{Messages: messages}, make(chan Event, 64))
+
+	if compactCalls != 1 {
+		t.Fatalf("compactCalls = %d, want 1", compactCalls)
+	}
+	if streamMaxTokens != requestedMaxTokens {
+		t.Fatalf("stream maxTokens = %d, want %d", streamMaxTokens, requestedMaxTokens)
+	}
+}
+
+func textStream(text string) <-chan ApiStreamEvent {
+	ch := make(chan ApiStreamEvent, 6)
+	ch <- ApiStreamEvent{EventType: "message_start", InputTokens: 10}
+	ch <- ApiStreamEvent{EventType: "content_block_start", Index: 0}
+	ch <- ApiStreamEvent{EventType: "content_block_delta", Detail: "text_delta", Delta: text}
+	ch <- ApiStreamEvent{EventType: "content_block_stop", Index: 0}
+	ch <- ApiStreamEvent{EventType: "message_delta", StopReason: "end_turn", OutputTokens: 1}
+	ch <- ApiStreamEvent{Done: true, EventType: "message_stop"}
+	close(ch)
+	return ch
 }

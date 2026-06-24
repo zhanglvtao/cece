@@ -8,7 +8,7 @@ func TestTruncateToolResults(t *testing.T) {
 		{Role: AssistantRole, Content: "a1", ContentBlocks: []ApiContentBlock{
 			{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "t1", Name: "Bash", Input: nil}},
 		}},
-		{Role: UserRole, ContentBlocks: []ApiContentBlock{
+		{Role: ToolRole, ContentBlocks: []ApiContentBlock{
 			{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "t1", Content: "line1\nline2\nline3", TotalLines: 3}},
 			{Type: ApiTextContentType, Text: "some text"},
 		}},
@@ -39,7 +39,7 @@ func TestTruncateToolResults(t *testing.T) {
 
 func TestTruncateToolResultsAlreadyTruncated(t *testing.T) {
 	msgs := []Message{
-		{Role: UserRole, ContentBlocks: []ApiContentBlock{
+		{Role: ToolRole, ContentBlocks: []ApiContentBlock{
 			{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "t1", Content: "[truncated]"}},
 		}},
 	}

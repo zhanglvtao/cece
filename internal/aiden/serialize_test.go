@@ -113,7 +113,7 @@ func TestSerializeAssistantWithTextAndToolUse(t *testing.T) {
 func TestSerializeToolResultMessage(t *testing.T) {
 	msgs := []agent.Message{
 		{
-			Role: agent.UserRole,
+			Role: agent.ToolRole,
 			ContentBlocks: []agent.ApiContentBlock{
 				{
 					Type: agent.ApiToolResultContentType,
@@ -145,7 +145,7 @@ func TestSerializeToolResultMessage(t *testing.T) {
 func TestSerializeMultiToolResultExpansion(t *testing.T) {
 	msgs := []agent.Message{
 		{
-			Role: agent.UserRole,
+			Role: agent.ToolRole,
 			ContentBlocks: []agent.ApiContentBlock{
 				{
 					Type: agent.ApiToolResultContentType,
@@ -315,7 +315,7 @@ func TestSerializeAssistantToolOnlyKeepsEmptyContent(t *testing.T) {
 func TestSerializeEmptyUserContentPreservesField(t *testing.T) {
 	msgs := []agent.Message{
 		{
-			Role: agent.UserRole,
+			Role: agent.ToolRole,
 			// Content is empty, ContentBlocks has no text type — TextContent() returns ""
 			ContentBlocks: []agent.ApiContentBlock{
 				{
@@ -363,7 +363,7 @@ func TestSerializeEmptyUserContentPreservesField(t *testing.T) {
 func TestSerializeEmptyToolResultContentPreservesField(t *testing.T) {
 	msgs := []agent.Message{
 		{
-			Role: agent.UserRole,
+			Role: agent.ToolRole,
 			ContentBlocks: []agent.ApiContentBlock{
 				{
 					Type: agent.ApiToolResultContentType,

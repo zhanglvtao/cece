@@ -68,7 +68,7 @@ func serializeSystemInstructions(system agent.SystemPrompt) string {
 }
 
 func serializeMessageExpanded(m agent.Message) []AidenMsg {
-	if m.Role == agent.UserRole && len(m.ContentBlocks) > 0 {
+	if m.Role == agent.ToolRole && len(m.ContentBlocks) > 0 {
 		if _, ok := m.ContentBlocks[0].AsToolResult(); ok {
 			var msgs []AidenMsg
 			for _, cb := range m.ContentBlocks {

@@ -230,6 +230,10 @@ func (m *EngineMediator) loadSession(sessionID string) {
 			slog.Warn("skipping corrupt message in session", "session", sessionID, "error", err)
 			continue
 		}
+		// Migrate old sessions: tool_result messages were stored with Role=user.
+		if msg.Role == agent.UserRole && agent.HasToolResultBlocks(msg) {
+			msg.Role = agent.ToolRole
+		}
 		msgs = append(msgs, msg)
 	}
 	m.Engine.LoadHistory(context.Background(), sessionID, msgs)

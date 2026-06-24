@@ -16,6 +16,7 @@ type Role string
 const (
 	UserRole      Role = "user"
 	AssistantRole Role = "assistant"
+	ToolRole      Role = "tool"
 )
 
 type Message struct {
@@ -244,7 +245,7 @@ func EnsureToolResultCoverage(messages []Message) []Message {
 		}
 
 		result = append(result, Message{
-			Role:          UserRole,
+			Role:          ToolRole,
 			ContentBlocks: synthetic,
 		})
 	}
@@ -302,15 +303,23 @@ func TurnBoundaries(messages []Message) []int {
 }
 
 func IsToolResultMessage(m Message) bool {
-	if m.Role != UserRole || len(m.ContentBlocks) == 0 {
-		return false
-	}
-	_, ok := m.ContentBlocks[0].AsToolResult()
-	return ok
+	return m.Role == ToolRole
 }
 
 func IsPlainUserMessage(m Message) bool {
-	return m.Role == UserRole && !m.CompactBoundary && !IsToolResultMessage(m)
+	return m.Role == UserRole && !m.CompactBoundary
+}
+
+// HasToolResultBlocks reports whether the message contains tool_result content blocks.
+// Used for backward-compatible migration of old session data where tool_result
+// messages were stored with Role=user instead of Role=tool.
+func HasToolResultBlocks(m Message) bool {
+	for _, cb := range m.ContentBlocks {
+		if cb.Type == ApiToolResultContentType && cb.ToolResult != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func UserTurnBoundaries(messages []Message) []int {

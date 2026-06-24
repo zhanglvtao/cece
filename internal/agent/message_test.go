@@ -135,8 +135,8 @@ func TestEnsureToolResultCoverage_WithOrphans(t *testing.T) {
 	// Synthetic tool_result must be at index 1 (immediately after the assistant message at index 1),
 	// NOT at the end.
 	synthetic := result[2]
-	if synthetic.Role != UserRole {
-		t.Fatalf("synthetic message role = %q, want user", synthetic.Role)
+	if synthetic.Role != ToolRole {
+		t.Fatalf("synthetic message role = %q, want tool", synthetic.Role)
 	}
 	if len(synthetic.ContentBlocks) != 1 {
 		t.Fatalf("synthetic message content blocks = %d, want 1", len(synthetic.ContentBlocks))
@@ -155,8 +155,8 @@ func TestEnsureToolResultCoverage_WithOrphans(t *testing.T) {
 	if result[1].Role != AssistantRole {
 		t.Fatalf("message at index 1 role = %q, want assistant", result[1].Role)
 	}
-	if result[2].Role != UserRole {
-		t.Fatalf("message at index 2 role = %q, want user (synthetic)", result[2].Role)
+	if result[2].Role != ToolRole {
+		t.Fatalf("message at index 2 role = %q, want tool (synthetic)", result[2].Role)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestEnsureToolResultCoverage_InsertPosition(t *testing.T) {
 			},
 		},
 		{
-			Role: UserRole,
+			Role: ToolRole,
 			ContentBlocks: []ApiContentBlock{
 				{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_2", Content: "file contents"}},
 			},
@@ -200,8 +200,8 @@ func TestEnsureToolResultCoverage_InsertPosition(t *testing.T) {
 	// result[4] = assistant (tool_use: call_2)
 	// result[5] = user (tool_result for call_2)
 
-	if result[2].Role != UserRole {
-		t.Fatalf("inserted message at index 2 role = %q, want user", result[2].Role)
+	if result[2].Role != ToolRole {
+		t.Fatalf("inserted message at index 2 role = %q, want tool", result[2].Role)
 	}
 	tr, ok := result[2].ContentBlocks[0].AsToolResult()
 	if !ok {
@@ -237,7 +237,7 @@ func TestEnsureToolResultCoverage_PartialOrphans(t *testing.T) {
 			},
 		},
 		{
-			Role: UserRole,
+			Role: ToolRole,
 			ContentBlocks: []ApiContentBlock{
 				{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "file1.txt"}},
 			},
@@ -307,7 +307,7 @@ func TestValidateToolResultCoverage_PatchesOrphans(t *testing.T) {
 func TestProjectMessagesForRequestKeepsUserToolResults(t *testing.T) {
 	messages := []Message{
 		{
-			Role: UserRole,
+			Role: ToolRole,
 			ContentBlocks: []ApiContentBlock{
 				{
 					Type: ApiToolResultContentType,
@@ -337,28 +337,33 @@ func TestProjectMessagesForRequestKeepsUserToolResults(t *testing.T) {
 }
 
 func TestSafeContextBoundaryBeforeTurnWalksBackToPlainUser(t *testing.T) {
+	// When TurnBoundaries lands on a CompactBoundary (Role=user, CompactBoundary=true),
+	// SafeContextBoundaryBeforeTurn walks back to find the nearest plain user message.
 	messages := []Message{
 		{Role: UserRole, Content: "u0"},
-		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
-		{Role: UserRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
-		{Role: AssistantRole, Content: "done"},
-		{Role: UserRole, Content: "u1"},
+		{Role: AssistantRole, Content: "a0"},
+		{Role: UserRole, Content: "summary", CompactBoundary: true},
+		{Role: AssistantRole, Content: "a1"},
+		{Role: UserRole, Content: "u2"},
 	}
 
+	// TurnBoundaries: [0, 2, 4] — CompactBoundary at idx2 counts as UserRole
+	// Turn 1 starts at idx2 (CompactBoundary) → walks back to idx0 (u0)
 	idx, ok := SafeContextBoundaryBeforeTurn(messages, 1)
 	if !ok {
 		t.Fatal("expected safe boundary")
 	}
 	if idx != 0 {
-		t.Fatalf("safe boundary = %d, want 0", idx)
+		t.Fatalf("safe boundary = %d, want 0 (walks back past CompactBoundary)", idx)
 	}
 
+	// Turn 2 starts at idx4 (u2) → u2 itself is a plain user
 	idx, ok = SafeContextBoundaryBeforeTurn(messages, 2)
 	if !ok {
 		t.Fatal("expected safe boundary")
 	}
 	if idx != 4 {
-		t.Fatalf("safe boundary = %d, want 4", idx)
+		t.Fatalf("safe boundary = %d, want 4 (u2 itself)", idx)
 	}
 }
 
@@ -366,7 +371,7 @@ func TestUserTurnBoundariesIgnoresToolResultsAndCompactBoundaries(t *testing.T) 
 	messages := []Message{
 		{Role: UserRole, Content: "u0"},
 		{Role: UserRole, Content: "summary", CompactBoundary: true},
-		{Role: UserRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
+		{Role: ToolRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
 		{Role: UserRole, Content: "u1"},
 	}
 
@@ -380,12 +385,12 @@ func TestTruncateToolUseInputsUsesSnapshotOnlyRange(t *testing.T) {
 	messages := []Message{
 		{Role: UserRole, Content: "u0"},
 		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Edit", Input: json.RawMessage(`{"old_string":"very long"}`)}}}},
-		{Role: UserRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
+		{Role: ToolRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
 		{Role: UserRole, Content: "u1"},
 		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_2", Name: "Edit", Input: json.RawMessage(`{"new_string":"keep"}`)}}}},
 	}
 
-	truncated, _, _ := TruncateToolUseInputs(messages, 2)
+	truncated, _, _ := TruncateToolUseInputs(messages, 1)
 	if truncated != 1 {
 		t.Fatalf("truncated = %d, want 1", truncated)
 	}
@@ -418,11 +423,11 @@ func TestTrimToolResultsInRangeUsesSafeContextRange(t *testing.T) {
 	messages := []Message{
 		{Role: UserRole, Content: "u0"},
 		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
-		{Role: UserRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "old"}}}},
+		{Role: ToolRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "old"}}}},
 		{Role: UserRole, Content: "u1"},
 	}
 
-	trimmed, _, _ := TrimToolResultsInRange(messages, 1, 2)
+	trimmed, _, _ := TrimToolResultsInRange(messages, 0, 1)
 	if trimmed != 1 {
 		t.Fatalf("trimmed = %d, want 1", trimmed)
 	}

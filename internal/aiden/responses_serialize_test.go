@@ -151,7 +151,7 @@ func TestSerializeResponsesInputToolOnlyAssistant(t *testing.T) {
 func TestSerializeResponsesInputToolResult(t *testing.T) {
 	msgs := []agent.Message{
 		{
-			Role: agent.UserRole,
+			Role: agent.ToolRole,
 			ContentBlocks: []agent.ApiContentBlock{
 				{
 					Type: agent.ApiToolResultContentType,
@@ -182,7 +182,7 @@ func TestSerializeResponsesInputToolResult(t *testing.T) {
 func TestSerializeResponsesInputMultipleToolResults(t *testing.T) {
 	msgs := []agent.Message{
 		{
-			Role: agent.UserRole,
+			Role: agent.ToolRole,
 			ContentBlocks: []agent.ApiContentBlock{
 				{
 					Type: agent.ApiToolResultContentType,

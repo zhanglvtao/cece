@@ -101,7 +101,7 @@ func SerializeMessages(messages []agent.Message, system agent.SystemPrompt) []Co
 
 // serializeMessageExpanded returns 1+ CodebaseMessages (multi-tool-result expansion).
 func serializeMessageExpanded(m agent.Message) []CodebaseMessage {
-	if m.Role == agent.UserRole && len(m.ContentBlocks) > 0 {
+	if m.Role == agent.ToolRole && len(m.ContentBlocks) > 0 {
 		if _, ok := m.ContentBlocks[0].AsToolResult(); ok {
 			var msgs []CodebaseMessage
 			for _, cb := range m.ContentBlocks {

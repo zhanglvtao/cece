@@ -39,7 +39,7 @@ func TestEstimateRequestTokens_ToolUseOverhead(t *testing.T) {
 			{Type: ApiTextContentType, Text: "I'll run that."},
 			{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Bash", Input: inputJSON}},
 		}},
-		{Role: UserRole, ContentBlocks: []ApiContentBlock{
+		{Role: ToolRole, ContentBlocks: []ApiContentBlock{
 			{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "file1.txt\nfile2.txt"}},
 		}},
 	}
@@ -120,10 +120,11 @@ func TestEstimateMessagesTokens_ConsistentWithRequestTokens(t *testing.T) {
 				ID: "call_1", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`),
 			}},
 		}},
-		{Role: UserRole, ContentBlocks: []ApiContentBlock{
-			{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{
-				ToolUseID: "call_1", Content: "file1.go\nfile2.go",
-			}},
+		{Role: ToolRole, ContentBlocks: []ApiContentBlock{
+			{
+				Type:       ApiToolResultContentType,
+				ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "file1.go\nfile2.go"},
+			},
 		}},
 	}
 

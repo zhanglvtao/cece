@@ -38,3 +38,10 @@ func (c staticStreamClient) Stream(context.Context, []Message, SystemPrompt, []t
 }
 
 func (c staticStreamClient) SetReasoningEffort(_ string) {}
+
+func TestIsContextBudgetProviderError_AidenGeneric400(t *testing.T) {
+	errMsg := `aiden api returned 400 Bad Request: {"error":{"message":"1210:API 调用参数有误，请检查文档。","code":"-4316"}}`
+	if !isContextBudgetProviderError(errMsg) {
+		t.Fatal("expected Aiden 1210/-4316 to be recognized as context budget provider error")
+	}
+}

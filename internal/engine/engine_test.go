@@ -271,13 +271,15 @@ func TestCompactPruneUsesSafeUserBoundary(t *testing.T) {
 	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 	eng.LoadHistory(context.Background(), "", toolBoundaryHistory())
 
+	// toolBoundaryHistory: [u0, assistant(tool_use), tool(tool_result), u1]
+	// TurnBoundaries: [0, 3] — 2 turns
 	eng.compactPrune(1)
 	snapshot := eng.HistorySnapshot()
 	if len(snapshot) < 2 || !snapshot[0].CompactBoundary {
 		t.Fatalf("snapshot = %+v, want compact boundary", snapshot)
 	}
-	if !agent.IsPlainUserMessage(snapshot[1]) || snapshot[1].Content != "u0" {
-		t.Fatalf("first kept message = %+v, want plain user u0", snapshot[1])
+	if !agent.IsPlainUserMessage(snapshot[1]) || snapshot[1].Content != "u1" {
+		t.Fatalf("first kept message = %+v, want plain user u1", snapshot[1])
 	}
 }
 
@@ -288,10 +290,12 @@ func TestCompactSummaryUsesSafeUserBoundary(t *testing.T) {
 		{Role: agent.AssistantRole, Content: "a0"},
 		{Role: agent.UserRole, Content: "u1"},
 		{Role: agent.AssistantRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolUseContentType, ToolUse: &agent.ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
-		{Role: agent.UserRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
+		{Role: agent.ToolRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
 		{Role: agent.UserRole, Content: "u2"},
 	})
 
+	// TurnBoundaries: [0, 1, 5] (u0, u1, u2) — 3 turns
+	// compactSummary(ctx, 2) keeps last 2 turns, starting from u1
 	_, _, _, err := eng.compactSummary(context.Background(), 2)
 	if err != nil {
 		t.Fatalf("compactSummary error = %v", err)
@@ -300,8 +304,8 @@ func TestCompactSummaryUsesSafeUserBoundary(t *testing.T) {
 	if len(snapshot) < 2 || !snapshot[0].CompactBoundary {
 		t.Fatalf("snapshot = %+v, want compact boundary", snapshot)
 	}
-	if !agent.IsPlainUserMessage(snapshot[1]) || snapshot[1].Content != "u1" {
-		t.Fatalf("first kept message = %+v, want plain user u1", snapshot[1])
+	if !agent.IsPlainUserMessage(snapshot[1]) || snapshot[1].Content != "u2" {
+		t.Fatalf("first kept message = %+v, want plain user u2", snapshot[1])
 	}
 }
 
@@ -353,7 +357,7 @@ func TestTryAutoCompactFallsBackWhenCompactSummaryFails(t *testing.T) {
 	eng.LoadHistory(context.Background(), "", []agent.Message{
 		{Role: agent.UserRole, Content: "u0"},
 		{Role: agent.AssistantRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolUseContentType, ToolUse: &agent.ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
-		{Role: agent.UserRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_1", Content: large}}}},
+		{Role: agent.ToolRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_1", Content: large}}}},
 		{Role: agent.UserRole, Content: "u1"},
 	})
 
@@ -425,7 +429,8 @@ func TestCompactTrimToolResultsUsesSafeUserRange(t *testing.T) {
 	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 	eng.LoadHistory(context.Background(), "", toolBoundaryHistory())
 
-	trimmed, _, _ := eng.compactTrimToolResults(1, 2)
+	// TurnBoundaries: [0, 3] — 2 turns. Trim turn 0 (u0 + tool_result)
+	trimmed, _, _ := eng.compactTrimToolResults(0, 1)
 	if trimmed != 1 {
 		t.Fatalf("trimmed = %d, want 1", trimmed)
 	}
@@ -440,7 +445,7 @@ func toolBoundaryHistory() []agent.Message {
 	return []agent.Message{
 		{Role: agent.UserRole, Content: "u0"},
 		{Role: agent.AssistantRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolUseContentType, ToolUse: &agent.ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
-		{Role: agent.UserRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
+		{Role: agent.ToolRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_1", Content: "ok"}}}},
 		{Role: agent.UserRole, Content: "u1"},
 	}
 }
