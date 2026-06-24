@@ -3,6 +3,7 @@ package codebase
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,6 +50,12 @@ func NewClient(apiKey, model, configName, baseURL string) *Client {
 		baseURL:    baseURL,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute, // overall request timeout (stream reads reset per event)
+			// Force HTTP/1.1: Go defaults to HTTP/2 via ALPN which causes
+			// empty-body responses on 2nd+ streaming requests over reused connections.
+			// Explicitly remove HTTP/2 support.
+			Transport: &http.Transport{
+				TLSNextProto: make(map[string]func(string, *tls.Conn) http.RoundTripper),
+			},
 		},
 	}
 }
