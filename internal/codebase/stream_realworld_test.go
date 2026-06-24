@@ -228,6 +228,74 @@ func TestRealWorldEmptyOutputEventWithNullToolCalls(t *testing.T) {
 	}
 }
 
+// TestRealWorldEmptyFinishReasonWithToolCalls reproduces the exact bug from
+// session 1a0ecd22: codebase API sends finish_reason="" even when tool calls
+// are present. The stop reason must be "tool_use", not "end_turn".
+func TestRealWorldEmptyFinishReasonWithToolCalls(t *testing.T) {
+	body := sseBody(
+		`event: output`,
+		`data: {"response":"","reasoning_content":"thinking...","tool_calls":null}`,
+		``,
+		`event: output`,
+		`data: {"response":"","reasoning_content":null,"tool_calls":[{"index":0,"id":"call_1","type":"function","function_call":{"name":"Bash","arguments":"","partial_arguments":null}}]}`,
+		``,
+		`event: done`,
+		`data: {"finish_reason":""}`,
+		``,
+	)
+
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var stopReason string
+	for _, e := range events {
+		if e.EventType == "message_delta" && e.StopReason != "" {
+			stopReason = e.StopReason
+		}
+	}
+
+	if stopReason != "tool_use" {
+		t.Errorf("expected stopReason 'tool_use', got %q — this causes 'empty response' bug", stopReason)
+	}
+}
+
+// TestRealWorldPartialArgumentsStreaming verifies that partial_arguments
+// are correctly forwarded as incremental tool call input.
+func TestRealWorldPartialArgumentsStreaming(t *testing.T) {
+	body := sseBody(
+		`event: output`,
+		`data: {"response":"","reasoning_content":null,"tool_calls":[{"index":0,"id":"call_1","type":"function","function_call":{"name":"Bash","arguments":"","partial_arguments":null}}]}`,
+		``,
+		`event: output`,
+		`data: {"response":"","reasoning_content":null,"tool_calls":[{"index":0,"id":"call_1","type":"function","function_call":{"name":"Bash","arguments":"","partial_arguments":"{\"com"}}]}`,
+		``,
+		`event: output`,
+		`data: {"response":"","reasoning_content":null,"tool_calls":[{"index":0,"id":"call_1","type":"function","function_call":{"name":"Bash","arguments":"","partial_arguments":"mand\":\"ls\"}"}}]}`,
+		``,
+		`event: done`,
+		`data: {"finish_reason":""}`,
+		``,
+	)
+
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var toolInput string
+	for _, e := range events {
+		if e.Detail == "input_json_delta" && e.ToolCallInput != "" {
+			toolInput += e.ToolCallInput
+		}
+	}
+
+	if toolInput != `{"command":"ls"}` {
+		t.Errorf("expected tool input '{\"command\":\"ls\"}', got %q", toolInput)
+	}
+}
+
 // Helper
 func truncate(s string, n int) string {
 	if len(s) <= n {

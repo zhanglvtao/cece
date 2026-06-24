@@ -302,6 +302,18 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			}
 
 			resp.textContent = textBuf.String()
+
+			// Provider compatibility: if stopReason is still empty after
+			// consuming all events, infer it from the response content.
+			// Codebase API often sends finish_reason="" even with tool calls.
+			if resp.stopReason == "" {
+				if len(resp.toolCalls) > 0 {
+					resp.stopReason = "tool_use"
+				} else {
+					resp.stopReason = "end_turn"
+				}
+			}
+
 			var callNames []string
 			for _, tc := range resp.toolCalls {
 				callNames = append(callNames, tc.Name)

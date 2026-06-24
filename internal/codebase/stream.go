@@ -268,20 +268,27 @@ func emitOutput(ev *OutputEvent, out chan<- agent.ApiStreamEvent, state *streamS
 			}
 		}
 
-		// Subsequent: input_json_delta (always process if arguments present)
-		if fn != nil && fn.Arguments != "" {
-			// Don't emit arguments if we haven't fired the start event yet.
-			// This shouldn't happen with well-behaved APIs, but just in case.
-			if acc.startFired {
+		// Arguments can come via:
+		// 1. fn.Arguments (complete or empty string)
+		// 2. fn.PartialArguments (incremental delta, codebase API streaming mode)
+		if fn != nil && acc.startFired {
+			if fn.PartialArguments != "" {
+				out <- agent.ApiStreamEvent{
+					EventType:     "content_block_delta",
+					Detail:        "input_json_delta",
+					ToolCallInput: fn.PartialArguments,
+					Index:         tc.Index,
+				}
+			} else if fn.Arguments != "" {
 				out <- agent.ApiStreamEvent{
 					EventType:     "content_block_delta",
 					Detail:        "input_json_delta",
 					ToolCallInput: fn.Arguments,
 					Index:         tc.Index,
 				}
-			} else {
-				logger.Debug("codebase skipping tool call arguments before start event", "index", tc.Index)
 			}
+		} else if fn != nil && !acc.startFired {
+			logger.Debug("codebase skipping tool call arguments before start event", "index", tc.Index)
 		}
 	}
 }
@@ -314,9 +321,16 @@ func emitDone(ev *DoneEvent, out chan<- agent.ApiStreamEvent, state *streamState
 		out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
 	}
 
+	stopReason := mapStopReason(ev.FinishReason)
+	// If finish_reason is empty but we have active tool calls, the stop
+	// reason should be tool_use (codebase API often omits finish_reason).
+	if ev.FinishReason == "" && len(state.activeToolIndices) > 0 {
+		stopReason = "tool_use"
+	}
+
 	out <- agent.ApiStreamEvent{
 		EventType:    "message_delta",
-		StopReason:   mapStopReason(ev.FinishReason),
+		StopReason:   stopReason,
 		OutputTokens: state.outputTokens,
 	}
 	out <- agent.ApiStreamEvent{Done: true}
@@ -324,7 +338,7 @@ func emitDone(ev *DoneEvent, out chan<- agent.ApiStreamEvent, state *streamState
 
 func mapStopReason(reason string) string {
 	switch reason {
-	case "stop":
+	case "stop", "": // codebase API empty string = normal completion
 		return "end_turn"
 	case "tool_calls":
 		return "tool_use"

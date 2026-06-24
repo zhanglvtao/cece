@@ -52,8 +52,9 @@ func (tc CodebaseToolCall) effectiveFunctionCall() *CodebaseFuncCall {
 
 // CodebaseFuncCall holds the function name and arguments for a tool call.
 type CodebaseFuncCall struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	Name             string `json:"name"`
+	Arguments        string `json:"arguments"`
+	PartialArguments string `json:"partial_arguments,omitempty"`
 }
 
 // CodebaseTool describes a tool in the codebase-api format.

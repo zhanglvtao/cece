@@ -374,6 +374,7 @@ func TestDecodeErrorChunk(t *testing.T) {
 func TestMapStopReason(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"stop", "end_turn"},
+		{"", "end_turn"}, // codebase API often sends empty finish_reason
 		{"tool_calls", "tool_use"},
 		{"length", "max_tokens"},
 		{"unknown", "unknown"},
