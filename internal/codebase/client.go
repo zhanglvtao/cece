@@ -276,6 +276,9 @@ func (c *Client) Stream(ctx context.Context, messages []agent.Message, system ag
 			}
 			return nil, fmt.Errorf("%s", errMsg)
 		}
+		// Diagnostic: peek at response metadata to debug empty-body issue
+		diag.Log("[DIAG] doRequest: status=%d content_length=%d content_type=%q transfer_encoding=%v",
+			resp.StatusCode, resp.ContentLength, resp.Header.Get("Content-Type"), resp.TransferEncoding)
 		return resp.Body, nil
 	}
 
