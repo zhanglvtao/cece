@@ -394,6 +394,68 @@ func TestTodoToolRendersCountWithoutParams(t *testing.T) {
 	}
 }
 
+func TestToolBlocksSingleGapBetweenTools(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	// Grep (quiet tool)
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t1", Name: "Grep"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t1", Name: "Grep", Input: json.RawMessage(`{"pattern":"TODO"}`)})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t1", Name: "Grep", Result: protocol.ToolResult{Content: "match"}})
+	// Read (quiet tool)
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t2", Name: "Read"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t2", Name: "Read", Input: json.RawMessage(`{"path":"/tmp/a.go","limit":30,"offset":100}`)})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t2", Name: "Read", Result: protocol.ToolResult{Content: "content"}})
+	// Bash (exec tool)
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t3", Name: "Bash"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t3", Name: "Bash", Input: json.RawMessage(`{"command":"ls"}`)})
+	m.ApplyEventForTest(protocol.ToolExecStarted{ID: "t3", Name: "Bash"})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t3", Name: "Bash", Result: protocol.ToolResult{Content: "file1\nfile2\n"}})
+
+	rendered := stripAnsi(m.transcript.render(160, m.styles))
+	// Grep and Read are consecutive quiet tools with ✓ — should have single \n between labels
+	if !strings.Contains(rendered, "Grep pattern: TODO ✓\nRead path: /tmp/a.go limit: 30 offset: 100 ✓") {
+		t.Fatalf("expected single newline between consecutive quiet tools:\n%s", rendered)
+	}
+	// Read (quiet ✓) followed by Bash label on next block — single \n gap (tool-to-tool)
+	// Bash block starts with its label, then a newline, then content, then status.
+	if strings.Contains(rendered, "Read path: /tmp/a.go limit: 30 offset: 100 ✓\n\nBash command: ls") {
+		t.Fatalf("expected single newline (not double) between Read and Bash tools:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "offset: 100 ✓\nBash command: ls") {
+		t.Fatalf("expected Read followed immediately by Bash with single newline:\n%s", rendered)
+	}
+}
+
+func TestGapBetweenToolAndAssistantIsDouble(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	// Grep (quiet tool)
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t1", Name: "Grep"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t1", Name: "Grep", Input: json.RawMessage(`{"pattern":"TODO"}`)})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t1", Name: "Grep", Result: protocol.ToolResult{Content: "match"}})
+	// Assistant message
+	m.ApplyEventForTest(protocol.ModelRequestStarted{Reason: "tool_result", EstimatedInputTokens: 10, ToolResults: []string{"Grep"}})
+	m.ApplyEventForTest(protocol.AssistantDelta{Text: "hello"})
+	m.ApplyEventForTest(protocol.AssistantCompleted{})
+	// Another tool (Bash)
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t2", Name: "Bash"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t2", Name: "Bash", Input: json.RawMessage(`{"command":"pwd"}`)})
+	m.ApplyEventForTest(protocol.ToolExecStarted{ID: "t2", Name: "Bash"})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t2", Name: "Bash", Result: protocol.ToolResult{Content: "/tmp\n"}})
+
+	rendered := stripAnsi(m.transcript.render(160, m.styles))
+	// The Markdown renderer wraps lines to width, so anchor on the boundaries
+	// by looking for the visual gap only (no line-match anchor on "hello").
+	// Grep tool → assistant body: must keep double newline (semantic boundary)
+	if !strings.Contains(rendered, "tool results: Grep ✓\n\n") {
+		t.Fatalf("expected double newline between tool and assistant body:\n%s", rendered)
+	}
+	// assistant body → Bash (tool): also double newline.
+	// Rendered text ends with "hello" + trailing wrap spaces then \n\n + Bash label.
+	// Look for the \n\nBash boundary instead.
+	if !strings.Contains(rendered, "\n\nBash command: pwd") {
+		t.Fatalf("expected double newline between assistant and next tool:\n%s", rendered)
+	}
+}
+
 func TestSessionLoadedRebuildsTranscript(t *testing.T) {
 	m := NewModel(nil, "old", "/tmp")
 	m.ApplyEventForTest(protocol.SessionLoadedEvent{

@@ -608,11 +608,13 @@ func (t *transcript) render(width int, sty Styles) string {
 	renderOrder := t.renderOrderIndices()
 
 	var b strings.Builder
+	var prevKind blockKind
 	for i, blockIdx := range renderOrder {
-		if i > 0 {
-			b.WriteString("\n\n")
-		}
 		block := &t.blocks[blockIdx]
+		if i > 0 {
+			b.WriteString(blockGap(prevKind, block.kind))
+		}
+		prevKind = block.kind
 		if !block.dirty && block.cachedWidth == width && block.cachedRender != "" {
 			b.WriteString(block.cachedRender)
 		} else {
@@ -640,6 +642,16 @@ func (t *transcript) hasDirtyBlocks() bool {
 		}
 	}
 	return false
+}
+
+// blockGap returns the newline separator between two adjacent transcript blocks.
+// Consecutive tool blocks are rendered tightly (single newline) so call chains
+// are readable at a glance; all other semantic boundaries keep a blank line.
+func blockGap(prev, next blockKind) string {
+	if prev == blockTool && next == blockTool {
+		return "\n"
+	}
+	return "\n\n"
 }
 
 func (t *transcript) renderOrderIndices() []int {
