@@ -1,0 +1,36 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ede4070b4bcc1ec2d072c41cf169843eb7033fb3",
+  "prompts": {},
+  "humans": {
+    "h_d8fa1d07740b86": {
+      "author": "zhanglvtao <zhanglyutao@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {
+    "s_a8bc59c626c351": {
+      "tool": "trae",
+      "conversation_id": "6a3d3f25fd0dfbc5ab41d99d",
+      "session_id": "6a3d3f25fd0dfbc5ab41d99d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_a8bc59c626c351::t_23717e11b69582": {
+      "tool": "trae",
+      "conversation_id": "6a3d3f25fd0dfbc5ab41d99d",
+      "session_id": "6a3d3f25fd0dfbc5ab41d99d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_a8bc59c626c351::t_45b1a5827fd3fb": {
+      "tool": "trae",
+      "conversation_id": "6a3d3f25fd0dfbc5ab41d99d",
+      "session_id": "6a3d3f25fd0dfbc5ab41d99d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
