@@ -177,8 +177,11 @@ def _python_version_for(repo: str, version: str) -> str:
 # the editable install at runtime after fetching the repo).
 _INSTALL_OVERRIDES = {
     # astropy 0.x-1.3: old numpy/cython/pytest era (Python 3.6).
+    # attrs/pluggy/py must be pinned too: pytest 3.3.1 uses attr.ib(convert=...)
+    # which modern attrs removed.
     ("astropy/astropy", "1.3"): (
-        "pip install 'numpy==1.16.0' 'cython==0.27.3' 'pytest==3.3.1' "
+        "pip install 'attrs==17.3.0' 'pluggy==0.6.0' 'py==1.11.0' "
+        "'numpy==1.16.0' 'cython==0.27.3' 'pytest==3.3.1' "
         "'setuptools==38.2.4' 'pytest-astropy==0.2.1'"
     ),
 }
