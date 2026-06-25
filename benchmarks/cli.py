@@ -3,14 +3,17 @@
 import argparse
 import json
 import os
+import platform
+import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from . import get_adapter, get_scorer, list_benchmarks
+from . import get_adapter, get_scorer, list_benchmarks, list_scorers
 from .driver import CeceDriver
 from .result import ResultStore, RunRecord, default_output_dir, default_run_id
 
@@ -48,18 +51,23 @@ def cmd_run(args):
     print(f"Model: {args.model}")
     print(f"Dataset: {args.dataset}  Split: {args.split}")
     print(f"Output: {output_dir}/{args.benchmark}/{run_id}")
-    print(f"Workers: {args.max_workers}  Timeout: {args.timeout}s")
+    print(f"Concurrency: {args.concurrency}  Timeout: {args.timeout}s")
 
     instances = adapter.load_instances(args.dataset, args.split, args.slice)
     print(f"Instances: {len(instances)}")
 
-    if args.max_workers <= 1:
+    cece_bin = args.cece_bin or _default_cece_bin()
+    if instances:
+        cece_bin = _ensure_cece_binary(cece_bin)
+        _ensure_benchmark_runtime(adapter, instances, cece_bin)
+
+    if args.concurrency <= 1:
         for inst in instances:
-            _run_one(adapter, inst, args.cece_bin, config, args.timeout, store)
+            _run_one(adapter, inst, cece_bin, config, args.timeout, store)
     else:
-        with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
             futures = {
-                executor.submit(_run_one, adapter, inst, args.cece_bin, config, args.timeout, store): adapter.instance_id(inst)
+                executor.submit(_run_one, adapter, inst, cece_bin, config, args.timeout, store): adapter.instance_id(inst)
                 for inst in instances
             }
             for future in as_completed(futures):
@@ -69,6 +77,64 @@ def cmd_run(args):
     _write_predictions(store, records, adapter, args.benchmark)
     _print_summary(records)
     store.close()
+
+    # Notify when benchmark run completes
+    try:
+        resolved = sum(1 for r in records if r.artifact.get("score", {}).get("resolved", False))
+        total = len(records)
+        msg = f"Benchmark {args.benchmark} done: {resolved}/{total} resolved"
+        subprocess.run([
+            "osascript", "-e",
+            f'display notification "{msg}" with title "cece benchmark"'
+        ], check=False, capture_output=True)
+    except Exception:
+        pass
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _ensure_cece_binary(cece_bin: str) -> str:
+    path = Path(cece_bin).expanduser()
+    if not path.is_absolute():
+        path = _repo_root() / path
+
+    arch = "amd64" if "amd64" in path.name else "arm64" if "arm64" in path.name else _host_goarch()
+    make_target = "build-linux" if arch == "amd64" else "build-linux-arm64"
+    if path.exists():
+        print(f"[prepare] rebuilding cece binary for this benchmark run: {path}", flush=True)
+    else:
+        print(f"[prepare] cece binary missing: {path}", flush=True)
+    print(f"[prepare] building cece via `make {make_target}`", flush=True)
+    subprocess.run(["make", make_target], cwd=str(_repo_root()), check=True)
+
+    if not path.exists():
+        raise FileNotFoundError(f"cece binary was not produced: {path}")
+    print(f"[prepare] cece binary ready: {path}", flush=True)
+    return str(path)
+
+
+def _host_goarch() -> str:
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        return "amd64"
+    if machine in ("arm64", "aarch64"):
+        return "arm64"
+    return machine
+
+
+def _default_cece_bin() -> str:
+    return f"./bin/cece-linux-{_host_goarch()}"
+
+
+def _ensure_benchmark_runtime(adapter, instances: list[dict], cece_bin: str) -> None:
+    if adapter.name != "swebench":
+        return
+    from .build_images import ensure_env_images_for_instances, platform_for_cece_binary
+
+    print("[prepare] checking SWE-bench env images for selected instances", flush=True)
+    ensure_env_images_for_instances(instances, platform_name=platform_for_cece_binary(cece_bin))
 
 
 def cmd_score(args):
@@ -114,39 +180,82 @@ def _run_one(adapter, inst, cece_bin, config, timeout, store):
     started_at = datetime.now(timezone.utc).isoformat()
     t0 = time.monotonic()
 
+    def log(message: str) -> None:
+        elapsed = time.monotonic() - t0
+        print(f"  [{elapsed:7.1f}s] {message}", flush=True)
+
     print(f"[run] {inst_id}", flush=True)
 
     sandbox = None
     try:
-        print(f"  [setup] creating sandbox...", flush=True)
+        log("[setup] creating sandbox")
         sandbox = adapter.setup_sandbox(inst, cece_bin, config)
-        print(f"  [setup] done, starting cece engine...", flush=True)
+        log("[setup] sandbox ready")
+        log("[engine] starting cece engine")
         driver = CeceDriver.start(sandbox.exec_cmd, env=sandbox.env)
+        # Set up early-done polling for swebench
+        poll_thread = None
+        if adapter.name == "swebench":
+            container_name = sandbox.extra.get("container_name", "")
+            if container_name:
+                def _poll_done():
+                    while not driver.early_done_event.is_set():
+                        try:
+                            r = subprocess.run(
+                                ["docker", "exec", container_name, "test", "-f", "/testbed/.cece/done"],
+                                capture_output=True, timeout=5
+                            )
+                            if r.returncode == 0:
+                                driver.early_done_event.set()
+                                break
+                        except Exception:
+                            pass
+                        time.sleep(5)
+                poll_thread = threading.Thread(target=_poll_done, daemon=True)
+                poll_thread.start()
         prompt = adapter.build_prompt(inst)
-        print(f"  [run] sending prompt ({len(prompt)} chars)...", flush=True)
+        log(f"[engine] sending prompt ({len(prompt)} chars)")
         result = driver.run_until_done(prompt, timeout=timeout)
         driver.close()
-        print(f"  [run] done, exit_status={result.exit_status}", flush=True)
+        if poll_thread is not None:
+            poll_thread.join(timeout=2)
+        log(f"[engine] done, exit_status={result.exit_status}")
 
         artifact = {}
         score_result = {}
         if result.exit_status == "completed":
             try:
+                log("[diff] collecting source diff")
                 artifact = adapter.collect_artifact(sandbox, inst)
+                patch = artifact.get("patch", "")
+                log(f"[diff] collected patch ({len(patch.encode())} bytes)")
             except Exception as e:
                 artifact = {"collection_error": str(e)}
+                log(f"[diff] collection failed: {e}")
 
-            # In-place scoring: same container, apply patch + run tests
-            try:
-                from .scorers.swebench import score_in_place
-                container_name = sandbox.extra.get("container_name", "")
-                instance_data = sandbox.extra.get("instance", inst)
-                patch = artifact.get("patch", "")
-                if container_name and patch:
-                    score_result = score_in_place(container_name, patch, instance_data)
+            if adapter.name == "swebench":
+                # In-place scoring: same container, apply patch + run tests
+                try:
+                    from .scorers.swebench import score_in_place
+                    container_name = sandbox.extra.get("container_name", "")
+                    instance_data = sandbox.extra.get("instance", inst)
+                    patch = artifact.get("patch", "")
+                    if container_name and patch:
+                        log("[score] starting in-place apply + test scoring")
+                        score_result = score_in_place(container_name, patch, instance_data, timeout=timeout, log=log)
+                        artifact["score"] = score_result
+                    elif not patch:
+                        score_result = {"status": "no_patch", "resolved": False}
+                        artifact["score"] = score_result
+                        log("[score] skipped because patch is empty")
+                    else:
+                        score_result = {"status": "missing_container", "resolved": False}
+                        artifact["score"] = score_result
+                        log("[score] skipped because container metadata is missing")
+                except Exception as e:
+                    score_result = {"status": "score_error", "error": str(e)}
                     artifact["score"] = score_result
-            except Exception as e:
-                score_result = {"status": "score_error", "error": str(e)}
+                    log(f"[score] failed: {e}")
 
         record = RunRecord(
             benchmark=adapter.name,
@@ -161,14 +270,15 @@ def _run_one(adapter, inst, cece_bin, config, timeout, store):
             error=result.error,
         )
         store.save_run(record)
+        log("[result] saved run record and transcript")
 
         status = result.exit_status
         score_status = score_result.get("status", "")
         resolved = score_result.get("resolved", False)
         if status == "completed":
-            print(f"  [{'PASS' if resolved else 'FAIL'}] {inst_id} — {score_status or status}")
+            print(f"  [{'PASS' if resolved else 'FAIL'}] {inst_id} — {score_status or status}", flush=True)
         else:
-            print(f"  [FAIL] {inst_id} — {status}")
+            print(f"  [FAIL] {inst_id} — {status}", flush=True)
 
     except Exception as e:
         import traceback
@@ -187,6 +297,7 @@ def _run_one(adapter, inst, cece_bin, config, timeout, store):
     finally:
         if sandbox:
             try:
+                print(f"  [cleanup] removing sandbox", flush=True)
                 adapter.teardown_sandbox(sandbox)
             except Exception:
                 pass
@@ -282,8 +393,8 @@ def main():
     p_run.add_argument("--split", default="test")
     p_run.add_argument("--model", default="deepseek-v4-pro")
     p_run.add_argument("--config", default=None, help="Path to settings.json (default: benchmarks/configs/<benchmark>.json)")
-    p_run.add_argument("--cece-bin", required=True, help="Path to cece linux/amd64 binary")
-    p_run.add_argument("--max-workers", type=int, default=4)
+    p_run.add_argument("--cece-bin", default=None, help="Path to cece Linux binary (default: ./bin/cece-linux-<host-arch>, auto-built if missing)")
+    p_run.add_argument("--concurrency", type=int, default=4, help="Number of benchmark cases to run in parallel")
     p_run.add_argument("--timeout", type=int, default=600)
     p_run.add_argument("--slice", help="Slice instances (e.g. ':10' for first 10)")
     p_run.add_argument("--output-dir", help="Output directory")
@@ -291,7 +402,7 @@ def main():
 
     # score
     p_score = sub.add_parser("score", help="Score a benchmark run")
-    p_score.add_argument("benchmark", choices=BENCHMARK_LIST)
+    p_score.add_argument("benchmark", choices=list_scorers())
     p_score.add_argument("--result-dir", help="Path to result directory")
     p_score.add_argument("--dataset", default="")
     p_score.add_argument("--split", default="")

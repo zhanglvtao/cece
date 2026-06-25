@@ -1,7 +1,9 @@
 """IPC driver for cece engine — communicates via stdin/stdout JSONL."""
 
 import json
+import select
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Iterator, Optional
@@ -20,6 +22,7 @@ class CeceDriver:
 
     def __init__(self, proc: subprocess.Popen):
         self.proc = proc
+        self.early_done_event = threading.Event()
 
     @classmethod
     def start(cls, exec_cmd: list[str], env: Optional[dict] = None) -> "CeceDriver":
@@ -62,6 +65,25 @@ class CeceDriver:
             except json.JSONDecodeError:
                 continue
 
+    def events_with_poll(self, poll_interval: float = 5.0) -> Iterator[Optional[dict]]:
+        """Yield events from stdout, yielding None periodically to allow polling."""
+        if self.proc.stdout is None:
+            return
+        while True:
+            ready, _, _ = select.select([self.proc.stdout], [], [], poll_interval)
+            if ready:
+                line = self.proc.stdout.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if line:
+                    try:
+                        yield json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+            else:
+                yield None
+
     def wait_for_kind(self, kind: str, timeout: float) -> Optional[dict]:
         deadline = time.monotonic() + timeout
         for ev in self.events():
@@ -77,11 +99,20 @@ class CeceDriver:
         transcript: list[dict] = []
         exit_status = "unknown"
         error = None
+        early_done = False
 
-        for ev in self.events():
+        for ev in self.events_with_poll(poll_interval=5.0):
             if time.monotonic() > deadline:
                 exit_status = "timeout"
                 break
+
+            # Poll for early-done signal
+            if ev is None:
+                if self.early_done_event.is_set():
+                    early_done = True
+                    exit_status = "completed"
+                    break
+                continue
 
             transcript.append(ev)
 
@@ -104,7 +135,7 @@ class CeceDriver:
                 break
 
         # If no events at all, check if process died
-        if not transcript:
+        if not transcript and not early_done:
             retcode = self.proc.poll()
             if retcode is not None:
                 stderr_output = ""
@@ -114,7 +145,7 @@ class CeceDriver:
                 exit_status = "error"
 
         stats = None
-        if exit_status == "completed":
+        if exit_status == "completed" and not early_done:
             self.send({"type": "action", "kind": "stats"})
             # drain remaining events until we get stats or timeout
             stats_deadline = time.monotonic() + 10

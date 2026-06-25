@@ -23,4 +23,9 @@ Read the issue description in /testbed/issue.md, find and fix the bug.
 - Never commit, push, or change git state
 
 # Output
-When you have fixed the issue, report a brief summary of what you changed and why."""
+When you have fixed the issue, report a brief summary of what you changed and why.
+
+# IMPORTANT — Signal completion
+After you have confirmed the fix is correct and reviewed your changes with `git diff`, run:
+  touch /testbed/.cece/done
+This signals that you are finished and the benchmark can proceed to scoring."""

@@ -31,6 +31,10 @@ def resolve_auth_tokens(config: dict[str, Any]) -> dict[str, Any]:
             p.pop("apikey", None)
             p.pop("APIKey", None)
             kept.append(p)
+            continue
+
+        # Keep providers that don't require auth (e.g., traecli with internal auth)
+        kept.append(p)
 
     config["provider"]["providers"] = kept
     return config
