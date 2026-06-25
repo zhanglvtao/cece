@@ -172,12 +172,14 @@ def _python_version_for(repo: str, version: str) -> str:
 
 
 # Per repo@version install line overrides (older instances need old pins).
+# NOTE: these run during env-image build, BEFORE the repo is cloned, so they
+# must only install dependencies, never `pip install -e .` (the adapter does
+# the editable install at runtime after fetching the repo).
 _INSTALL_OVERRIDES = {
     # astropy 0.x-1.3: old numpy/cython/pytest era (Python 3.6).
     ("astropy/astropy", "1.3"): (
         "pip install 'numpy==1.16.0' 'cython==0.27.3' 'pytest==3.3.1' "
-        "'setuptools==38.2.4' 'pytest-astropy==0.2.1' && "
-        "pip install -e .[test] || pip install -e ."
+        "'setuptools==38.2.4' 'pytest-astropy==0.2.1'"
     ),
 }
 
