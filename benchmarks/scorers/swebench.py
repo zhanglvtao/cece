@@ -188,7 +188,7 @@ def _parse_test_output(output: str, returncode: Optional[int] = None) -> bool:
 
 def _build_test_command(fail_to_pass: list[str]) -> tuple[str, str]:
     test_kind = "pytest_all"
-    pytest_opts = "-p no:cacheprovider --tb=short -q -W ignore::DeprecationWarning"
+    pytest_opts = "-p no:cacheprovider --tb=short -q -W ignore -W ignore::DeprecationWarning --disable-pytest-warnings"
     is_django = any("(" in t and ")" in t for t in fail_to_pass)
     if is_django:
         test_kind = "django"
