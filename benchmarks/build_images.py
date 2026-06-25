@@ -182,7 +182,8 @@ _INSTALL_OVERRIDES = {
     ("astropy/astropy", "1.3"): (
         "pip install 'attrs==17.3.0' 'pluggy==0.6.0' 'py==1.11.0' "
         "'numpy==1.16.0' 'cython==0.27.3' 'pytest==3.3.1' "
-        "'setuptools==38.2.4' 'pytest-astropy==0.2.1'"
+        "'setuptools==38.2.4' 'jinja2==2.10' 'MarkupSafe==1.0' "
+        "'pytest-astropy==0.2.1'"
     ),
 }
 
