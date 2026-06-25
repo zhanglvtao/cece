@@ -16,12 +16,12 @@ var namePattern = regexp.MustCompile(`^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$`)
 
 // Skill represents a parsed SKILL.md file.
 type Skill struct {
-	Name          string   `yaml:"name" json:"name"`
-	Description   string   `yaml:"description" json:"description"`
-	Paths         []string `yaml:"paths,omitempty" json:"paths,omitempty"`
-	Instructions  string   `yaml:"-" json:"instructions"`
-	Source        string   `yaml:"-" json:"source"`  // "builtin" | "project"
-	FilePath      string   `yaml:"-" json:"file_path"`
+	Name         string   `yaml:"name" json:"name"`
+	Description  string   `yaml:"description" json:"description"`
+	Paths        []string `yaml:"paths,omitempty" json:"paths,omitempty"`
+	Instructions string   `yaml:"-" json:"instructions"`
+	Source       string   `yaml:"-" json:"source"` // "user" | "project"
+	FilePath     string   `yaml:"-" json:"file_path"`
 }
 
 // Validate checks that the skill has required fields with valid values.

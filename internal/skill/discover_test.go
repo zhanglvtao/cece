@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+func TestDiscoverAllDoesNotLoadBuiltinSkills(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", filepath.Join(tmpDir, "home"))
+
+	skills := DiscoverAll(filepath.Join(tmpDir, "project"))
+	if len(skills) != 0 {
+		t.Fatalf("expected no skills without user/project skill dirs, got %d", len(skills))
+	}
+}
+
 func TestDiscoverFromDir_Symlink(t *testing.T) {
 	// Create a temp layout:
 	//   tmpDir/

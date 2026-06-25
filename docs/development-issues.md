@@ -1,5 +1,10 @@
 # 开发问题记录
 
+## 内置 skill 来源会污染默认 prompt
+- 现象：用户/项目没有定义 skill 时，`cece-config` 仍会出现在 `<available_skills>`，因为 `DiscoverAll()` 先加载 `go:embed` 的 `internal/skill/builtin/*`，且 `skills.enabled` 为空表示 all enabled。
+- 定位：内置 skill 是一条独立 discovery source，不是用户配置；如果继续保留，会让二进制携带的历史 prompt 模板绕过用户/项目 skill 管理。
+- 结论：skill discovery 应只保留 user/project 来源；模板类能力不要作为 builtin source 隐式注入 prompt。
+
 ## Compact 失败后必须有兜底上下文管理
 - 现象：长会话里模型调用 `Compact{"turn":151}`，当前总 turn 数也是 151；工具按最大合法 turn=150 判错，随后剩余上下文低于 20% 也没有自动降级压缩。
 - 定位：`Compact` 的 turn 语义本应是“保留从该 turn 开始”，因此 `turn == totalTurns` 应代表末尾边界；同时 `TryAutoCompact` 只在 assistant 回复后按 used>=90% 尝试一次 Compact，工具失败写入 `tool_result` 后没有进入兜底链路。

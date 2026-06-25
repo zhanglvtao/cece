@@ -8,15 +8,15 @@ import (
 func TestStoreListingOnlyEnabled(t *testing.T) {
 	skills := []*Skill{
 		{Name: "brainstorming", Description: "brainstorm desc", Instructions: "inst1"},
-		{Name: "cece-config", Description: "config desc", Instructions: "inst2"},
-		{Name: "diagnose", Description: "diagnose desc", Instructions: "inst3"},
+		{Name: "diagnose", Description: "diagnose desc", Instructions: "inst2"},
+		{Name: "review", Description: "review desc", Instructions: "inst3"},
 	}
 	store := NewStore(skills)
 	store.SetEnabled([]string{"brainstorming"})
 
 	listing := store.Listing()
-	if strings.Contains(listing, "cece-config") {
-		t.Error("listing should not contain disabled skill 'cece-config'")
+	if strings.Contains(listing, "review") {
+		t.Error("listing should not contain disabled skill 'review'")
 	}
 	if strings.Contains(listing, "diagnose") {
 		t.Error("listing should not contain disabled skill 'diagnose'")

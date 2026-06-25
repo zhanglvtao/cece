@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// DiscoverAll discovers skills from builtin + user ~/.agents/skills/ + project .agents/skills/.
-// Project skills override user skills; user skills override builtin with the same name.
+// DiscoverAll discovers skills from user ~/.agents/skills/ + project .agents/skills/.
+// Project skills override user skills with the same name.
 func DiscoverAll(projectDir string) []*Skill {
-	all := DiscoverBuiltin()
+	var all []*Skill
 
 	// User-level skills from ~/.agents/skills/
 	home, _ := os.UserHomeDir()
@@ -110,7 +110,7 @@ func parseSkillFile(path, source string) []*Skill {
 }
 
 // Deduplicate removes duplicate skills by name. Last occurrence wins,
-// so project skills override builtin skills with the same name.
+// so project skills override user skills with the same name.
 func Deduplicate(all []*Skill) []*Skill {
 	seen := make(map[string]int, len(all))
 	for i, s := range all {

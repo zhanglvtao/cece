@@ -35,7 +35,7 @@ func (skillTool) Info() Definition {
 			"properties": map[string]any{
 				"name": map[string]any{
 					"type":        "string",
-					"description": "The skill name to load (e.g., \"cece-config\")",
+					"description": "The skill name to load (e.g., \"brainstorming\")",
 				},
 				"args": map[string]any{
 					"type":        "string",
