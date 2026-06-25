@@ -70,7 +70,9 @@ class SWEBenchAdapter(BenchmarkAdapter):
             f"if [ ! -d '.git' ]; then "
             f"  git init && "
             f"  git remote add origin https://github.com/{repo}.git; "
+            f"  git config http.version HTTP/1.1; "
             f"fi && "
+            f"git config http.version HTTP/1.1 && "
             f"git fetch --depth 1 origin {base_commit} && "
             f"git checkout --force FETCH_HEAD"
         ], workdir="/testbed", timeout=600)
