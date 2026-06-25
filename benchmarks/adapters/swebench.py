@@ -64,6 +64,7 @@ class SWEBenchAdapter(BenchmarkAdapter):
         # Init repo: fetch only the requested base commit. Avoid cloning the
         # default branch first; large repos such as astropy can exceed the
         # sandbox setup timeout when a full working tree is cloned up front.
+        # Add retry logic for unstable networks
         self._exec(container_name, [
             "bash", "-c",
             f"cd /testbed && "
@@ -71,9 +72,16 @@ class SWEBenchAdapter(BenchmarkAdapter):
             f"  git init && "
             f"  git remote add origin https://github.com/{repo}.git; "
             f"  git config http.version HTTP/1.1; "
+            f"  git config core.compression 0; "
             f"fi && "
             f"git config http.version HTTP/1.1 && "
-            f"git fetch --depth 1 origin {base_commit} && "
+            f"git config core.compression 0 && "
+            f"for i in 1 2 3; do "
+            f"  echo \"Attempt $i/3: git fetch --depth 1 origin {base_commit}\" && "
+            f"  git fetch --depth 1 origin {base_commit} && "
+            f"  if [ $? -eq 0 ]; then break; fi; "
+            f"  sleep 5; "
+            f"done; "
             f"git checkout --force FETCH_HEAD"
         ], workdir="/testbed", timeout=600)
 
