@@ -154,29 +154,64 @@ def _docker_base_image_error(image: str, platform: str, reason: str) -> str:
     )
 
 
+def _python_version_for(repo: str, version: str) -> str:
+    """Return the official conda Python version for repo@version.
+
+    Mirrors swebench MAP_REPO_VERSION_TO_SPECS. Older instances need older
+    Python (e.g. astropy<=1.3 needs 3.6, otherwise import-time
+    DeprecationWarning->error breaks collection under 3.9).
+    """
+    overrides = {
+        # astropy: 0.x-1.3 -> 3.6, 3.x-5.2 -> 3.9, v5.3 -> 3.10
+        ("astropy/astropy", "0.1"): "3.6", ("astropy/astropy", "0.2"): "3.6",
+        ("astropy/astropy", "0.3"): "3.6", ("astropy/astropy", "0.4"): "3.6",
+        ("astropy/astropy", "1.1"): "3.6", ("astropy/astropy", "1.2"): "3.6",
+        ("astropy/astropy", "1.3"): "3.6", ("astropy/astropy", "v5.3"): "3.10",
+    }
+    return overrides.get((repo, version), "3.9")
+
+
+# Per repo@version install line overrides (older instances need old pins).
+_INSTALL_OVERRIDES = {
+    # astropy 0.x-1.3: old numpy/cython/pytest era (Python 3.6).
+    ("astropy/astropy", "1.3"): (
+        "pip install 'numpy==1.16.0' 'cython==0.27.3' 'pytest==3.3.1' "
+        "'setuptools==38.2.4' 'pytest-astropy==0.2.1' && "
+        "pip install -e .[test] || pip install -e ."
+    ),
+}
+
+# Default per-repo install (used when no version override applies).
+_INSTALL_BY_REPO = {
+    "astropy/astropy": "pip install 'numpy<2' 'setuptools<58' cython 'pytest<8' extension-helpers hypothesis pytest-astropy 'pyerfa>=2.0'",
+    "django/django": "pip install pytest",
+    "sympy/sympy": "pip install pytest mpmath",
+    "matplotlib/matplotlib": "pip install numpy pytest pillow hypothesis",
+    "pallets/flask": "pip install pytest",
+    "psf/black": "pip install pytest aiohttp",
+    "scikit-learn/scikit-learn": "pip install numpy scipy pytest cython joblib threadpoolctl",
+    "pylint-dev/pylint": "pip install pytest astroid isort",
+    "pytest-dev/pytest": "pip install pytest",
+    "pandas-dev/pandas": "pip install numpy pytest python-dateutil pytz",
+    "mwaskom/seaborn": "pip install numpy pandas matplotlib pytest",
+}
+
+
 def _make_setup_env_script(inst: dict) -> str:
     repo = inst["repo"]
+    version = str(inst.get("version", ""))
+    python_version = _python_version_for(repo, version)
     lines = [
         "#!/bin/bash", "set -e",
         "source /opt/miniconda3/etc/profile.d/conda.sh",
-        "conda create -n testbed python=3.9 -y || true",
+        f"conda create -n testbed python={python_version} -y || true",
         "conda activate testbed",
     ]
 
-    installs = {
-        "astropy/astropy": "pip install 'numpy<2' 'setuptools<58' cython 'pytest<8' extension-helpers hypothesis pytest-astropy 'pyerfa>=2.0'",
-        "django/django": "pip install pytest",
-        "sympy/sympy": "pip install pytest mpmath",
-        "matplotlib/matplotlib": "pip install numpy pytest pillow hypothesis",
-        "pallets/flask": "pip install pytest",
-        "psf/black": "pip install pytest aiohttp",
-        "scikit-learn/scikit-learn": "pip install numpy scipy pytest cython joblib threadpoolctl",
-        "pylint-dev/pylint": "pip install pytest astroid isort",
-        "pytest-dev/pytest": "pip install pytest",
-        "pandas-dev/pandas": "pip install numpy pytest python-dateutil pytz",
-        "mwaskom/seaborn": "pip install numpy pandas matplotlib pytest",
-    }
-    lines.append(installs.get(repo, "pip install pytest"))
+    install = _INSTALL_OVERRIDES.get(
+        (repo, version), _INSTALL_BY_REPO.get(repo, "pip install pytest")
+    )
+    lines.append(install)
     return "\n".join(lines) + "\n"
 
 

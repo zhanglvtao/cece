@@ -1,10 +1,23 @@
-"""SWE-bench scorer — scores in the same container used for running."""
+"""SWE-bench scorer — scores in the same container used for running.
+
+Scoring follows the official SWE-bench methodology:
+  1. Run the repo's official test command over the test directives extracted
+     from the test_patch (NOT a narrow -k filter).
+  2. Parse the raw output with the repo's official log parser into a
+     {test_id: STATUS} map.
+  3. Resolve = all FAIL_TO_PASS pass AND all PASS_TO_PASS still pass.
+"""
 
 import json
-import re
-import shlex
 import subprocess
 from typing import Callable, Optional
+
+from .swebench_specs import (
+    get_test_cmd,
+    get_test_directives,
+    parse_test_log,
+    compute_resolution,
+)
 
 
 def score_in_place(container_name: str, patch: str, inst: dict, timeout: int = 300,
@@ -108,15 +121,19 @@ def score_in_place(container_name: str, patch: str, inst: dict, timeout: int = 3
                 "test_patch_bytes": test_patch_bytes,
             }
 
-    # Parse FAIL_TO_PASS test identifiers
-    fail_to_pass_raw = inst.get("FAIL_TO_PASS", "[]")
-    try:
-        fail_to_pass = json.loads(fail_to_pass_raw) if isinstance(fail_to_pass_raw, str) else fail_to_pass_raw
-    except (json.JSONDecodeError, TypeError):
-        fail_to_pass = []
-    emit(f"[score] loaded {len(fail_to_pass)} FAIL_TO_PASS tests")
+    # Parse FAIL_TO_PASS / PASS_TO_PASS test identifiers
+    fail_to_pass = _load_test_list(inst.get("FAIL_TO_PASS", "[]"))
+    pass_to_pass = _load_test_list(inst.get("PASS_TO_PASS", "[]"))
+    emit(f"[score] loaded {len(fail_to_pass)} FAIL_TO_PASS, {len(pass_to_pass)} PASS_TO_PASS tests")
 
-    test_kind, test_cmd = _build_test_command(fail_to_pass)
+    repo = inst.get("repo", "")
+    version = str(inst.get("version", ""))
+    test_patch = inst.get("test_patch", "") or ""
+
+    # Build the official test command: <test_cmd> <directives...>
+    base_cmd = get_test_cmd(repo, version)
+    directives = get_test_directives(repo, test_patch)
+    test_cmd = " ".join([base_cmd, *directives]).strip()
 
     full_cmd = (
         f"cd /testbed && "
@@ -125,7 +142,7 @@ def score_in_place(container_name: str, patch: str, inst: dict, timeout: int = 3
         f"{test_cmd}"
     )
 
-    emit(f"[score] running {test_kind} tests: {test_cmd}")
+    emit(f"[score] running tests: {test_cmd}")
     try:
         r = subprocess.run(
             ["docker", "exec", container_name, "bash", "-c", full_cmd],
@@ -137,135 +154,40 @@ def score_in_place(container_name: str, patch: str, inst: dict, timeout: int = 3
         return {
             "status": "timeout",
             "resolved": False,
-            "test_kind": test_kind,
             "test_command": test_cmd,
             "patch_bytes": patch_bytes,
         }
 
-    passed = _parse_test_output(output, r.returncode)
-    status = "resolved" if passed else "failed"
-    emit(f"[score] tests finished rc={r.returncode} status={status}")
+    # Parse with the repo's official log parser, then apply F2P + P2P resolution.
+    status_map = parse_test_log(repo, output)
+    resolution = compute_resolution(status_map, fail_to_pass, pass_to_pass)
+    resolved = resolution["resolved"]
+    status = "resolved" if resolved else "failed"
+    emit(
+        f"[score] rc={r.returncode} status={status} "
+        f"f2p={len(resolution['fail_to_pass_passed'])}/{len(fail_to_pass)} "
+        f"p2p_failed={len(resolution['pass_to_pass_failed'])} "
+        f"parsed={len(status_map)} tests"
+    )
     return {
         "status": status,
-        "resolved": passed,
-        "test_kind": test_kind,
+        "resolved": resolved,
         "test_command": test_cmd,
         "test_returncode": r.returncode,
         "test_output": output[-2000:],
         "patch_bytes": patch_bytes,
         "fail_to_pass_count": len(fail_to_pass),
+        "pass_to_pass_count": len(pass_to_pass),
+        "fail_to_pass_failed": resolution["fail_to_pass_failed"],
+        "pass_to_pass_failed": resolution["pass_to_pass_failed"],
     }
 
 
-def _parse_test_output(output: str, returncode: Optional[int] = None) -> bool:
-    lower = output.lower()
-
-    explicit_exit = _extract_exit_code(output)
-    if explicit_exit is not None:
-        return explicit_exit == 0
-
-    if "no tests ran" in lower:
-        return False
-
-    if returncode == 0:
-        return True
-
-    # Definitely failed
-    if any(kw in lower for kw in ["failed", "error", "traceback", "importerror"]):
-        if "0 failed" in lower and "passed" in lower:
-            return True
-        return False
-
-    # Success markers
-    if "EXIT_CODE=0" in output:
-        return True
-
-    if "0 failed" in lower and "passed" in lower:
-        return True
-
-    return False
-
-
-def _build_test_command(fail_to_pass: list[str]) -> tuple[str, str]:
-    test_kind = "pytest_all"
-    pytest_opts = "-p no:cacheprovider --tb=short -q -W ignore -W ignore::DeprecationWarning --disable-pytest-warnings"
-    is_django = any("(" in t and ")" in t for t in fail_to_pass)
-    if is_django:
-        test_kind = "django"
-        django_tests = [_django_test_label(t) for t in fail_to_pass]
-        test_labels = " ".join(shlex.quote(t) for t in django_tests)
-        test_cmd = (
-            f"if [ -f tests/runtests.py ]; then "
-            f"python tests/runtests.py {test_labels} --verbosity=2 2>&1; "
-            f"rc=$?; "
-            f"elif [ -f manage.py ]; then "
-            f"python manage.py test {test_labels} --verbosity=2 2>&1; "
-            f"rc=$?; "
-            f"elif [ -f tests/manage.py ]; then "
-            f"cd tests && python manage.py test {test_labels} --verbosity=2 2>&1; "
-            f"rc=$?; "
-            f"else "
-            f"python -m django test {test_labels} --verbosity=2 2>&1; "
-            f"rc=$?; "
-            f"fi; echo EXIT_CODE=$rc; exit $rc"
-        )
-    elif fail_to_pass:
-        test_kind = "pytest_selected"
-        if any("/" in t or ".py" in t for t in fail_to_pass):
-            test_ids = " ".join(shlex.quote(t) for t in fail_to_pass)
-            files, names = _pytest_file_and_name_filters(fail_to_pass)
-            escaped_files = " ".join(shlex.quote(f) for f in files)
-            if names:
-                k_args = " or ".join(sorted(names))
-                fallback_cmd = f"pytest {escaped_files} -k {shlex.quote(k_args)} {pytest_opts} 2>&1"
-            else:
-                fallback_cmd = f"pytest {escaped_files} {pytest_opts} 2>&1"
-            test_cmd = (
-                f"tmp=$(mktemp); "
-                f"pytest {test_ids} {pytest_opts} >$tmp 2>&1; rc=$?; cat $tmp; "
-                f"if [ $rc -eq 4 ] || [ $rc -eq 5 ] || grep -Eqi 'no tests ran|not found' $tmp; then "
-                f"echo '[score] exact pytest nodeids selected no tests; falling back to file/function filters'; "
-                f"{fallback_cmd}; rc=$?; "
-                f"fi; "
-                f"rm -f $tmp; echo EXIT_CODE=$rc; exit $rc"
-            )
-        else:
-            test_names = set()
-            for t in fail_to_pass:
-                base = t.split("[")[0] if "[" in t else t
-                test_names.add(base)
-            k_args = " or ".join(test_names)
-            test_cmd = f"pytest -k {shlex.quote(k_args)} {pytest_opts} 2>&1; rc=$?; echo EXIT_CODE=$rc; exit $rc"
-    else:
-        test_cmd = f"pytest {pytest_opts} 2>&1; rc=$?; echo EXIT_CODE=$rc; exit $rc"
-
-    return test_kind, test_cmd
-
-
-def _django_test_label(test_id: str) -> str:
-    if "(" in test_id and ")" in test_id:
-        paren = test_id[test_id.index("(") + 1:test_id.index(")")]
-        test_name = test_id[:test_id.index("(")].strip()
-        if "." in paren:
-            return f"{paren}.{test_name}"
-    return test_id
-
-
-def _pytest_file_and_name_filters(test_ids: list[str]) -> tuple[list[str], set[str]]:
-    files: set[str] = set()
-    names: set[str] = set()
-    for test_id in test_ids:
-        file_part, _, node_part = test_id.partition("::")
-        files.add(file_part)
-        if node_part:
-            func = node_part.split("[")[0].split("::")[-1]
-            if func:
-                names.add(func)
-    return sorted(files), names
-
-
-def _extract_exit_code(output: str) -> Optional[int]:
-    matches = re.findall(r"EXIT_CODE=(\d+)", output)
-    if not matches:
-        return None
-    return int(matches[-1])
+def _load_test_list(raw) -> list[str]:
+    """Parse a FAIL_TO_PASS/PASS_TO_PASS field (JSON string or list)."""
+    if isinstance(raw, list):
+        return raw
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
