@@ -9,8 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-
-	"github.com/zhanglvtao/cece/internal/skill"
 )
 
 const (
@@ -45,12 +43,7 @@ func planFileInfo(plansDir string) string {
 	)
 }
 
-func BuildFullPlanReminder(plansDir string, hasWritingPlanSkill bool, allowedWritePaths ...string) string {
-	skillHint := ""
-	if hasWritingPlanSkill {
-		skillHint = "\n\n## Skill\n" +
-			"Use the Skill tool to load the `writing-plan` skill for plan writing guidance.\n"
-	}
+func BuildFullPlanReminder(plansDir string, allowedWritePaths ...string) string {
 	return "<system-reminder>\n" +
 		"You are already in plan mode. You MUST NOT make code edits or run non-readonly commands.\n" +
 		"You may only use Read, Grep, Glob, and Bash for read-only commands such as\n" +
@@ -106,19 +99,13 @@ func BuildFullPlanReminder(plansDir string, hasWritingPlanSkill bool, allowedWri
 		"\n" +
 		"**Important:** Use ExitPlanMode to request plan approval. Do NOT ask about\n" +
 		"plan approval via text or AskUserQuestion.\n" +
-		skillHint +
 		"</system-reminder>"
 }
 
-func BuildSparsePlanReminder(plansDir string, hasWritingPlanSkill bool, allowedWritePaths ...string) string {
-	skillHint := ""
-	if hasWritingPlanSkill {
-		skillHint = " Use the Skill tool to load `writing-plan` for guidance.\n"
-	}
+func BuildSparsePlanReminder(plansDir string, allowedWritePaths ...string) string {
 	return "<system-reminder>\n" +
 		fmt.Sprintf("Plan mode still active. Read-only except plan files under %s/ and allowed artifacts: %s. DO NOT write to project root.\n", plansDir, strings.Join(planModeAllowedWriteLabels(plansDir, allowedWritePaths), ", ")) +
 		"Continue iterative workflow. Converge only when the plan covers reuse, risks, and verification. End turns with AskUserQuestion or ExitPlanMode.\n" +
-		skillHint +
 		"</system-reminder>"
 }
 
@@ -350,7 +337,6 @@ type PlanModeState struct {
 	planWriteAllowPatterns []string
 	exitTargetMode         PermissionMode // set before ApprovePlan; Exit() uses this instead of prePlanMode
 	pendingModeReminder    string         // non-empty when mode changed; drained before next LLM call
-	skillStore             *skill.Store   // optional; used to detect writing-plan skill
 }
 
 func NewPlanModeState() *PlanModeState {
@@ -469,24 +455,6 @@ func (s *PlanModeState) IsPlanModeWriteAllowed(path string) bool {
 		patterns = []string{DefaultPlanModeMockupAllowPattern}
 	}
 	return isPlanModeWriteAllowed(projectDir, plansDir, patterns, path)
-}
-
-func (s *PlanModeState) SetSkillStore(store *skill.Store) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.skillStore = store
-}
-
-// HasWritingPlanSkill reports whether the writing-plan skill exists and is enabled.
-func (s *PlanModeState) HasWritingPlanSkill() bool {
-	if s == nil || s.skillStore == nil {
-		return false
-	}
-	sk, ok := s.skillStore.Get("writing-plan")
-	return ok && s.skillStore.IsEnabled(sk.Name)
 }
 
 // SetExitTargetMode sets the target mode for Exit() to use instead of prePlanMode.
@@ -694,7 +662,7 @@ func (t enterPlanModeTool) Run(ctx context.Context, input json.RawMessage, emitt
 	if !t.state.Enter() {
 		return Result{Content: "Already in plan mode.", IsError: true}
 	}
-	return Result{Content: BuildFullPlanReminder(t.state.PlansDir(), t.state.HasWritingPlanSkill(), t.state.PlanModeWriteAllowPatterns()...)}
+	return Result{Content: BuildFullPlanReminder(t.state.PlansDir(), t.state.PlanModeWriteAllowPatterns()...)}
 }
 
 // ── ExitPlanMode tool ───────────────────────────────────────────────────────

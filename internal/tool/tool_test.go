@@ -293,7 +293,7 @@ func TestWriteToolCreatesDirs(t *testing.T) {
 }
 
 func TestPlanModeRemindersUseSystemReminderTags(t *testing.T) {
-	fullReminder := BuildFullPlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern)
+	fullReminder := BuildFullPlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern)
 	if !strings.Contains(fullReminder, "<system-reminder>") {
 		t.Fatalf("full reminder = %q, want system-reminder tag", fullReminder)
 	}
@@ -315,11 +315,11 @@ func TestPlanModeRemindersUseSystemReminderTags(t *testing.T) {
 	if !strings.Contains(fullReminder, "every concrete input shape") {
 		t.Fatalf("full reminder = %q, want concrete input shape verification guidance", fullReminder)
 	}
-	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern), "Converge only when") {
-		t.Fatalf("sparse reminder = %q, want convergence guidance", BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern))
+	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern), "Converge only when") {
+		t.Fatalf("sparse reminder = %q, want convergence guidance", BuildSparsePlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern))
 	}
-	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern), "<system-reminder>") {
-		t.Fatalf("sparse reminder = %q, want system-reminder tag", BuildSparsePlanReminder("/tmp/.cece/plans", false, DefaultPlanModeMockupAllowPattern))
+	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern), "<system-reminder>") {
+		t.Fatalf("sparse reminder = %q, want system-reminder tag", BuildSparsePlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern))
 	}
 	if !strings.Contains(ExitPlanModeReminder(), "<system-reminder>") {
 		t.Fatalf("exit reminder = %q, want system-reminder tag", ExitPlanModeReminder())
