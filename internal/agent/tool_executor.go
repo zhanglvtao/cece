@@ -23,18 +23,24 @@ func NormalizeToolResultPolicy(policy ToolResultPolicy) ToolResultPolicy { retur
 
 // ToolExecutor runs requested tools and converts their results back to model content blocks.
 type ToolExecutor struct {
-	registry       *tool.Registry
-	planState      *tool.PlanModeState
-	taskList       *tool.TaskList
-	answerProvider func() []tool.QuestionAnswer
+	registry         *tool.Registry
+	planState        *tool.PlanModeState
+	taskList         *tool.TaskList
+	answerProvider   func() []tool.QuestionAnswer
+	evidenceRecorder func(ClosureEvidence)
 }
 
-func NewToolExecutor(registry *tool.Registry, planState *tool.PlanModeState, taskList *tool.TaskList, _ ToolResultPolicy, answerProvider func() []tool.QuestionAnswer) *ToolExecutor {
+func NewToolExecutor(registry *tool.Registry, planState *tool.PlanModeState, taskList *tool.TaskList, _ ToolResultPolicy, answerProvider func() []tool.QuestionAnswer, evidenceRecorder ...func(ClosureEvidence)) *ToolExecutor {
+	var recorder func(ClosureEvidence)
+	if len(evidenceRecorder) > 0 {
+		recorder = evidenceRecorder[0]
+	}
 	return &ToolExecutor{
-		registry:       registry,
-		planState:      planState,
-		taskList:       taskList,
-		answerProvider: answerProvider,
+		registry:         registry,
+		planState:        planState,
+		taskList:         taskList,
+		answerProvider:   answerProvider,
+		evidenceRecorder: recorder,
 	}
 }
 
@@ -146,6 +152,12 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 	blocks := make([]ApiContentBlock, len(calls))
 	for i, call := range calls {
 		result := resultMap[i]
+		if ev, ok := closureEvidenceForToolResult(call, result); ok {
+			result.Content = appendClosureEvidenceLine(result.Content, ev)
+			if e.evidenceRecorder != nil {
+				e.evidenceRecorder(ev)
+			}
+		}
 		totalLines := countLines(result.Content)
 		blocks[i] = ApiContentBlock{
 			Type: ApiToolResultContentType,
@@ -159,6 +171,65 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 		}
 	}
 	return blocks
+}
+
+func closureEvidenceForToolResult(call ApiToolUseBlock, result tool.Result) (ClosureEvidence, bool) {
+	if result.IsError && call.Name != "Bash" {
+		return ClosureEvidence{}, false
+	}
+	switch call.Name {
+	case "Edit", "Write":
+		if result.IsError || !strings.Contains(result.Content, "--- ") || !strings.Contains(result.Content, "+++ ") {
+			return ClosureEvidence{}, false
+		}
+		return ClosureEvidence{ToolUseID: call.ID, Kind: ClosureEvidenceCodeChange, ToolName: call.Name, OK: true, Summary: firstLine(result.Content)}, true
+	case "Bash":
+		cmd := bashCommandFromInput(call.Input)
+		if !isVerificationCommand(cmd) {
+			return ClosureEvidence{}, false
+		}
+		return ClosureEvidence{ToolUseID: call.ID, Kind: ClosureEvidenceVerification, ToolName: call.Name, OK: !result.IsError, Command: cmd, Summary: firstLine(result.Content)}, true
+	default:
+		return ClosureEvidence{}, false
+	}
+}
+
+func appendClosureEvidenceLine(content string, ev ClosureEvidence) string {
+	line := fmt.Sprintf("ClosureEvidence: tool_result=%s kind=%s ok=%t", ev.ToolUseID, ev.Kind, ev.OK)
+	if ev.Command != "" {
+		line += fmt.Sprintf(" command=%q", ev.Command)
+	}
+	if strings.TrimSpace(content) == "" {
+		return line
+	}
+	return strings.TrimRight(content, "\n") + "\n" + line
+}
+
+func bashCommandFromInput(input json.RawMessage) string {
+	var p struct {
+		Command string `json:"command"`
+	}
+	_ = json.Unmarshal(input, &p)
+	return strings.TrimSpace(p.Command)
+}
+
+func isVerificationCommand(command string) bool {
+	cmd := strings.ToLower(strings.TrimSpace(command))
+	patterns := []string{"go test", "go build", "npm test", "npm run build", "pnpm test", "pnpm build", "pytest", "cargo test", "make test", "make build"}
+	for _, pattern := range patterns {
+		if strings.Contains(cmd, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 func canRunToolConcurrently(call ApiToolUseBlock) bool {

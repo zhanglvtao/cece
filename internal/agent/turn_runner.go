@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/zhanglvtao/cece/internal/diag"
@@ -19,23 +20,25 @@ type TurnPlan struct {
 	System         SystemPrompt          // 给 API 的 system blocks
 	AssembleResult prompt.AssembleResult // 原始组装结果，供 dryrun 使用
 	Tools          []tool.Definition     // 工具定义（含 InputSchema）
+	UserInput      string                // original user input for completion-gate classification
 }
 
 // TurnDeps contains the Runtime-owned operations a turn needs while keeping
 // the agent loop outside the Runtime facade.
 type TurnDeps struct {
-	AppendMessage        func(Message)
-	PersistMessage       func(context.Context, Message)
-	UpdateSessionMeta    func(context.Context, modelResponse)
-	DrainQueuedInputs    func() []string
-	DrainModeReminder    func() string
-	TryAutoCompact       func(ctx context.Context) bool
-	HistorySnapshot      func() []Message
-	ResetQuestionAnswers func()
-	IncrementAPICalls    func()
-	RecordToolExecution  func(name string, isError bool)
-	UpdateCacheTokens    func(read, creation int)
-	ContextWindow        int
+	AppendMessage         func(Message)
+	PersistMessage        func(context.Context, Message)
+	UpdateSessionMeta     func(context.Context, modelResponse)
+	DrainQueuedInputs     func() []string
+	DrainModeReminder     func() string
+	TryAutoCompact        func(ctx context.Context) bool
+	HistorySnapshot       func() []Message
+	ResetQuestionAnswers  func()
+	IncrementAPICalls     func()
+	RecordToolExecution   func(name string, isError bool)
+	UpdateCacheTokens     func(read, creation int)
+	ContextWindow         int
+	CompletionGateContext func() CompletionGateContext
 }
 
 // TurnRunner owns the agent loop for one user turn.
@@ -59,6 +62,14 @@ func NewTurnRunner(streamer *ModelStreamer, interactionGate *InteractionGate, to
 
 func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event) {
 	// Agent loop: keep calling the model until it stops requesting tools.
+	input := strings.TrimSpace(plan.UserInput)
+	if input == "" && len(plan.Messages) > 0 {
+		input = plan.Messages[len(plan.Messages)-1].TextContent()
+	}
+	requiresClosure := RequiresTaskClosure(input)
+	gateFailures := 0
+	const maxCompletionGateFailures = 3
+
 	messages := plan.Messages
 	turnStart := time.Now()
 	reason := "user"
@@ -185,6 +196,18 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				reason = "user"
 				toolResultNames = nil
 				continue
+			}
+			if gateFailures < maxCompletionGateFailures {
+				if gateResult := r.evaluateCompletionGate(requiresClosure); !gateResult.Pass {
+					gateFailures++
+					reminder := Message{Role: UserRole, Content: gateResult.Reminder}
+					r.deps.AppendMessage(reminder)
+					r.deps.PersistMessage(ctx, reminder)
+					messages = r.deps.HistorySnapshot()
+					reason = "completion_gate"
+					toolResultNames = nil
+					continue
+				}
 			}
 			r.tryAutoCompact(ctx)
 			events <- AssistantCompleted{Duration: time.Since(turnStart)}
@@ -324,6 +347,15 @@ func (r *TurnRunner) refreshedHistorySnapshot(current []Message) ([]Message, boo
 		return nil, false
 	}
 	return refreshed, true
+}
+
+func (r *TurnRunner) evaluateCompletionGate(requiresClosure bool) CompletionGateResult {
+	if r.deps.CompletionGateContext == nil {
+		return CompletionGateResult{Pass: true}
+	}
+	ctx := r.deps.CompletionGateContext()
+	ctx.RequiresClosure = requiresClosure
+	return NewCompletionGate().Evaluate(ctx)
 }
 
 func (r *TurnRunner) tryAutoCompact(ctx context.Context) bool {

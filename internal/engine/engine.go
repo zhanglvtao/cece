@@ -58,20 +58,22 @@ func (f agentControllerFunc) Run(ctx context.Context, parent *Engine, cfg tool.A
 func (f agentControllerFunc) CancelAll(parent *Engine) {}
 
 type Engine struct {
-	mu         sync.Mutex
-	client     agent.ModelClient
-	registry   *tool.Registry
-	assembler  *prompt.ContextAssembler
-	projectDir string
-	planState  *tool.PlanModeState
-	taskList   *tool.TaskList
-	history    []agent.Message
-	cancel     context.CancelFunc
-	confirmCh  chan struct{} // set per Input call, cleared on completion
-	rejectCh   chan struct{} // set per Input call, signals user rejection without cancel
-	yolo       bool          // auto-approve tool execution without UI confirmation
-	maxTokens  int           // configurable max output tokens
-	effort     string        // reasoning effort: "low", "medium", "high", "xhigh", "auto"
+	mu          sync.Mutex
+	client      agent.ModelClient
+	registry    *tool.Registry
+	assembler   *prompt.ContextAssembler
+	projectDir  string
+	planState   *tool.PlanModeState
+	taskList    *tool.TaskList
+	taskClosure *tool.TaskClosureState
+	evidence    []agent.ClosureEvidence
+	history     []agent.Message
+	cancel      context.CancelFunc
+	confirmCh   chan struct{} // set per Input call, cleared on completion
+	rejectCh    chan struct{} // set per Input call, signals user rejection without cancel
+	yolo        bool          // auto-approve tool execution without UI confirmation
+	maxTokens   int           // configurable max output tokens
+	effort      string        // reasoning effort: "low", "medium", "high", "xhigh", "auto"
 
 	ContextWindowFor           func(model string) int               // returns context window for a model ID
 	ModelClientFor             func(model string) agent.ModelClient // returns ModelClient for a model ID, nil = use current client
@@ -109,6 +111,7 @@ func NewEngine(client agent.ModelClient, registry *tool.Registry, yolo bool, max
 		projectDir:       projectDir,
 		planState:        tool.NewPlanModeState(),
 		taskList:         tool.NewTaskList(),
+		taskClosure:      tool.NewTaskClosureState(),
 		yolo:             yolo,
 		maxTokens:        maxTokens,
 		inputQueue:       &userInputQueue{},
@@ -130,9 +133,24 @@ func (e *Engine) Client() agent.ModelClient {
 	defer e.mu.Unlock()
 	return e.client
 }
-func (e *Engine) Registry() *tool.Registry            { return e.registry }
-func (e *Engine) PlanState() *tool.PlanModeState      { return e.planState }
-func (e *Engine) TaskList() *tool.TaskList            { return e.taskList }
+func (e *Engine) Registry() *tool.Registry       { return e.registry }
+func (e *Engine) PlanState() *tool.PlanModeState { return e.planState }
+func (e *Engine) TaskList() *tool.TaskList       { return e.taskList }
+func (e *Engine) TaskClosureState() *tool.TaskClosureState {
+	return e.taskClosure
+}
+
+func (e *Engine) RecordClosureEvidence(ev agent.ClosureEvidence) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.evidence = append(e.evidence, ev)
+}
+
+func (e *Engine) ClosureEvidenceSnapshot() []agent.ClosureEvidence {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]agent.ClosureEvidence(nil), e.evidence...)
+}
 
 // SetMCPTools replaces all MCP tools in the registry.
 // It removes any tool whose name starts with "mcp_" then adds the given tools.
@@ -695,6 +713,15 @@ func (e *Engine) SetTaskList(tl *tool.TaskList) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.taskList = tl
+}
+
+func (e *Engine) SetTaskClosureState(state *tool.TaskClosureState) {
+	if state == nil {
+		state = tool.NewTaskClosureState()
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.taskClosure = state
 }
 
 func (e *Engine) Mode() protocol.PermissionMode {
@@ -1553,6 +1580,10 @@ func (e *Engine) DryRunRequest(input string) {
 func (e *Engine) beginInputTurn(user agent.Message) []agent.Message {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.taskClosure != nil {
+		e.taskClosure.Reset()
+	}
+	e.evidence = nil
 	e.history = append(e.history, user)
 	return buildTurnSnapshot(e.history[:len(e.history)-1], user, e.planState, true)
 }

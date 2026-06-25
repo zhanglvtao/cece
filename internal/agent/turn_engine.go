@@ -31,6 +31,7 @@ type TurnEngine interface {
 	Registry() *tool.Registry
 	PlanState() *tool.PlanModeState
 	TaskList() *tool.TaskList
+	TaskClosureState() *tool.TaskClosureState
 	Yolo() bool
 	MaxTokens() int
 	ContextWindow() int
@@ -52,6 +53,8 @@ type TurnEngine interface {
 	IncrementAPICalls()
 	RecordToolExecution(name string, isError bool)
 	UpdateCacheTokens(read, creation int)
+	RecordClosureEvidence(ClosureEvidence)
+	ClosureEvidenceSnapshot() []ClosureEvidence
 
 	// Question answers
 	ResetQuestionAnswers()

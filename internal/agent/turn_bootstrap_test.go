@@ -31,7 +31,10 @@ func (e *dryRunEngine) PlanState() *tool.PlanModeState {
 	}
 	return e.planState
 }
-func (e *dryRunEngine) TaskList() *tool.TaskList                { return tool.NewTaskList() }
+func (e *dryRunEngine) TaskList() *tool.TaskList { return tool.NewTaskList() }
+func (e *dryRunEngine) TaskClosureState() *tool.TaskClosureState {
+	return tool.NewTaskClosureState()
+}
 func (e *dryRunEngine) Yolo() bool                              { return e.yolo }
 func (e *dryRunEngine) MaxTokens() int                          { return 1234 }
 func (e *dryRunEngine) ContextWindow() int                      { return 270000 }
@@ -47,10 +50,14 @@ func (e *dryRunEngine) SetLastInputTokens(int) {}
 func (e *dryRunEngine) IncrementTokens(int, int) (string, session.SessionMeta, bool) {
 	return "", session.SessionMeta{}, false
 }
-func (e *dryRunEngine) RecordUsage(context.Context, UsageRecord)  {}
-func (e *dryRunEngine) IncrementAPICalls()                        {}
-func (e *dryRunEngine) RecordToolExecution(string, bool)          {}
-func (e *dryRunEngine) UpdateCacheTokens(int, int)                {}
+func (e *dryRunEngine) RecordUsage(context.Context, UsageRecord) {}
+func (e *dryRunEngine) IncrementAPICalls()                       {}
+func (e *dryRunEngine) RecordToolExecution(string, bool)         {}
+func (e *dryRunEngine) UpdateCacheTokens(int, int)               {}
+func (e *dryRunEngine) RecordClosureEvidence(ClosureEvidence)    {}
+func (e *dryRunEngine) ClosureEvidenceSnapshot() []ClosureEvidence {
+	return nil
+}
 func (e *dryRunEngine) ResetQuestionAnswers()                     {}
 func (e *dryRunEngine) GetQuestionAnswers() []tool.QuestionAnswer { return nil }
 func (e *dryRunEngine) DrainQueuedInputs() []string               { return nil }
@@ -231,6 +238,93 @@ func containsMessage(messages []Message, target Message) bool {
 		}
 	}
 	return false
+}
+
+func TestTurnRunnerCompletionGateBlocksAndContinues(t *testing.T) {
+	responses := []<-chan ApiStreamEvent{textStream("done early"), textStream("done after reminder")}
+	streamCalls := 0
+	var secondRequest []Message
+	client := &mockStreamClient{streamFn: func(_ context.Context, messages []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
+		if streamCalls == 1 {
+			secondRequest = append([]Message(nil), messages...)
+		}
+		resp := responses[streamCalls]
+		streamCalls++
+		return resp, nil
+	}}
+
+	var history []Message
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		4096,
+		TurnDeps{
+			AppendMessage:     func(m Message) { history = append(history, m) },
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
+			IncrementAPICalls: func() {},
+			CompletionGateContext: func() CompletionGateContext {
+				if streamCalls >= 2 {
+					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
+						Updated:            true,
+						NeedsCodeChange:    tool.ClosureDecisionNo,
+						CodeChangeStatus:   tool.ClosureCodeNotNeeded,
+						CodeChangeReason:   "blocked reminder handled in test",
+						NeedsVerification:  tool.ClosureDecisionNo,
+						VerificationStatus: tool.ClosureVerificationNotNeeded,
+						VerificationReason: "not needed in test",
+					}}
+				}
+				return CompletionGateContext{Closure: tool.TaskClosureSnapshot{}}
+			},
+		},
+	)
+
+	events := make(chan Event, 32)
+	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "fix bug"}}}, events)
+
+	if streamCalls != 2 {
+		t.Fatalf("streamCalls = %d, want 2", streamCalls)
+	}
+	if len(secondRequest) == 0 || !strings.Contains(secondRequest[len(secondRequest)-1].TextContent(), "Completion gate blocked") {
+		t.Fatalf("secondRequest = %+v, want completion gate reminder", secondRequest)
+	}
+}
+
+func TestTurnRunnerCompletionGatePassesWithClosure(t *testing.T) {
+	streamCalls := 0
+	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
+		streamCalls++
+		return textStream("done"), nil
+	}}
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		4096,
+		TurnDeps{
+			AppendMessage:     func(Message) {},
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			HistorySnapshot:   func() []Message { return nil },
+			IncrementAPICalls: func() {},
+			CompletionGateContext: func() CompletionGateContext {
+				return CompletionGateContext{}
+			},
+		},
+	)
+
+	events := make(chan Event, 32)
+	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "explain"}}}, events)
+
+	if streamCalls != 1 {
+		t.Fatalf("streamCalls = %d, want 1", streamCalls)
+	}
+	waitForEventType(t, events, AssistantCompleted{})
 }
 
 func TestTurnRunnerPreflightCompactsAndRefreshesSnapshot(t *testing.T) {

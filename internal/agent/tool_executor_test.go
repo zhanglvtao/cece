@@ -45,6 +45,30 @@ func (truncatedTestTool) Run(ctx context.Context, input json.RawMessage, emitter
 	return tool.Result{Content: "preview", Truncated: true}
 }
 
+func TestToolExecutorRecordsClosureEvidence(t *testing.T) {
+	registry := tool.NewRegistry(staticTestTool{})
+	var evidence []ClosureEvidence
+	executor := NewToolExecutor(registry, nil, nil, ToolResultPolicy{}, nil, func(ev ClosureEvidence) {
+		evidence = append(evidence, ev)
+	})
+
+	blocks := executor.ExecuteBatch(context.Background(), []ApiToolUseBlock{{
+		ID:    "call-test",
+		Name:  "Bash",
+		Input: json.RawMessage(`{"command":"go test ./internal/agent"}`),
+	}}, nil)
+
+	if len(evidence) != 1 {
+		t.Fatalf("evidence len = %d, want 1", len(evidence))
+	}
+	if evidence[0].ToolUseID != "call-test" || evidence[0].Kind != ClosureEvidenceVerification || evidence[0].Command != "go test ./internal/agent" {
+		t.Fatalf("evidence = %+v", evidence[0])
+	}
+	if len(blocks) != 1 || blocks[0].ToolResult == nil || !strings.Contains(blocks[0].ToolResult.Content, "ClosureEvidence: tool_result=call-test kind=verification") {
+		t.Fatalf("tool result content = %+v", blocks)
+	}
+}
+
 func TestToolExecutorPropagatesTruncatedMetadata(t *testing.T) {
 	registry := tool.NewRegistry(truncatedTestTool{})
 	executor := NewToolExecutor(registry, nil, nil, ToolResultPolicy{}, nil)

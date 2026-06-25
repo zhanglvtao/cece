@@ -76,6 +76,11 @@
 - 定位：SWE-bench harness 为了无人值守把 `defaultMode` 强制成 `auto-accept`，导致 agent 首轮缺少 plan mode reminder；而 yolo 已可自动放行 `ExitPlanMode`，不需要牺牲 plan-first 流程。
 - 结论：评测容器应使用 `defaultMode=plan` + `yolo.enabled=true`：让模型先规划复现和边界，同时避免计划审批卡住 batch runner。
 
+## 无 tool call 不等于任务闭环
+- 现象：复杂实现/bugfix 过程中，模型一旦输出普通文本且没有继续发 tool call，`TurnRunner` 就发 `AssistantCompleted`，Engine 随后发 `TurnCompleted`，UI 进入 Ready；任务可能还没验证或 Todo 仍未完成。
+- 定位：`AssistantCompleted` 只是“assistant 本次响应完成”，不是“用户任务完成”。仅靠 prompt 里的“不要半途而废”无法形成运行时约束，尤其还和短输出风格存在张力。
+- 结论：在 `AssistantCompleted` 前增加内置 `CompletionGate`：PlanModeGate、TodoGate、TaskClosureGate。实现类任务必须通过 `UpdateTaskClosure` 声明闭环状态，并引用本轮 `tool_result.ToolUseID` 作为代码变更/验证证据；runtime 校验 ref、kind、ok，而不是相信自然语言。
+
 ## Prompt 分层不能只补 plan reminder
 - 现象：`astropy__astropy-7746` 改为 plan mode 后仍只修了一半，说明 runtime planning shell 本身不足以保证模型覆盖所有失败输入形态。
 - 定位：完整 prompt 行为需要 Stable 的 completion/verification/failure-diagnosis contract、Turn 的 task-aware reminder、Plan reminder 的收敛标准协同；只强化任一层都会留下 half-fix 风险。

@@ -63,6 +63,7 @@ func (b *TurnBootstrap) BuildTurnPlan(input string, snapshot []Message) TurnPlan
 		System:         systemPrompt,
 		AssembleResult: assembleResult,
 		Tools:          tools,
+		UserInput:      input,
 	}
 }
 
@@ -153,7 +154,7 @@ func (b *TurnBootstrap) newToolExecutor() *ToolExecutor {
 	eng := b.engine
 	return NewToolExecutor(eng.Registry(), eng.PlanState(), eng.TaskList(), eng.ToolResultPolicy(), func() []tool.QuestionAnswer {
 		return append([]tool.QuestionAnswer(nil), eng.GetQuestionAnswers()...)
-	})
+	}, eng.RecordClosureEvidence)
 }
 
 func (b *TurnBootstrap) turnDeps() TurnDeps {
@@ -192,6 +193,24 @@ func (b *TurnBootstrap) turnDeps() TurnDeps {
 		RecordToolExecution: eng.RecordToolExecution,
 		UpdateCacheTokens:   eng.UpdateCacheTokens,
 		ContextWindow:       eng.ContextWindow(),
+		CompletionGateContext: func() CompletionGateContext {
+			return CompletionGateContext{
+				PlanMode: eng.PlanState() != nil && eng.PlanState().Mode() == tool.PermissionModePlan,
+				TaskList: func() []tool.TodoItem {
+					if eng.TaskList() == nil {
+						return nil
+					}
+					return eng.TaskList().Snapshot()
+				}(),
+				Closure: func() tool.TaskClosureSnapshot {
+					if eng.TaskClosureState() == nil {
+						return tool.TaskClosureSnapshot{}
+					}
+					return eng.TaskClosureState().Snapshot()
+				}(),
+				Evidence: eng.ClosureEvidenceSnapshot(),
+			}
+		},
 	}
 }
 

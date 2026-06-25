@@ -22,14 +22,15 @@ import (
 
 // Bundle is the wired runtime returned by Build.
 type Bundle struct {
-	Engine    *engine.Engine
-	Mediator  *engine.EngineMediator
-	Store     session.Store
-	Skills    *skill.Store
-	PlanState *tool.PlanModeState
-	TaskList  *tool.TaskList
-	Registry  *tool.Registry
-	Assembler *prompt.ContextAssembler
+	Engine      *engine.Engine
+	Mediator    *engine.EngineMediator
+	Store       session.Store
+	Skills      *skill.Store
+	PlanState   *tool.PlanModeState
+	TaskList    *tool.TaskList
+	TaskClosure *tool.TaskClosureState
+	Registry    *tool.Registry
+	Assembler   *prompt.ContextAssembler
 
 	// Cleanup must be called on shutdown to release MCP / log resources.
 	Cleanup func()
@@ -147,15 +148,16 @@ func Build(opts Options) (*Bundle, error) {
 	}, opts.Store, built.Engine.EmitEvent))
 
 	return &Bundle{
-		Engine:    built.Engine,
-		Mediator:  built.Mediator,
-		Store:     opts.Store,
-		Skills:    skillStore,
-		PlanState: built.PlanState,
-		TaskList:  built.TaskList,
-		Registry:  built.Registry,
-		Assembler: built.Assembler,
-		Cleanup:   cleanup,
+		Engine:      built.Engine,
+		Mediator:    built.Mediator,
+		Store:       opts.Store,
+		Skills:      skillStore,
+		PlanState:   built.PlanState,
+		TaskList:    built.TaskList,
+		TaskClosure: built.TaskClosure,
+		Registry:    built.Registry,
+		Assembler:   built.Assembler,
+		Cleanup:     cleanup,
 	}, nil
 }
 

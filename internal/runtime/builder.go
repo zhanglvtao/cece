@@ -60,6 +60,7 @@ type BuiltRuntime struct {
 	Assembler    *prompt.ContextAssembler
 	PlanState    *tool.PlanModeState
 	TaskList     *tool.TaskList
+	TaskClosure  *tool.TaskClosureState
 	Tracker      *engine.AgentRuntime
 	SessionStore session.Store
 }
@@ -126,8 +127,8 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 	planState := tool.NewPlanModeState()
 	planState.SetProjectDir(b.shared.ProjectDir)
 	planState.SetPlanModeWriteAllowPatterns(b.shared.PlanModeWriteAllowlist)
-	planState.SetSkillStore(b.shared.Skills)
 	taskList := tool.NewTaskList()
+	taskClosure := tool.NewTaskClosureState()
 
 	slog.Info("runtime builder: build start",
 		"runtime_id", req.ID,
@@ -135,11 +136,12 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 		"model", req.Model,
 	)
 
-	registry := b.buildRegistry(req.Profile, req.ToolNames, planState, taskList)
+	registry := b.buildRegistry(req.Profile, req.ToolNames, planState, taskList, taskClosure)
 	assembler := b.buildAssembler(ctx, req, registry, contextWindow)
 	eng := engine.NewEngine(client, registry, req.Yolo, b.shared.MaxTokens, assembler, b.shared.ProjectDir)
 	eng.SetPlanModeState(planState)
 	eng.SetTaskList(taskList)
+	eng.SetTaskClosureState(taskClosure)
 	eng.SetStore(b.shared.Store)
 	eng.SetModelInfo(req.Model, contextWindow)
 	if req.DefaultMode != "" {
@@ -187,6 +189,7 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 		Assembler:    assembler,
 		PlanState:    planState,
 		TaskList:     taskList,
+		TaskClosure:  taskClosure,
 		SessionStore: b.shared.Store,
 	}
 
@@ -220,7 +223,7 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 	return built, nil
 }
 
-func (b *Builder) buildRegistry(profile AgentProfile, toolNames []string, planState *tool.PlanModeState, taskList *tool.TaskList) *tool.Registry {
+func (b *Builder) buildRegistry(profile AgentProfile, toolNames []string, planState *tool.PlanModeState, taskList *tool.TaskList, taskClosure *tool.TaskClosureState) *tool.Registry {
 	registry := tool.NewRegistry(
 		tool.NewBash(),
 		tool.NewRead(),
@@ -234,6 +237,7 @@ func (b *Builder) buildRegistry(profile AgentProfile, toolNames []string, planSt
 		tool.NewAskUserQuestion(),
 		tool.NewSkillTool(b.shared.Skills),
 		tool.NewTodo(taskList),
+		tool.NewTaskClosure(taskClosure),
 	)
 	registry.SetResultStore(tool.NewResultStore(b.shared.ProjectDir))
 	if len(b.shared.LintConfig) > 0 {
