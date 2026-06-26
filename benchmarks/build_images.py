@@ -178,12 +178,14 @@ def _python_version_for(repo: str, version: str) -> str:
 _INSTALL_OVERRIDES = {
     # astropy 0.x-1.3: old numpy/cython/pytest era (Python 3.6).
     # attrs/pluggy/py must be pinned too: pytest 3.3.1 uses attr.ib(convert=...)
-    # which modern attrs removed.
+    # which modern attrs removed. setuptools must be downgraded FIRST in its own
+    # pip step, otherwise building old sdists like MarkupSafe==1.0 (which imports
+    # the removed `Feature` symbol) fails under the default new setuptools.
     ("astropy/astropy", "1.3"): (
+        "pip install 'setuptools==38.2.4' && "
         "pip install 'attrs==17.3.0' 'pluggy==0.6.0' 'py==1.11.0' "
         "'numpy==1.16.0' 'cython==0.27.3' 'pytest==3.3.1' "
-        "'setuptools==38.2.4' 'jinja2==2.10' 'MarkupSafe==1.0' "
-        "'pytest-astropy==0.2.1'"
+        "'jinja2==2.10' 'MarkupSafe==1.0' 'pytest-astropy==0.2.1'"
     ),
 }
 
