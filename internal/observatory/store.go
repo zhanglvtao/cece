@@ -27,6 +27,31 @@ type EvidenceItem struct {
 	Detail string    `json:"detail,omitempty"`
 }
 
+type AgentMailboxItem struct {
+	Time      time.Time      `json:"time"`
+	Lane      string         `json:"lane"`
+	MessageID string         `json:"message_id"`
+	Kind      string         `json:"kind"`
+	StatusTo  string         `json:"status_to,omitempty"`
+	Payload   map[string]any `json:"payload,omitempty"`
+}
+
+type AgentView struct {
+	ID          string             `json:"id"`
+	Description string             `json:"description,omitempty"`
+	Status      string             `json:"status"`
+	Inbox       []AgentMailboxItem `json:"inbox"`
+	Outbox      []AgentMailboxItem `json:"outbox"`
+}
+
+type agentState struct {
+	ID          string
+	Description string
+	Status      string
+	Inbox       []AgentMailboxItem
+	Outbox      []AgentMailboxItem
+}
+
 type State struct {
 	Server      ServerInfo                                   `json:"server"`
 	UpdatedAt   time.Time                                    `json:"updated_at"`
@@ -37,6 +62,7 @@ type State struct {
 	Phases      []protocol.ObservatoryPhase                  `json:"phases"`
 	Metrics     []protocol.ObservatoryMetric                 `json:"metrics"`
 	Evidence    []EvidenceItem                               `json:"evidence"`
+	Agents      []AgentView                                  `json:"agents"`
 }
 
 type Store struct {
@@ -50,6 +76,7 @@ type Store struct {
 	phases      map[string]protocol.ObservatoryPhase
 	metrics     map[string]protocol.ObservatoryMetric
 	evidence    []EvidenceItem
+	agents      map[string]*agentState
 }
 
 func NewStore() *Store {
@@ -59,6 +86,7 @@ func NewStore() *Store {
 		edges:     make(map[string]protocol.ObservatoryEdge),
 		phases:    make(map[string]protocol.ObservatoryPhase),
 		metrics:   make(map[string]protocol.ObservatoryMetric),
+		agents:    make(map[string]*agentState),
 	}
 	s.ensureSkeletonLocked()
 	return s
@@ -163,6 +191,8 @@ func (s *Store) Apply(ev protocol.Event) {
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: "orchestrator", Label: "Orchestrator", Kind: "orchestrator", Status: "active"})
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: e.ID, Label: agentLabel(e.ID, e.Description), Kind: "agent", Status: "active"})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "orchestrator", To: e.ID, Label: "spawn", Status: "active"})
+		s.ensureAgentLocked(e.ID).Description = e.Description
+		s.ensureAgentLocked(e.ID).Status = "active"
 	case protocol.SubAgentActivityEvent:
 		status := agentStatus(e.Status)
 		s.setPhaseLocked("subagents", "subagents", status)
@@ -176,14 +206,26 @@ func (s *Store) Apply(ev protocol.Event) {
 		}
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: e.ID, Label: e.ID, Kind: "agent", Status: status, Meta: meta})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "orchestrator", To: e.ID, Label: "run", Status: status})
+		s.ensureAgentLocked(e.ID).Status = e.Status
 	case protocol.SubAgentCompletedEvent:
 		s.setPhaseLocked("subagents", "subagents", "done")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: e.ID, Label: agentLabel(e.ID, e.Description), Kind: "agent", Status: "done"})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "orchestrator", To: e.ID, Label: "run", Status: "done"})
+		s.ensureAgentLocked(e.ID).Description = e.Description
+		s.ensureAgentLocked(e.ID).Status = "completed"
 	case protocol.SubAgentFailedEvent:
 		s.setPhaseLocked("subagents", "subagents", "failed")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: e.ID, Label: agentLabel(e.ID, e.Description), Kind: "agent", Status: "failed"})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "orchestrator", To: e.ID, Label: "run", Status: "failed"})
+		s.ensureAgentLocked(e.ID).Description = e.Description
+		s.ensureAgentLocked(e.ID).Status = "failed"
+	case protocol.AgentBusEvent:
+		agent := s.ensureAgentLocked(e.AgentID)
+		if e.StatusTo != "" {
+			agent.Status = e.StatusTo
+		}
+		item := AgentMailboxItem{Time: now, Lane: e.Lane, MessageID: e.MessageID, Kind: e.Kind, StatusTo: e.StatusTo, Payload: e.Payload}
+		s.appendAgentMailboxLocked(agent, item)
 	case protocol.TurnCompleted:
 		s.setPhaseLocked("done", "done", "done")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: "engine", Label: "Engine", Kind: "engine", Status: "done"})
@@ -236,6 +278,11 @@ func (s *Store) stateLocked() State {
 	}
 	evidence := make([]EvidenceItem, len(s.evidence))
 	copy(evidence, s.evidence)
+	agents := make([]AgentView, 0, len(s.agents))
+	for _, a := range s.agents {
+		agents = append(agents, AgentView{ID: a.ID, Description: a.Description, Status: a.Status, Inbox: append([]AgentMailboxItem(nil), a.Inbox...), Outbox: append([]AgentMailboxItem(nil), a.Outbox...)})
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
 	return State{
 		Server:      s.server,
 		UpdatedAt:   s.updatedAt,
@@ -246,6 +293,7 @@ func (s *Store) stateLocked() State {
 		Phases:      phases,
 		Metrics:     metrics,
 		Evidence:    evidence,
+		Agents:      agents,
 	}
 }
 
@@ -351,6 +399,39 @@ func (s *Store) addEvidenceLocked(t time.Time, kind, text, detail string) {
 	s.evidence = append(s.evidence, EvidenceItem{Time: t, Kind: kind, Text: truncate(text, 240), Detail: truncate(detail, 1200)})
 	if len(s.evidence) > maxEvidence {
 		s.evidence = append([]EvidenceItem(nil), s.evidence[len(s.evidence)-maxEvidence:]...)
+	}
+}
+
+func (s *Store) ensureAgentLocked(id string) *agentState {
+	if id == "" {
+		id = "unknown"
+	}
+	if s.agents == nil {
+		s.agents = make(map[string]*agentState)
+	}
+	if a, ok := s.agents[id]; ok {
+		return a
+	}
+	a := &agentState{ID: id, Status: "idle"}
+	s.agents[id] = a
+	return a
+}
+
+func (s *Store) appendAgentMailboxLocked(agent *agentState, item AgentMailboxItem) {
+	if agent == nil {
+		return
+	}
+	switch item.Lane {
+	case "inbox":
+		agent.Inbox = append(agent.Inbox, item)
+		if len(agent.Inbox) > 50 {
+			agent.Inbox = append([]AgentMailboxItem(nil), agent.Inbox[len(agent.Inbox)-50:]...)
+		}
+	default:
+		agent.Outbox = append(agent.Outbox, item)
+		if len(agent.Outbox) > 50 {
+			agent.Outbox = append([]AgentMailboxItem(nil), agent.Outbox[len(agent.Outbox)-50:]...)
+		}
 	}
 }
 

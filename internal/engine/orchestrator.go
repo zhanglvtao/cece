@@ -123,7 +123,7 @@ func (o *Orchestrator) start(ctx context.Context, parent *Engine, cfg tool.Agent
 
 	if o.emit != nil {
 		o.emit(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description, ParentSessionID: parentSessionID})
-		o.emit(protocol.AgentBusEvent{MessageID: fmt.Sprintf("%s-start", agentID), TraceID: agentID, AgentID: agentID, ParentSessionID: parentSessionID, Kind: "started", StatusTo: string(AgentStatusStarting), Payload: map[string]any{"description": cfg.Description}})
+		o.emit(protocol.AgentBusEvent{MessageID: fmt.Sprintf("%s-start", agentID), TraceID: agentID, AgentID: agentID, ParentSessionID: parentSessionID, Kind: "started", Lane: "scheduler", StatusTo: string(AgentStatusStarting), Payload: map[string]any{"description": cfg.Description}})
 	}
 	rt.StartMailboxLoop()
 	go o.bridgeRuntime(parent, rt, parentSessionID)
@@ -388,7 +388,7 @@ func (o *Orchestrator) bridgeRuntime(parent *Engine, rt *AgentRuntime, parentSes
 				}
 			}
 			if o.emit != nil {
-				o.emit(protocol.AgentBusEvent{MessageID: msg.ID, TraceID: rt.ID, AgentID: rt.ID, ParentSessionID: parentSessionID, SessionID: snap.SessionID, Kind: string(msg.Kind), StatusTo: string(msg.Status), Payload: map[string]any{"activity": activity}})
+				o.emit(protocol.AgentBusEvent{MessageID: msg.ID, TraceID: rt.ID, AgentID: rt.ID, ParentSessionID: parentSessionID, SessionID: snap.SessionID, Kind: string(msg.Kind), Lane: "outbox", StatusTo: string(msg.Status), Payload: map[string]any{"activity": activity}})
 				o.emit(protocol.SubAgentActivityEvent{
 					ID:               rt.ID,
 					SessionID:        snap.SessionID,

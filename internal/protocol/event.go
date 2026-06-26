@@ -483,6 +483,7 @@ type AgentBusEvent struct {
 	ParentSessionID string         `json:"parent_session_id,omitempty"`
 	SessionID       string         `json:"session_id,omitempty"`
 	Kind            string         `json:"kind"`
+	Lane            string         `json:"lane,omitempty"`
 	StatusFrom      string         `json:"status_from,omitempty"`
 	StatusTo        string         `json:"status_to,omitempty"`
 	Payload         map[string]any `json:"payload,omitempty"`

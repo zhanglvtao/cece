@@ -27,6 +27,48 @@ func TestStoreDerivesToolTopology(t *testing.T) {
 	}
 }
 
+func TestStoreTracksSimpleAgentMailboxState(t *testing.T) {
+	store := NewStore()
+	store.Apply(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "worker"})
+	store.Apply(protocol.AgentBusEvent{
+		MessageID: "cmd-1",
+		TraceID:   "agent-1",
+		AgentID:   "agent-1",
+		Kind:      "send_input",
+		Lane:      "inbox",
+		StatusTo:  "running",
+		Payload: map[string]any{
+			"summary": "send input",
+		},
+	})
+	store.Apply(protocol.AgentBusEvent{
+		MessageID: "evt-1",
+		TraceID:   "agent-1",
+		AgentID:   "agent-1",
+		Kind:      "progress",
+		Lane:      "outbox",
+		StatusTo:  "running",
+		Payload: map[string]any{
+			"summary": "requesting model",
+		},
+	})
+
+	state := store.State()
+	if len(state.Agents) != 1 {
+		t.Fatalf("agents len = %d, want 1", len(state.Agents))
+	}
+	agent := state.Agents[0]
+	if agent.ID != "agent-1" || agent.Status != "running" {
+		t.Fatalf("agent = %+v", agent)
+	}
+	if len(agent.Inbox) != 1 || agent.Inbox[0].MessageID != "cmd-1" {
+		t.Fatalf("inbox = %+v", agent.Inbox)
+	}
+	if len(agent.Outbox) != 1 || agent.Outbox[0].MessageID != "evt-1" {
+		t.Fatalf("outbox = %+v", agent.Outbox)
+	}
+}
+
 func TestStoreSkeletonSeparatesControlPathFromTelemetry(t *testing.T) {
 	store := NewStore()
 	state := store.State()
@@ -135,6 +177,32 @@ func TestServerStateEndpoint(t *testing.T) {
 	}
 	if state.Server.URL != server.Info().URL {
 		t.Fatalf("state URL = %q, want %q", state.Server.URL, server.Info().URL)
+	}
+}
+
+func TestServerStateIncludesAgents(t *testing.T) {
+	hub := NewHub()
+	hub.Observe(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "worker"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server, err := StartServer(ctx, hub, "127.0.0.1", 0)
+	if err != nil {
+		t.Fatalf("StartServer error = %v", err)
+	}
+	defer server.Close(context.Background())
+
+	resp, err := http.Get(server.Info().URL + "/api/state")
+	if err != nil {
+		t.Fatalf("GET /api/state error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	var state State
+	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+		t.Fatalf("decode state error = %v", err)
+	}
+	if len(state.Agents) != 1 {
+		t.Fatalf("agents len = %d, want 1", len(state.Agents))
 	}
 }
 
