@@ -26,6 +26,16 @@
 - `rc=-9` 表示被 SIGKILL，通常是 subprocess 超时导致的
 - 解决方案：把长时间命令拆成多个短步骤，每步有独立超时
 
+### Completion gate 固定重试上限
+- Completion gate 之前把收尾补救限制死在 3 次，超过后直接 `force_complete`
+- 这会把“模型还可以继续自救”的场景过早截断，UI 只看到 `partial closure`
+- 更合理的方式是持续注入 gate reminder，让 LLM 自己调用 `UpdateTaskClosure` 明确结束（如 `blocked` / `not_needed`），而不是靠固定次数兜底
+
+### Completion gate 无进展空转
+- 去掉固定上限后，如果模型连续只输出普通文本、不调用工具，就可能在 completion gate 上空转
+- 第一版保护策略：连续 2 次 completion_gate 无工具动作后，升级为更强的 reminder，明确禁止 plain text，要求必须调用 `UpdateTaskClosure` / `Todo` / `AskUserQuestion` / `ExitPlanMode`
+- 先不自动替模型结束任务，避免错误闭环；只做强制收尾动作提示
+
 ## 3. SWE-bench 特定问题
 
 ### Git clone 策略

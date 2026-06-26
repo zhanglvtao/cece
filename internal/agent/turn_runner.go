@@ -68,7 +68,8 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 	}
 	requiresClosure := RequiresTaskClosure(input)
 	gateFailures := 0
-	const maxCompletionGateFailures = 3
+	noProgressGateFailures := 0
+	const maxNoProgressGateFailures = 2
 
 	messages := plan.Messages
 	turnStart := time.Now()
@@ -197,23 +198,29 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				toolResultNames = nil
 				continue
 			}
-			if gateFailures < maxCompletionGateFailures {
-				gateResult := r.evaluateCompletionGate(requiresClosure)
-				events <- CompletionGateEvaluated{Attempt: gateFailures + 1, MaxAttempts: maxCompletionGateFailures, Status: completionGateStatus(gateResult), RequiresClosure: requiresClosure, Checks: gateResult.Checks, Next: completionGateNext(gateResult)}
-				if !gateResult.Pass {
-					gateFailures++
-					reminder := Message{Role: UserRole, Content: gateResult.Reminder}
-					r.deps.AppendMessage(reminder)
-					r.deps.PersistMessage(ctx, reminder)
-					messages = r.deps.HistorySnapshot()
-					reason = "completion_gate"
-					toolResultNames = nil
-					continue
+			gateCtx := r.currentCompletionGateContext(requiresClosure)
+			gateResult := NewCompletionGate().Evaluate(gateCtx)
+			events <- CompletionGateEvaluated{Attempt: gateFailures + 1, MaxAttempts: 0, Status: completionGateStatus(gateResult), RequiresClosure: requiresClosure, Checks: gateResult.Checks, Next: completionGateNext(gateResult)}
+			if !gateResult.Pass {
+				gateFailures++
+				if reason == "completion_gate" && len(resp.toolCalls) == 0 {
+					noProgressGateFailures++
+				} else {
+					noProgressGateFailures = 0
 				}
-			} else {
-				gateResult := r.evaluateCompletionGate(requiresClosure)
-				events <- CompletionGateEvaluated{Attempt: maxCompletionGateFailures, MaxAttempts: maxCompletionGateFailures, Status: CompletionGateSkipped, RequiresClosure: requiresClosure, Checks: gateResult.Checks, Next: "force_complete"}
+				reminderText := gateResult.Reminder
+				if noProgressGateFailures >= maxNoProgressGateFailures {
+					reminderText = buildCompletionGateNoProgressReminder(gateResult.Reasons)
+				}
+				reminder := Message{Role: UserRole, Content: reminderText}
+				r.deps.AppendMessage(reminder)
+				r.deps.PersistMessage(ctx, reminder)
+				messages = r.deps.HistorySnapshot()
+				reason = "completion_gate"
+				toolResultNames = nil
+				continue
 			}
+			noProgressGateFailures = 0
 			r.tryAutoCompact(ctx)
 			events <- AssistantCompleted{Duration: time.Since(turnStart)}
 			return
@@ -355,14 +362,18 @@ func (r *TurnRunner) refreshedHistorySnapshot(current []Message) ([]Message, boo
 }
 
 func (r *TurnRunner) evaluateCompletionGate(requiresClosure bool) CompletionGateResult {
+	return NewCompletionGate().Evaluate(r.currentCompletionGateContext(requiresClosure))
+}
+
+func (r *TurnRunner) currentCompletionGateContext(requiresClosure bool) CompletionGateContext {
 	if r.deps.CompletionGateContext == nil {
-		ctx := CompletionGateContext{RequiresClosure: requiresClosure}
-		return NewCompletionGate().Evaluate(ctx)
+		return CompletionGateContext{RequiresClosure: requiresClosure}
 	}
 	ctx := r.deps.CompletionGateContext()
 	ctx.RequiresClosure = requiresClosure
-	return NewCompletionGate().Evaluate(ctx)
+	return ctx
 }
+
 
 func completionGateStatus(result CompletionGateResult) CompletionGateStatus {
 	if result.Pass {

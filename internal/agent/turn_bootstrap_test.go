@@ -336,6 +336,135 @@ func TestTurnRunnerCompletionGatePassesWithClosure(t *testing.T) {
 	waitForEventType(t, events, AssistantCompleted{})
 }
 
+func TestTurnRunnerCompletionGateKeepsRetryingAfterThreeBlockedAttempts(t *testing.T) {
+	responses := []<-chan ApiStreamEvent{
+		textStream("attempt 1"),
+		textStream("attempt 2"),
+		textStream("attempt 3"),
+		textStream("attempt 4"),
+	}
+	streamCalls := 0
+	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
+		resp := responses[streamCalls]
+		streamCalls++
+		return resp, nil
+	}}
+
+	var history []Message
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		4096,
+		TurnDeps{
+			AppendMessage:     func(m Message) { history = append(history, m) },
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
+			IncrementAPICalls: func() {},
+			CompletionGateContext: func() CompletionGateContext {
+				if streamCalls >= 4 {
+					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
+						Updated:            true,
+						NeedsCodeChange:    tool.ClosureDecisionNo,
+						CodeChangeStatus:   tool.ClosureCodeNotNeeded,
+						CodeChangeReason:   "resolved after repeated reminders",
+						NeedsVerification:  tool.ClosureDecisionNo,
+						VerificationStatus: tool.ClosureVerificationNotNeeded,
+						VerificationReason: "not needed in test",
+					}}
+				}
+				return CompletionGateContext{Closure: tool.TaskClosureSnapshot{}}
+			},
+		},
+	)
+
+	events := make(chan Event, 64)
+	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "fix bug"}}}, events)
+
+	blocked := 0
+	for blocked < 3 {
+		got := waitForEventType(t, events, CompletionGateEvaluated{})
+		if got.Status != CompletionGateBlocked || got.Next != "continue" {
+			t.Fatalf("CompletionGateEvaluated = %+v, want blocked continue", got)
+		}
+		blocked++
+	}
+	if got := waitForEventType(t, events, CompletionGateEvaluated{}); got.Status != CompletionGatePassed || got.Next != "complete" {
+		t.Fatalf("CompletionGateEvaluated = %+v, want passed complete", got)
+	}
+	if streamCalls != 4 {
+		t.Fatalf("streamCalls = %d, want 4", streamCalls)
+	}
+	waitForEventType(t, events, AssistantCompleted{})
+}
+
+func TestTurnRunnerCompletionGateEscalatesAfterNoProgress(t *testing.T) {
+	responses := []<-chan ApiStreamEvent{
+		textStream("attempt 1"),
+		textStream("attempt 2"),
+		textStream("attempt 3"),
+		textStream("attempt 4"),
+	}
+	streamCalls := 0
+	var fourthRequest []Message
+	client := &mockStreamClient{streamFn: func(_ context.Context, messages []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
+		if streamCalls == 3 {
+			fourthRequest = append([]Message(nil), messages...)
+		}
+		resp := responses[streamCalls]
+		streamCalls++
+		return resp, nil
+	}}
+
+	var history []Message
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		4096,
+		TurnDeps{
+			AppendMessage:     func(m Message) { history = append(history, m) },
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
+			IncrementAPICalls: func() {},
+			CompletionGateContext: func() CompletionGateContext {
+				if streamCalls >= 4 {
+					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
+						Updated:            true,
+						NeedsCodeChange:    tool.ClosureDecisionNo,
+						CodeChangeStatus:   tool.ClosureCodeNotNeeded,
+						CodeChangeReason:   "resolved after escalation",
+						NeedsVerification:  tool.ClosureDecisionNo,
+						VerificationStatus: tool.ClosureVerificationNotNeeded,
+						VerificationReason: "not needed in test",
+					}}
+				}
+				return CompletionGateContext{TaskList: []tool.TodoItem{{Content: "x", Status: tool.TodoInProgress}}}
+			},
+		},
+	)
+
+	events := make(chan Event, 64)
+	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "fix bug"}}}, events)
+
+	for i := 0; i < 3; i++ {
+		got := waitForEventType(t, events, CompletionGateEvaluated{})
+		if got.Status != CompletionGateBlocked {
+			t.Fatalf("CompletionGateEvaluated = %+v, want blocked", got)
+		}
+	}
+	if len(fourthRequest) == 0 || !strings.Contains(fourthRequest[len(fourthRequest)-1].TextContent(), "Do not answer with plain text") {
+		t.Fatalf("fourthRequest = %+v, want escalated no-progress reminder", fourthRequest)
+	}
+	if got := waitForEventType(t, events, CompletionGateEvaluated{}); got.Status != CompletionGatePassed {
+		t.Fatalf("CompletionGateEvaluated = %+v, want passed", got)
+	}
+}
+
 func TestTurnRunnerPreflightCompactsAndRefreshesSnapshot(t *testing.T) {
 	original := []Message{{Role: UserRole, Content: strings.Repeat("x ", 4000)}}
 	compacted := []Message{{Role: UserRole, Content: "summary"}}

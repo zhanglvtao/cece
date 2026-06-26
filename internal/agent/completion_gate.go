@@ -204,7 +204,21 @@ func buildCompletionGateReminder(reasons []string) string {
 		b.WriteString(reason)
 		b.WriteByte('\n')
 	}
-	b.WriteString("Continue the task. Either perform the missing work and update TaskClosure, or mark it blocked with a concrete reason.\n")
+	b.WriteString("Continue the task. Either perform the missing work, update Todo/plan state, or call UpdateTaskClosure to finish explicitly. If the task should stop, use blocked or not_needed with a concrete reason instead of plain text.\n")
+	b.WriteString("</system-reminder>")
+	return b.String()
+}
+
+func buildCompletionGateNoProgressReminder(reasons []string) string {
+	var b strings.Builder
+	b.WriteString("<system-reminder>\n")
+	b.WriteString("Completion gate is still blocked and no progress was made:\n")
+	for _, reason := range reasons {
+		b.WriteString("- ")
+		b.WriteString(reason)
+		b.WriteByte('\n')
+	}
+	b.WriteString("Do not answer with plain text. You must take a state-changing action now: call UpdateTaskClosure, Todo, AskUserQuestion, or ExitPlanMode. If the task cannot continue, call UpdateTaskClosure with blocked or not_needed and a concrete reason.\n")
 	b.WriteString("</system-reminder>")
 	return b.String()
 }

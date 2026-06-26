@@ -79,6 +79,9 @@ func TestCompletionGateBlockedChecksFeedReminder(t *testing.T) {
 	if !strings.Contains(result.Reminder, closure.Details[0]) {
 		t.Fatalf("reminder %q missing detail %q", result.Reminder, closure.Details[0])
 	}
+	if !strings.Contains(result.Reminder, "UpdateTaskClosure") || !strings.Contains(result.Reminder, "blocked") || !strings.Contains(result.Reminder, "not_needed") {
+		t.Fatalf("reminder %q missing self-termination guidance", result.Reminder)
+	}
 }
 func TestCompletionGateBlocksPendingTodo(t *testing.T) {
 	gate := NewCompletionGate()
@@ -177,5 +180,15 @@ func TestCompletionGatePassesBlockedClosureWithReason(t *testing.T) {
 
 	if !result.Pass {
 		t.Fatalf("gate blocked, want pass: %q", result.Reminder)
+	}
+}
+
+func TestBuildCompletionGateNoProgressReminder(t *testing.T) {
+	reminder := buildCompletionGateNoProgressReminder([]string{"TodoGate: task \"x\" is still in_progress."})
+	if !strings.Contains(reminder, "Do not answer with plain text") {
+		t.Fatalf("reminder %q missing no-progress instruction", reminder)
+	}
+	if !strings.Contains(reminder, "UpdateTaskClosure") || !strings.Contains(reminder, "Todo") || !strings.Contains(reminder, "ExitPlanMode") {
+		t.Fatalf("reminder %q missing required tool guidance", reminder)
 	}
 }
