@@ -41,14 +41,20 @@ def cmd_list(args):
 def cmd_run(args):
     adapter = get_adapter(args.benchmark)
     config = _load_config_for_benchmark(args.benchmark, args.config)
-    config["model"] = args.model
+    # Only an explicit --model overrides the config-resolved model. The benchmark
+    # config (benchmarks/configs/<benchmark>.json) is otherwise authoritative.
+    if args.model:
+        config["model"] = args.model
+        if isinstance(config.get("provider"), dict):
+            config["provider"]["model"] = args.model
+    model = config.get("model", "unknown")
 
     output_dir = args.output_dir or default_output_dir()
-    run_id = args.run_id or default_run_id(args.model)
+    run_id = args.run_id or default_run_id(model)
     store = ResultStore(output_dir, args.benchmark, run_id)
 
     print(f"Benchmark: {args.benchmark}")
-    print(f"Model: {args.model}")
+    print(f"Model: {model}")
     print(f"Dataset: {args.dataset}  Split: {args.split}")
     print(f"Output: {output_dir}/{args.benchmark}/{run_id}")
     print(f"Concurrency: {args.concurrency}  Timeout: {args.timeout}s")
@@ -396,7 +402,7 @@ def main():
     p_run.add_argument("benchmark", choices=BENCHMARK_LIST)
     p_run.add_argument("--dataset", default="princeton-nlp/SWE-bench_Lite")
     p_run.add_argument("--split", default="test")
-    p_run.add_argument("--model", default="deepseek-v4-pro")
+    p_run.add_argument("--model", default=None)
     p_run.add_argument("--config", default=None, help="Path to settings.json (default: benchmarks/configs/<benchmark>.json)")
     p_run.add_argument("--cece-bin", default=None, help="Path to cece Linux binary (default: ./bin/cece-linux-<host-arch>, auto-built if missing)")
     p_run.add_argument("--concurrency", type=int, default=4, help="Number of benchmark cases to run in parallel")
