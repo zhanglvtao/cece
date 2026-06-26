@@ -474,6 +474,21 @@ type TodoUpdatedEvent struct {
 
 func (TodoUpdatedEvent) isEvent() {}
 
+type AgentBusEvent struct {
+	MessageID       string         `json:"message_id"`
+	TraceID         string         `json:"trace_id,omitempty"`
+	CausationID     string         `json:"causation_id,omitempty"`
+	AgentID         string         `json:"agent_id"`
+	ParentSessionID string         `json:"parent_session_id,omitempty"`
+	SessionID       string         `json:"session_id,omitempty"`
+	Kind            string         `json:"kind"`
+	StatusFrom      string         `json:"status_from,omitempty"`
+	StatusTo        string         `json:"status_to,omitempty"`
+	Payload         map[string]any `json:"payload,omitempty"`
+}
+
+func (AgentBusEvent) isEvent() {}
+
 // SubAgentStartedEvent is emitted when a sub-agent begins executing.
 type SubAgentStartedEvent struct {
 	ID              string

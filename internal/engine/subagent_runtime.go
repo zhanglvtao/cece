@@ -67,6 +67,36 @@ type AgentRuntimeSnapshot struct {
 	FinishedAt        time.Time   `json:"finished_at,omitempty"`
 }
 
+type AgentCommandKind string
+
+type AgentEventPriority string
+
+const (
+	AgentCommandSendInput      AgentCommandKind = "send_input"
+	AgentCommandAnswerQuestion AgentCommandKind = "answer_question"
+	AgentCommandConfirmPending AgentCommandKind = "confirm_pending"
+	AgentCommandRejectPending  AgentCommandKind = "reject_pending"
+	AgentCommandCancel         AgentCommandKind = "cancel"
+	AgentCommandSwitchModel    AgentCommandKind = "switch_model"
+)
+
+const (
+	AgentEventPriorityBestEffort AgentEventPriority = "best_effort"
+	AgentEventPriorityCritical   AgentEventPriority = "critical"
+)
+
+type AgentCommand struct {
+	Kind    AgentCommandKind
+	Input   string
+	Answers []protocol.QuestionAnswer
+	Model   string
+}
+
+type AgentEvent struct {
+	Message  AgentMessage
+	Priority AgentEventPriority
+}
+
 type AgentRuntime struct {
 	ID              string
 	Description     string
@@ -90,15 +120,18 @@ type AgentRuntime struct {
 	LastActivity      string
 	LastTool          string
 	LastMessage       string
-	lastMessage     AgentMessage
-	msgBuf          strings.Builder
-	finalResult     string // full final assistant text, captured at TurnCompleted
-	StartedAt       time.Time
-	UpdatedAt       time.Time
-	FinishedAt      time.Time
-	Result          tool.AgentSubAgentResult
-	updates         chan AgentMessage
-	cancelOnce      sync.Once
+	lastMessage       AgentMessage
+	msgBuf            strings.Builder
+	finalResult       string // full final assistant text, captured at TurnCompleted
+	StartedAt         time.Time
+	UpdatedAt         time.Time
+	FinishedAt        time.Time
+	Result            tool.AgentSubAgentResult
+	updates           chan AgentMessage
+	inbox             chan AgentCommand
+	outboxCritical    chan AgentEvent
+	outboxBestEffort  chan AgentEvent
+	cancelOnce        sync.Once
 }
 
 func NewAgentRuntime(id, description, model, parentSessionID string, eng *Engine, mediator *EngineMediator, ctx context.Context, cancel context.CancelFunc, maxTurns int) *AgentRuntime {
@@ -114,9 +147,12 @@ func NewAgentRuntime(id, description, model, parentSessionID string, eng *Engine
 		MaxTurns:        maxTurns,
 		Status:          AgentStatusStarting,
 		Model:           model,
-		StartedAt:       now,
-		UpdatedAt:       now,
-		updates:         make(chan AgentMessage, 32),
+		StartedAt:        now,
+		UpdatedAt:        now,
+		updates:          make(chan AgentMessage, 32),
+		inbox:            make(chan AgentCommand, 32),
+		outboxCritical:   make(chan AgentEvent, 32),
+		outboxBestEffort: make(chan AgentEvent, 64),
 	}
 }
 
@@ -134,6 +170,71 @@ func (rt *AgentRuntime) Cancel() {
 		}
 		rt.record(AgentMessage{Kind: AgentMessageError, Status: AgentStatusCancelled, Payload: map[string]any{"cancelled": true}})
 	})
+}
+
+func (rt *AgentRuntime) StartMailboxLoop() {
+	go func() {
+		for {
+			select {
+			case <-rt.Context.Done():
+				return
+			case cmd := <-rt.inbox:
+				rt.handleCommand(cmd)
+			}
+		}
+	}()
+}
+
+func (rt *AgentRuntime) EnqueueCommand(ctx context.Context, cmd AgentCommand) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-rt.Context.Done():
+		return rt.Context.Err()
+	case rt.inbox <- cmd:
+		return nil
+	}
+}
+
+func (rt *AgentRuntime) NextEvent(ctx context.Context) (AgentEvent, bool) {
+	select {
+	case <-ctx.Done():
+		return AgentEvent{}, false
+	case ev := <-rt.outboxCritical:
+		return ev, true
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return AgentEvent{}, false
+	case ev := <-rt.outboxCritical:
+		return ev, true
+	case ev := <-rt.outboxBestEffort:
+		return ev, true
+	}
+}
+
+func (rt *AgentRuntime) handleCommand(cmd AgentCommand) {
+	switch cmd.Kind {
+	case AgentCommandSendInput:
+		if strings.TrimSpace(cmd.Input) != "" {
+			rt.Engine.QueueInput(cmd.Input)
+		}
+	case AgentCommandAnswerQuestion:
+		rt.Engine.AnswerQuestion(cmd.Answers)
+	case AgentCommandConfirmPending:
+		rt.Engine.Confirm()
+	case AgentCommandRejectPending:
+		rt.Engine.RejectToolCalls()
+		rt.Engine.RejectPlan()
+		rt.Engine.RejectQuestion()
+	case AgentCommandCancel:
+		rt.Cancel()
+	case AgentCommandSwitchModel:
+		if rt.Mediator != nil && strings.TrimSpace(cmd.Model) != "" {
+			rt.Mediator.Do(protocol.SwitchModelAction{Model: cmd.Model})
+		}
+	}
 }
 
 func (rt *AgentRuntime) Snapshot() AgentRuntimeSnapshot {
@@ -238,6 +339,7 @@ func (rt *AgentRuntime) record(msg AgentMessage) {
 	}
 
 	rt.mu.Lock()
+	prevStatus := rt.Status
 	if msg.Status != "" {
 		rt.Status = msg.Status
 	}
@@ -250,6 +352,35 @@ func (rt *AgentRuntime) record(msg AgentMessage) {
 
 	select {
 	case rt.updates <- msg:
+	default:
+	}
+
+	rt.publishEvent(msg, prevStatus)
+}
+
+func (rt *AgentRuntime) publishEvent(msg AgentMessage, prevStatus AgentStatus) {
+	ev := AgentEvent{Message: msg, Priority: AgentEventPriorityBestEffort}
+	switch msg.Status {
+	case AgentStatusWaitingInput, AgentStatusWaitingConfirm, AgentStatusWaitingPlan, AgentStatusCompleted, AgentStatusFailed, AgentStatusCancelled:
+		ev.Priority = AgentEventPriorityCritical
+	}
+	if ev.Priority == AgentEventPriorityCritical {
+		select {
+		case <-rt.Context.Done():
+			return
+		case rt.outboxCritical <- ev:
+		}
+		return
+	}
+	if prevStatus == msg.Status && msg.Kind == AgentMessageProgress {
+		select {
+		case rt.outboxBestEffort <- ev:
+		default:
+		}
+		return
+	}
+	select {
+	case rt.outboxBestEffort <- ev:
 	default:
 	}
 }

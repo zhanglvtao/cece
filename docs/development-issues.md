@@ -72,8 +72,8 @@
 - 结论：新增 aiden `glm-5.1` 的 env-gated record 测试，`CECE_RECORD_LLM=1` 时才录制 cassette，并立即 replay 验证 cassette 可用。
 
 ## SWE-bench patch 采集不能混入 harness 注入文件
-- 现象：SWE-bench runner 在容器里注入 `SYSTEM.md` 和 `issue.md` 后，`get_patch()` 执行 `git add -A` 只 reset 了 `.cece/`，导致输出预测 patch 包含 prompt artifact，不是纯源码修复。
-- 定位：`swebench/docker.py` 的 patch 边界应该只包含 agent 对仓库源码的修改；评测 harness 写入的控制文件必须在 cached diff 前排除。
+- 现象：统一 benchmark SWE-bench 流程在容器里注入 `SYSTEM.md` 和 `issue.md` 后，patch 采集执行 `git add -A` 只 reset 了 `.cece/`，导致输出预测 patch 包含 prompt artifact，不是纯源码修复。
+- 定位：`benchmarks/adapters/swebench.py` 的 patch 边界应该只包含 agent 对仓库源码的修改；评测 harness 写入的控制文件必须在 cached diff 前排除。
 - 结论：生成 patch 时同时 reset `.cece/`、`SYSTEM.md`、`issue.md`；后续新增任何 harness 注入文件，都必须加入同一排除边界，否则会污染 SWE-bench prediction。
 
 ## SWE-bench auto-accept 会绕过 plan reminder
@@ -150,3 +150,8 @@
 - 现象：Aiden Responses API 返回 `400 Bad Request: No tool call found for function call output with call_id ...`。
 - 定位：`internal/aiden/responses_serialize.go` 会把 `tool_result` 无条件序列化成 `function_call_output`；但请求快照此前只会补“缺失的 tool_result”，不会删除“没有对应 assistant tool_use 的 tool_result”。compact boundary / 旧 session 恢复后，坏历史会把孤儿 `tool_result` 带进请求。
 - 结论：要在 provider 序列化前统一做请求历史归一化：先删孤儿 `tool_result`，再跑 `EnsureToolResultCoverage/ValidateToolResultCoverage`。这种修法比在 Aiden serializer 里特判更稳，也能修复旧 session。
+
+## Agent mailbox 语义不能直接等同于 channel
+- 现象：在把 Agent 通信模型收敛成 inbox/outbox 时，最容易偷懒的实现是“两个 channel 就完了”；但一旦遇到 progress 高频事件、pending/completed 关键事件、cancel 抢占，就会立刻暴露背压和优先级问题。
+- 定位：真正稳定的边界不是 `chan`，而是 mailbox 语义：`AgentCommand` 必须可靠入箱；`AgentEvent` 必须区分关键事件和 best-effort 事件；调度器只消费 supervision-level 事件，不应该被 tool delta / provider delta 淹没。
+- 结论：mailbox 应先定义投递策略，再选择并发原语。关键事件必须阻塞入箱，非关键事件允许丢弃或降采样；`channel` 只能作为一种实现细节，不能成为架构语义本身。

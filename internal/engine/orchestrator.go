@@ -123,7 +123,9 @@ func (o *Orchestrator) start(ctx context.Context, parent *Engine, cfg tool.Agent
 
 	if o.emit != nil {
 		o.emit(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description, ParentSessionID: parentSessionID})
+		o.emit(protocol.AgentBusEvent{MessageID: fmt.Sprintf("%s-start", agentID), TraceID: agentID, AgentID: agentID, ParentSessionID: parentSessionID, Kind: "started", StatusTo: string(AgentStatusStarting), Payload: map[string]any{"description": cfg.Description}})
 	}
+	rt.StartMailboxLoop()
 	go o.bridgeRuntime(parent, rt, parentSessionID)
 
 	if err := rt.Engine.Input(rt.Context, cfg.Prompt); err != nil {
@@ -225,7 +227,9 @@ func (o *Orchestrator) send(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentRes
 	if cfg.Input == "" {
 		return tool.AgentSubAgentResult{Content: "input is required for send operation", Err: "missing_input"}, nil
 	}
-	rt.Engine.QueueInput(cfg.Input)
+	if err := rt.EnqueueCommand(context.Background(), AgentCommand{Kind: AgentCommandSendInput, Input: cfg.Input}); err != nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to queue input for agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
+	}
 	snap := rt.Snapshot()
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("input queued for agent %s", rt.ID)}, nil
 }
@@ -242,7 +246,9 @@ func (o *Orchestrator) answer(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentR
 	for i, a := range cfg.Answers {
 		answers[i] = protocol.QuestionAnswer{Question: a.Question, Selected: a.Selected, Custom: a.Custom}
 	}
-	rt.Engine.AnswerQuestion(answers)
+	if err := rt.EnqueueCommand(context.Background(), AgentCommand{Kind: AgentCommandAnswerQuestion, Answers: answers}); err != nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to submit answers to agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
+	}
 	snap := rt.Snapshot()
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("answers submitted to agent %s", rt.ID)}, nil
 }
@@ -255,7 +261,9 @@ func (o *Orchestrator) confirm(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgent
 	if res, done := finishedAgentResult(rt); done {
 		return res, nil
 	}
-	rt.Engine.Confirm()
+	if err := rt.EnqueueCommand(context.Background(), AgentCommand{Kind: AgentCommandConfirmPending}); err != nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to confirm agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
+	}
 	snap := rt.Snapshot()
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("confirmation sent to agent %s", rt.ID)}, nil
 }
@@ -268,9 +276,9 @@ func (o *Orchestrator) reject(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentR
 	if res, done := finishedAgentResult(rt); done {
 		return res, nil
 	}
-	rt.Engine.RejectToolCalls()
-	rt.Engine.RejectPlan()
-	rt.Engine.RejectQuestion()
+	if err := rt.EnqueueCommand(context.Background(), AgentCommand{Kind: AgentCommandRejectPending}); err != nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to reject pending request for agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
+	}
 	snap := rt.Snapshot()
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("rejection sent to agent %s", rt.ID)}, nil
 }
@@ -283,7 +291,9 @@ func (o *Orchestrator) cancel(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentR
 	if res, done := finishedAgentResult(rt); done {
 		return res, nil
 	}
-	rt.Cancel()
+	if err := rt.EnqueueCommand(context.Background(), AgentCommand{Kind: AgentCommandCancel}); err != nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to cancel agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
+	}
 	snap := rt.Snapshot()
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("agent %s cancelled", rt.ID), Cancelled: true}, nil
 }
@@ -302,7 +312,9 @@ func (o *Orchestrator) switchModel(cfg tool.AgentSubAgentConfig) (tool.AgentSubA
 	if rt.Mediator == nil {
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("agent %s has no mediator (switch_model not available)", rt.ID), Err: "no_mediator"}, nil
 	}
-	rt.Mediator.Do(protocol.SwitchModelAction{Model: cfg.Model})
+	if err := rt.EnqueueCommand(context.Background(), AgentCommand{Kind: AgentCommandSwitchModel, Model: cfg.Model}); err != nil {
+		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to switch model for agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
+	}
 	snap := rt.Snapshot()
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("agent %s switched to model %s", rt.ID, cfg.Model)}, nil
 }
@@ -324,6 +336,8 @@ func (o *Orchestrator) bridgeRuntime(parent *Engine, rt *AgentRuntime, parentSes
 				continue
 			}
 			rt.record(msg)
+		case agentEv := <-rt.outboxCritical:
+			msg := agentEv.Message
 
 			pending := PendingState{}
 			switch msg.Status {
@@ -349,7 +363,7 @@ func (o *Orchestrator) bridgeRuntime(parent *Engine, rt *AgentRuntime, parentSes
 				parent.appendAgentNotification(agentNotification{AgentID: rt.ID, Status: msg.Status, Summary: pending.Summary, Pending: pending.Kind})
 			}
 
-			if _, ok := ev.(protocol.SessionCreated); ok {
+			if msg.Kind == AgentMessageProgress && rt.SessionID != "" {
 				updateSubAgentRelation(context.Background(), o.store, rt.SessionID, parentSessionID, rt.ID)
 			}
 
@@ -374,6 +388,7 @@ func (o *Orchestrator) bridgeRuntime(parent *Engine, rt *AgentRuntime, parentSes
 				}
 			}
 			if o.emit != nil {
+				o.emit(protocol.AgentBusEvent{MessageID: msg.ID, TraceID: rt.ID, AgentID: rt.ID, ParentSessionID: parentSessionID, SessionID: snap.SessionID, Kind: string(msg.Kind), StatusTo: string(msg.Status), Payload: map[string]any{"activity": activity}})
 				o.emit(protocol.SubAgentActivityEvent{
 					ID:               rt.ID,
 					SessionID:        snap.SessionID,

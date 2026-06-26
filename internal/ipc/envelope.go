@@ -110,6 +110,7 @@ var eventKinds = map[string]func() protocol.Event{
 	"mcp_servers_listed":         func() protocol.Event { return &protocol.MCPServersListedEvent{} },
 	"mcp_server_status_changed":  func() protocol.Event { return &protocol.MCPServerStatusChangedEvent{} },
 	"task_updated":               func() protocol.Event { return &protocol.TodoUpdatedEvent{} },
+	"agent_bus":                  func() protocol.Event { return &protocol.AgentBusEvent{} },
 	"subagent_started":           func() protocol.Event { return &protocol.SubAgentStartedEvent{} },
 	"subagent_activity":          func() protocol.Event { return &protocol.SubAgentActivityEvent{} },
 	"subagent_completed":         func() protocol.Event { return &protocol.SubAgentCompletedEvent{} },
