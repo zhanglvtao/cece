@@ -7,6 +7,79 @@ import (
 	"github.com/zhanglvtao/cece/internal/tool"
 )
 
+func TestCompletionGateReportsStructuredChecks(t *testing.T) {
+	gate := NewCompletionGate()
+	result := gate.Evaluate(CompletionGateContext{
+		RequiresClosure: true,
+		Closure: tool.TaskClosureSnapshot{
+			Updated:                    true,
+			NeedsCodeChange:            tool.ClosureDecisionYes,
+			CodeChangeStatus:           tool.ClosureCodeChanged,
+			CodeChangeReason:           "changed code",
+			CodeChangeToolResultRefs:   []string{"call_edit"},
+			NeedsVerification:          tool.ClosureDecisionYes,
+			VerificationStatus:         tool.ClosureVerificationPassed,
+			VerificationReason:         "tests passed",
+			VerificationToolResultRefs: []string{"call_test"},
+		},
+		Evidence: []ClosureEvidence{
+			{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true},
+			{ToolUseID: "call_test", Kind: ClosureEvidenceVerification, ToolName: "Bash", OK: true},
+		},
+	})
+
+	if !result.Pass {
+		t.Fatalf("gate blocked, want pass: %q", result.Reminder)
+	}
+	if len(result.Checks) != 3 {
+		t.Fatalf("checks len = %d, want 3", len(result.Checks))
+	}
+	if result.Checks[0].Name != "PlanModeGate" || result.Checks[0].Status != CompletionGatePassed {
+		t.Fatalf("plan check = %+v", result.Checks[0])
+	}
+	if result.Checks[1].Name != "TodoGate" || result.Checks[1].Status != CompletionGatePassed {
+		t.Fatalf("todo check = %+v", result.Checks[1])
+	}
+	if result.Checks[2].Name != "TaskClosureGate" || result.Checks[2].Status != CompletionGatePassed {
+		t.Fatalf("closure check = %+v", result.Checks[2])
+	}
+}
+
+func TestCompletionGateSkipsTaskClosureWhenNotRequired(t *testing.T) {
+	gate := NewCompletionGate()
+	result := gate.Evaluate(CompletionGateContext{})
+	if !result.Pass {
+		t.Fatalf("gate blocked, want pass: %q", result.Reminder)
+	}
+	if len(result.Checks) != 3 {
+		t.Fatalf("checks len = %d, want 3", len(result.Checks))
+	}
+	closure := result.Checks[2]
+	if closure.Name != "TaskClosureGate" || closure.Status != CompletionGateSkipped || closure.Summary != "not required" {
+		t.Fatalf("closure check = %+v", closure)
+	}
+}
+
+func TestCompletionGateBlockedChecksFeedReminder(t *testing.T) {
+	gate := NewCompletionGate()
+	result := gate.Evaluate(CompletionGateContext{
+		RequiresClosure: true,
+		Closure:         tool.TaskClosureSnapshot{},
+	})
+	if result.Pass {
+		t.Fatal("gate passed, want blocked")
+	}
+	if len(result.Checks) != 3 {
+		t.Fatalf("checks len = %d, want 3", len(result.Checks))
+	}
+	closure := result.Checks[2]
+	if closure.Status != CompletionGateBlocked || len(closure.Details) == 0 {
+		t.Fatalf("closure check = %+v", closure)
+	}
+	if !strings.Contains(result.Reminder, closure.Details[0]) {
+		t.Fatalf("reminder %q missing detail %q", result.Reminder, closure.Details[0])
+	}
+}
 func TestCompletionGateBlocksPendingTodo(t *testing.T) {
 	gate := NewCompletionGate()
 	result := gate.Evaluate(CompletionGateContext{

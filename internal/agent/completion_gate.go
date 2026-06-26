@@ -32,8 +32,24 @@ type CompletionGateContext struct {
 	Evidence        []ClosureEvidence
 }
 
+type CompletionGateStatus string
+
+const (
+	CompletionGatePassed  CompletionGateStatus = "passed"
+	CompletionGateBlocked CompletionGateStatus = "blocked"
+	CompletionGateSkipped CompletionGateStatus = "skipped"
+)
+
+type CompletionGateCheck struct {
+	Name    string
+	Status  CompletionGateStatus
+	Summary string
+	Details []string
+}
+
 type CompletionGateResult struct {
 	Pass     bool
+	Checks   []CompletionGateCheck
 	Reasons  []string
 	Reminder string
 }
@@ -43,22 +59,77 @@ type CompletionGate struct{}
 func NewCompletionGate() *CompletionGate { return &CompletionGate{} }
 
 func (g *CompletionGate) Evaluate(ctx CompletionGateContext) CompletionGateResult {
-	var reasons []string
-	if ctx.PlanMode {
-		reasons = append(reasons, "PlanModeGate: plan mode is still active; end with AskUserQuestion or ExitPlanMode instead of plain text.")
+	checks := []CompletionGateCheck{
+		evaluatePlanModeGate(ctx),
+		evaluateTodoGate(ctx),
+		evaluateTaskClosureGate(ctx),
 	}
-	for _, item := range ctx.TaskList {
-		if item.Status == tool.TodoPending || item.Status == tool.TodoInProgress {
-			reasons = append(reasons, fmt.Sprintf("TodoGate: task %q is still %s.", item.Content, item.Status))
+	var reasons []string
+	for _, check := range checks {
+		if check.Status != CompletionGateBlocked {
+			continue
+		}
+		if len(check.Details) == 0 {
+			reasons = append(reasons, check.Name+": "+check.Summary)
+			continue
+		}
+		for _, detail := range check.Details {
+			reasons = append(reasons, check.Name+": "+detail)
 		}
 	}
-	if ctx.RequiresClosure {
-		reasons = append(reasons, evaluateTaskClosure(ctx.Closure, ctx.Evidence)...)
-	}
 	if len(reasons) == 0 {
-		return CompletionGateResult{Pass: true}
+		return CompletionGateResult{Pass: true, Checks: checks}
 	}
-	return CompletionGateResult{Pass: false, Reasons: reasons, Reminder: buildCompletionGateReminder(reasons)}
+	return CompletionGateResult{Pass: false, Checks: checks, Reasons: reasons, Reminder: buildCompletionGateReminder(reasons)}
+}
+
+func evaluatePlanModeGate(ctx CompletionGateContext) CompletionGateCheck {
+	if ctx.PlanMode {
+		return CompletionGateCheck{Name: "PlanModeGate", Status: CompletionGateBlocked, Summary: "plan mode active", Details: []string{"plan mode is still active; end with AskUserQuestion or ExitPlanMode instead of plain text."}}
+	}
+	return CompletionGateCheck{Name: "PlanModeGate", Status: CompletionGatePassed, Summary: "default mode"}
+}
+
+func evaluateTodoGate(ctx CompletionGateContext) CompletionGateCheck {
+	pending := 0
+	inProgress := 0
+	var details []string
+	for _, item := range ctx.TaskList {
+		switch item.Status {
+		case tool.TodoPending:
+			pending++
+			details = append(details, fmt.Sprintf("task %q is still pending.", item.Content))
+		case tool.TodoInProgress:
+			inProgress++
+			details = append(details, fmt.Sprintf("task %q is still in_progress.", item.Content))
+		}
+	}
+	if pending == 0 && inProgress == 0 {
+		return CompletionGateCheck{Name: "TodoGate", Status: CompletionGatePassed, Summary: "all done"}
+	}
+	summaryParts := []string{}
+	if inProgress > 0 {
+		summaryParts = append(summaryParts, fmt.Sprintf("%d in_progress", inProgress))
+	}
+	if pending > 0 {
+		summaryParts = append(summaryParts, fmt.Sprintf("%d pending", pending))
+	}
+	return CompletionGateCheck{Name: "TodoGate", Status: CompletionGateBlocked, Summary: strings.Join(summaryParts, ", "), Details: details}
+}
+
+func evaluateTaskClosureGate(ctx CompletionGateContext) CompletionGateCheck {
+	if !ctx.RequiresClosure {
+		return CompletionGateCheck{Name: "TaskClosureGate", Status: CompletionGateSkipped, Summary: "not required"}
+	}
+	reasons := evaluateTaskClosure(ctx.Closure, ctx.Evidence)
+	if len(reasons) == 0 {
+		return CompletionGateCheck{Name: "TaskClosureGate", Status: CompletionGatePassed, Summary: "closure valid"}
+	}
+	details := make([]string, len(reasons))
+	for i, reason := range reasons {
+		details[i] = strings.TrimPrefix(reason, "TaskClosureGate: ")
+	}
+	return CompletionGateCheck{Name: "TaskClosureGate", Status: CompletionGateBlocked, Summary: details[0], Details: details}
 }
 
 func evaluateTaskClosure(closure tool.TaskClosureSnapshot, evidence []ClosureEvidence) []string {

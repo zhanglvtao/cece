@@ -1,0 +1,55 @@
+package ui
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/zhanglvtao/cece/internal/protocol"
+)
+
+func TestTranscriptRendersCompletionGateSummary(t *testing.T) {
+	tr := newTranscript()
+	tr.apply(protocol.CompletionGateEvaluated{
+		Attempt:     1,
+		MaxAttempts: 3,
+		Status:      protocol.CompletionGateBlocked,
+		Next:        "continue",
+		Checks: []protocol.CompletionGateCheck{
+			{Name: "PlanModeGate", Status: protocol.CompletionGatePassed},
+			{Name: "TodoGate", Status: protocol.CompletionGatePassed},
+			{Name: "TaskClosureGate", Status: protocol.CompletionGateBlocked, Details: []string{"missing UpdateTaskClosure"}},
+		},
+	})
+
+	plain := stripAnsi(tr.render(100, DefaultStyles()))
+	if !strings.Contains(plain, "Completion gate") || !strings.Contains(plain, "hook 1/3") || !strings.Contains(plain, "TaskClosure ✗") || !strings.Contains(plain, "→ continue") {
+		t.Fatalf("rendered gate summary missing expected parts:\n%s", plain)
+	}
+	if !strings.Contains(plain, "TaskClosureGate: missing UpdateTaskClosure") {
+		t.Fatalf("rendered gate details missing:\n%s", plain)
+	}
+}
+
+func TestTranscriptLimitsCompletionGateDetails(t *testing.T) {
+	tr := newTranscript()
+	tr.apply(protocol.CompletionGateEvaluated{
+		Attempt:     2,
+		MaxAttempts: 3,
+		Status:      protocol.CompletionGateBlocked,
+		Next:        "continue",
+		Checks: []protocol.CompletionGateCheck{
+			{Name: "PlanModeGate", Status: protocol.CompletionGateBlocked, Details: []string{"plan still active", "ask or exit"}},
+			{Name: "TodoGate", Status: protocol.CompletionGateBlocked, Details: []string{"todo pending"}},
+			{Name: "TaskClosureGate", Status: protocol.CompletionGateBlocked, Details: []string{"closure missing", "verification missing"}},
+		},
+	})
+
+	plain := stripAnsi(tr.render(100, DefaultStyles()))
+	lines := strings.Split(strings.TrimSpace(plain), "\n")
+	if len(lines) > 5 {
+		t.Fatalf("completion gate rendered %d lines, want <= 5:\n%s", len(lines), plain)
+	}
+	if strings.Contains(plain, "verification missing") {
+		t.Fatalf("details were not capped:\n%s", plain)
+	}
+}

@@ -86,6 +86,11 @@
 - 定位：`AssistantCompleted` 只是“assistant 本次响应完成”，不是“用户任务完成”。仅靠 prompt 里的“不要半途而废”无法形成运行时约束，尤其还和短输出风格存在张力。
 - 结论：在 `AssistantCompleted` 前增加内置 `CompletionGate`：PlanModeGate、TodoGate、TaskClosureGate。实现类任务必须通过 `UpdateTaskClosure` 声明闭环状态，并引用本轮 `tool_result.ToolUseID` 作为代码变更/验证证据；runtime 校验 ref、kind、ok，而不是相信自然语言。
 
+## CompletionGate hook 不能只注入 reminder
+- 现象：`BeforeAssistantCompleted` 拦截了半途结束，但 TUI 只能看到后续 system reminder / completion_gate request，看不到 hook 何时触发、哪些 gate 通过或阻塞。
+- 定位：闭环校验属于 runtime 控制流，若只写进模型上下文，对用户和调试者不可观测；一旦 max retry 放行或又触发其他事件，就很难判断是 gate 通过、阻塞还是兜底跳过。
+- 结论：CompletionGate 需要结构化 `CompletionGateEvaluated` 事件，并在 transcript 中用短块显示 hook attempt、gate 状态、details 和 next action；观测事件不能依赖自然语言 reminder 反推。
+
 ## Prompt 分层不能只补 plan reminder
 - 现象：`astropy__astropy-7746` 改为 plan mode 后仍只修了一半，说明 runtime planning shell 本身不足以保证模型覆盖所有失败输入形态。
 - 定位：完整 prompt 行为需要 Stable 的 completion/verification/failure-diagnosis contract、Turn 的 task-aware reminder、Plan reminder 的收敛标准协同；只强化任一层都会留下 half-fix 风险。

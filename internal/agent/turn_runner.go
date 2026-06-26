@@ -198,7 +198,9 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				continue
 			}
 			if gateFailures < maxCompletionGateFailures {
-				if gateResult := r.evaluateCompletionGate(requiresClosure); !gateResult.Pass {
+				gateResult := r.evaluateCompletionGate(requiresClosure)
+				events <- CompletionGateEvaluated{Attempt: gateFailures + 1, MaxAttempts: maxCompletionGateFailures, Status: completionGateStatus(gateResult), RequiresClosure: requiresClosure, Checks: gateResult.Checks, Next: completionGateNext(gateResult)}
+				if !gateResult.Pass {
 					gateFailures++
 					reminder := Message{Role: UserRole, Content: gateResult.Reminder}
 					r.deps.AppendMessage(reminder)
@@ -208,6 +210,9 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 					toolResultNames = nil
 					continue
 				}
+			} else {
+				gateResult := r.evaluateCompletionGate(requiresClosure)
+				events <- CompletionGateEvaluated{Attempt: maxCompletionGateFailures, MaxAttempts: maxCompletionGateFailures, Status: CompletionGateSkipped, RequiresClosure: requiresClosure, Checks: gateResult.Checks, Next: "force_complete"}
 			}
 			r.tryAutoCompact(ctx)
 			events <- AssistantCompleted{Duration: time.Since(turnStart)}
@@ -351,11 +356,26 @@ func (r *TurnRunner) refreshedHistorySnapshot(current []Message) ([]Message, boo
 
 func (r *TurnRunner) evaluateCompletionGate(requiresClosure bool) CompletionGateResult {
 	if r.deps.CompletionGateContext == nil {
-		return CompletionGateResult{Pass: true}
+		ctx := CompletionGateContext{RequiresClosure: requiresClosure}
+		return NewCompletionGate().Evaluate(ctx)
 	}
 	ctx := r.deps.CompletionGateContext()
 	ctx.RequiresClosure = requiresClosure
 	return NewCompletionGate().Evaluate(ctx)
+}
+
+func completionGateStatus(result CompletionGateResult) CompletionGateStatus {
+	if result.Pass {
+		return CompletionGatePassed
+	}
+	return CompletionGateBlocked
+}
+
+func completionGateNext(result CompletionGateResult) string {
+	if result.Pass {
+		return "complete"
+	}
+	return "continue"
 }
 
 func (r *TurnRunner) tryAutoCompact(ctx context.Context) bool {

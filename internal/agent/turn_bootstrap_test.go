@@ -286,6 +286,12 @@ func TestTurnRunnerCompletionGateBlocksAndContinues(t *testing.T) {
 	events := make(chan Event, 32)
 	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "fix bug"}}}, events)
 
+	if got := waitForEventType(t, events, CompletionGateEvaluated{}); got.Status != CompletionGateBlocked || got.Next != "continue" {
+		t.Fatalf("CompletionGateEvaluated = %+v, want blocked continue", got)
+	}
+	if got := waitForEventType(t, events, ModelRequestStarted{}); got.Reason != "completion_gate" {
+		t.Fatalf("ModelRequestStarted.Reason = %q, want completion_gate", got.Reason)
+	}
 	if streamCalls != 2 {
 		t.Fatalf("streamCalls = %d, want 2", streamCalls)
 	}
@@ -323,6 +329,9 @@ func TestTurnRunnerCompletionGatePassesWithClosure(t *testing.T) {
 
 	if streamCalls != 1 {
 		t.Fatalf("streamCalls = %d, want 1", streamCalls)
+	}
+	if got := waitForEventType(t, events, CompletionGateEvaluated{}); got.Status != CompletionGatePassed || got.Next != "complete" {
+		t.Fatalf("CompletionGateEvaluated = %+v, want passed complete", got)
 	}
 	waitForEventType(t, events, AssistantCompleted{})
 }

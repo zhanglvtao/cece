@@ -70,6 +70,20 @@ func TestStoreEvidenceSummariesAreReadable(t *testing.T) {
 	if got := evidenceDetail(state, "ToolExecCompleted"); got != "patched main.go" {
 		t.Fatalf("ToolExecCompleted detail = %q", got)
 	}
+	store.Apply(protocol.CompletionGateEvaluated{
+		Attempt:     1,
+		MaxAttempts: 3,
+		Status:      protocol.CompletionGateBlocked,
+		Next:        "continue",
+		Checks:      []protocol.CompletionGateCheck{{Name: "TaskClosureGate", Status: protocol.CompletionGateBlocked}},
+	})
+	if got := evidenceText(state, "CompletionGateEvaluated"); got != "" {
+		t.Fatalf("test setup saw stale state evidence = %q", got)
+	}
+	state = store.State()
+	if got := evidenceText(state, "CompletionGateEvaluated"); !strings.Contains(got, "completion gate blocked") || !strings.Contains(got, "TaskClosureGate=blocked") {
+		t.Fatalf("CompletionGateEvaluated evidence = %q", got)
+	}
 }
 
 func TestServerSnapshotPostUpdatesTUIState(t *testing.T) {

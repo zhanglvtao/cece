@@ -427,6 +427,15 @@ func eventSummary(ev protocol.Event) string {
 		return ""
 	case protocol.AssistantCompleted:
 		return "assistant completed " + e.Duration.String()
+	case protocol.CompletionGateEvaluated:
+		parts := []string{"completion gate", string(e.Status)}
+		for _, check := range e.Checks {
+			parts = append(parts, check.Name+"="+string(check.Status))
+		}
+		if e.Next != "" {
+			parts = append(parts, "next="+e.Next)
+		}
+		return strings.Join(parts, " ")
 	case protocol.StreamCompleted:
 		parts := []string{"stream completed"}
 		if e.StopReason != "" {

@@ -23,6 +23,7 @@ const (
 	blockError     blockKind = "error"
 	blockPlan      blockKind = "plan"
 	blockInfo      blockKind = "info"
+	blockGate      blockKind = "gate"
 	blockView      blockKind = "view"
 )
 
@@ -283,6 +284,8 @@ func (t *transcript) apply(event protocol.Event) {
 			t.markDirty(t.currentAssistant)
 			t.streamingMD.Reset()
 		}
+	case protocol.CompletionGateEvaluated:
+		t.appendDone(blockGate, "completion gate", formatCompletionGateEvent(e))
 	case protocol.StreamCompleted:
 		if e.InputTokens > 0 {
 			t.inputTokens += e.InputTokens
@@ -768,6 +771,8 @@ func labelStyleForKind(kind blockKind, sty Styles) lipgloss.Style {
 		return sty.Chat.LabelPlan
 	case blockView:
 		return sty.Chat.LabelView
+	case blockGate:
+		return sty.Chat.LabelInfo
 	case blockInfo:
 		return sty.Chat.LabelInfo
 	default:
@@ -884,6 +889,70 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 		text = renderDiffText(text)
 	}
 	return renderLabel() + "\n" + indent(text, "  ")
+}
+
+func formatCompletionGateEvent(e protocol.CompletionGateEvaluated) string {
+	attempt := e.Attempt
+	if attempt <= 0 {
+		attempt = 1
+	}
+	maxAttempts := e.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = attempt
+	}
+	next := strings.ReplaceAll(e.Next, "_", " ")
+	if next == "" {
+		next = "complete"
+	}
+	parts := make([]string, 0, len(e.Checks))
+	for _, check := range e.Checks {
+		name := strings.TrimSuffix(check.Name, "Gate")
+		parts = append(parts, name+" "+completionGateMark(check.Status))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, string(e.Status))
+	}
+	lines := []string{fmt.Sprintf("hook %d/%d: %s → %s", attempt, maxAttempts, strings.Join(parts, " "), next)}
+	for _, check := range e.Checks {
+		if check.Status == protocol.CompletionGatePassed || check.Status == protocol.CompletionGateSkipped {
+			continue
+		}
+		if len(check.Details) == 0 && check.Summary != "" {
+			lines = append(lines, check.Name+": "+check.Summary)
+		} else {
+			for _, detail := range check.Details {
+				lines = append(lines, check.Name+": "+detail)
+				if len(lines) == 3 {
+					break
+				}
+			}
+		}
+		if len(lines) == 3 {
+			break
+		}
+	}
+	if e.Status == protocol.CompletionGateBlocked && len(lines) < 4 {
+		lines = append(lines, "next: injected reminder, continuing")
+	} else if e.Status == protocol.CompletionGateSkipped && len(lines) < 4 {
+		lines = append(lines, "max attempts reached; reporting partial closure")
+	}
+	if len(lines) > 4 {
+		lines = lines[:4]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func completionGateMark(status protocol.CompletionGateStatus) string {
+	switch status {
+	case protocol.CompletionGatePassed:
+		return "✓"
+	case protocol.CompletionGateBlocked:
+		return "✗"
+	case protocol.CompletionGateSkipped:
+		return "-"
+	default:
+		return "?"
+	}
 }
 
 func formatDryRun(e protocol.RequestDryRunEvent) string {
