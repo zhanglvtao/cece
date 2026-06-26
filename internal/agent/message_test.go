@@ -505,7 +505,13 @@ func TestTrimToolResultsInRangeUsesSafeContextRange(t *testing.T) {
 	messages := []Message{
 		{Role: UserRole, Content: "u0"},
 		{Role: AssistantRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolUseContentType, ToolUse: &ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
-		{Role: ToolRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{ToolUseID: "call_1", Content: "old"}}}},
+		{Role: ToolRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{
+			ToolUseID:     "call_1",
+			Content:       "old preview",
+			OutputPath:    ".cece/tool-results/read.txt",
+			OriginalBytes: 4096,
+			PreviewBytes:  512,
+		}}}},
 		{Role: UserRole, Content: "u1"},
 	}
 
@@ -514,7 +520,10 @@ func TestTrimToolResultsInRangeUsesSafeContextRange(t *testing.T) {
 		t.Fatalf("trimmed = %d, want 1", trimmed)
 	}
 	tr, _ := messages[2].ContentBlocks[0].AsToolResult()
-	if tr.Content != "[trimmed]" {
-		t.Fatalf("tool result content = %q, want [trimmed]", tr.Content)
+	if tr.Content != "[trimmed preview]\nFull output saved to: .cece/tool-results/read.txt" {
+		t.Fatalf("tool result content = %q, want artifact hint", tr.Content)
+	}
+	if tr.OutputPath != ".cece/tool-results/read.txt" || tr.OriginalBytes != 4096 || tr.PreviewBytes != 512 {
+		t.Fatalf("artifact metadata lost: %+v", tr)
 	}
 }

@@ -162,11 +162,14 @@ func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []ApiToolUseBlock
 		blocks[i] = ApiContentBlock{
 			Type: ApiToolResultContentType,
 			ToolResult: &ApiToolResultBlock{
-				ToolUseID:  call.ID,
-				Content:    result.Content,
-				IsError:    result.IsError,
-				Truncated:  result.Truncated,
-				TotalLines: totalLines,
+				ToolUseID:     call.ID,
+				Content:       result.Content,
+				IsError:       result.IsError,
+				Truncated:     result.Truncated,
+				TotalLines:    totalLines,
+				OutputPath:    result.OutputPath,
+				OriginalBytes: result.OriginalBytes,
+				PreviewBytes:  result.PreviewBytes,
 			},
 		}
 	}

@@ -42,7 +42,13 @@ func (truncatedTestTool) Info() tool.Definition {
 }
 
 func (truncatedTestTool) Run(ctx context.Context, input json.RawMessage, emitter tool.Emitter) tool.Result {
-	return tool.Result{Content: "preview", Truncated: true}
+	return tool.Result{
+		Content:       "preview",
+		Truncated:     true,
+		OutputPath:    ".cece/tool-results/truncated.txt",
+		OriginalBytes: 9000,
+		PreviewBytes:  2000,
+	}
 }
 
 func TestToolExecutorRecordsClosureEvidence(t *testing.T) {
@@ -80,8 +86,12 @@ func TestToolExecutorPropagatesTruncatedMetadata(t *testing.T) {
 	if len(blocks) != 1 || blocks[0].ToolResult == nil {
 		t.Fatalf("blocks = %#v, want one tool result", blocks)
 	}
-	if !blocks[0].ToolResult.Truncated {
+	tr := blocks[0].ToolResult
+	if !tr.Truncated {
 		t.Fatalf("Truncated = false, want true")
+	}
+	if tr.OutputPath != ".cece/tool-results/truncated.txt" || tr.OriginalBytes != 9000 || tr.PreviewBytes != 2000 {
+		t.Fatalf("artifact metadata = path %q original %d preview %d, want propagated", tr.OutputPath, tr.OriginalBytes, tr.PreviewBytes)
 	}
 }
 

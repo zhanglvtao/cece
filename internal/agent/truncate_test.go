@@ -62,3 +62,30 @@ func TestTruncateToolResultsNoToolResults(t *testing.T) {
 		t.Fatalf("tokens should be unchanged: before=%d after=%d", before, after)
 	}
 }
+
+func TestTruncateToolResultsPreservesArtifactMetadata(t *testing.T) {
+	msgs := []Message{{Role: ToolRole, ContentBlocks: []ApiContentBlock{{Type: ApiToolResultContentType, ToolResult: &ApiToolResultBlock{
+		ToolUseID:     "t1",
+		Content:       "Output too large. Full output saved to: .cece/tool-results/bash.txt\nPreview...",
+		Truncated:     true,
+		TotalLines:    10,
+		OutputPath:    ".cece/tool-results/bash.txt",
+		OriginalBytes: 9000,
+		PreviewBytes:  2000,
+	}}}}}
+
+	count, _, _ := TruncateToolResults(msgs)
+	if count != 1 {
+		t.Fatalf("count = %d, want 1", count)
+	}
+	tr := msgs[0].ContentBlocks[0].ToolResult
+	if tr.OutputPath != ".cece/tool-results/bash.txt" || tr.OriginalBytes != 9000 || tr.PreviewBytes != 2000 {
+		t.Fatalf("artifact metadata lost: %+v", tr)
+	}
+	if tr.Content != "[trimmed preview]\nFull output saved to: .cece/tool-results/bash.txt" {
+		t.Fatalf("content = %q, want recoverable artifact hint", tr.Content)
+	}
+	if tr.TotalLines != 0 {
+		t.Fatalf("TotalLines = %d, want 0 after preview trim", tr.TotalLines)
+	}
+}

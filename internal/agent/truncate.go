@@ -9,10 +9,7 @@ func TruncateToolResults(messages []Message) (truncatedCount, tokensBefore, toke
 		for j := range messages[i].ContentBlocks {
 			cb := &messages[i].ContentBlocks[j]
 			if cb.Type == ApiToolResultContentType && cb.ToolResult != nil {
-				if cb.ToolResult.Content != "[truncated]" {
-					cb.ToolResult.Content = "[truncated]"
-					cb.ToolResult.Truncated = true
-					cb.ToolResult.TotalLines = 0
+				if trimToolResultPreview(cb.ToolResult, "[truncated]") {
 					truncatedCount++
 				}
 			}
@@ -20,4 +17,21 @@ func TruncateToolResults(messages []Message) (truncatedCount, tokensBefore, toke
 	}
 	tokensAfter = EstimateMessagesTokens(messages)
 	return
+}
+
+func trimToolResultPreview(tr *ApiToolResultBlock, fallback string) bool {
+	if tr == nil {
+		return false
+	}
+	trimmed := fallback
+	if tr.OutputPath != "" {
+		trimmed = "[trimmed preview]\nFull output saved to: " + tr.OutputPath
+	}
+	if tr.Content == trimmed {
+		return false
+	}
+	tr.Content = trimmed
+	tr.Truncated = true
+	tr.TotalLines = 0
+	return true
 }

@@ -155,3 +155,8 @@
 - 现象：在把 Agent 通信模型收敛成 inbox/outbox 时，最容易偷懒的实现是“两个 channel 就完了”；但一旦遇到 progress 高频事件、pending/completed 关键事件、cancel 抢占，就会立刻暴露背压和优先级问题。
 - 定位：真正稳定的边界不是 `chan`，而是 mailbox 语义：`AgentCommand` 必须可靠入箱；`AgentEvent` 必须区分关键事件和 best-effort 事件；调度器只消费 supervision-level 事件，不应该被 tool delta / provider delta 淹没。
 - 结论：mailbox 应先定义投递策略，再选择并发原语。关键事件必须阻塞入箱，非关键事件允许丢弃或降采样；`channel` 只能作为一种实现细节，不能成为架构语义本身。
+
+## tool_result artifact 不能只存在于 Content 文本
+- 现象：大工具输出会落盘到 `.cece/tool-results`，但完整输出路径主要写在 `tool_result.Content` 预览里；历史 Trim 把 Content 替换成 `[trimmed]` 后，完整输出路径随之丢失。
+- 定位：`tool.Result` 已有 `OutputPath` / `OriginalBytes` / `PreviewBytes`，但 `ToolExecutor` 回填到 `ApiToolResultBlock` 时没有透传，导致 artifact 元数据从结构化字段退化成普通文本。
+- 结论：artifact 元数据应作为 agent 内部 history 的结构化字段保存；Trim/Truncate 只能裁剪预览 Content，不能删除路径和 byte 统计。

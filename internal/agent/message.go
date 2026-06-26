@@ -82,11 +82,14 @@ type ApiToolUseBlock struct {
 }
 
 type ApiToolResultBlock struct {
-	ToolUseID  string `json:"tool_use_id"`
-	Content    string `json:"content"`
-	IsError    bool   `json:"is_error,omitempty"`
-	Truncated  bool   `json:"truncated,omitempty"`
-	TotalLines int    `json:"total_lines,omitempty"`
+	ToolUseID     string `json:"tool_use_id"`
+	Content       string `json:"content"`
+	IsError       bool   `json:"is_error,omitempty"`
+	Truncated     bool   `json:"truncated,omitempty"`
+	TotalLines    int    `json:"total_lines,omitempty"`
+	OutputPath    string `json:"output_path,omitempty"`
+	OriginalBytes int    `json:"original_bytes,omitempty"`
+	PreviewBytes  int    `json:"preview_bytes,omitempty"`
 }
 
 // ApiStreamEvent represents a single event from the Anthropic SSE stream.
@@ -432,10 +435,7 @@ func TrimToolResultsInRange(messages []Message, fromTurn, toTurn int) (truncated
 		for j := range messages[i].ContentBlocks {
 			cb := &messages[i].ContentBlocks[j]
 			if cb.Type == ApiToolResultContentType && cb.ToolResult != nil {
-				if cb.ToolResult.Content != "[trimmed]" {
-					cb.ToolResult.Content = "[trimmed]"
-					cb.ToolResult.Truncated = true
-					cb.ToolResult.TotalLines = 0
+				if trimToolResultPreview(cb.ToolResult, "[trimmed]") {
 					truncatedCount++
 				}
 			}
