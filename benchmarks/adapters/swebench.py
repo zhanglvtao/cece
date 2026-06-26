@@ -12,6 +12,51 @@ from ..prompts import swebench as swebench_prompt
 from . import BenchmarkAdapter, Sandbox
 
 
+_TRAECLI_TOKEN_CACHE: Optional[str] = None
+_TRAECLI_TOKEN_TRIED = False
+
+
+def _generate_traecli_token() -> Optional[str]:
+    """Generate a traecli auth token on the host from the Aime config.
+
+    The container can't read the host's Aime config, so we run the host Go
+    package internal/traecli (RefreshToken) to mint a token and forward it via
+    TRAECLI_TOKEN. Result is cached for the process; failures return None.
+    """
+    global _TRAECLI_TOKEN_CACHE, _TRAECLI_TOKEN_TRIED
+    if _TRAECLI_TOKEN_TRIED:
+        return _TRAECLI_TOKEN_CACHE
+    _TRAECLI_TOKEN_TRIED = True
+
+    repo_root = Path(__file__).resolve().parents[2]
+    prog = (
+        "package main\n"
+        "import (\"fmt\";\"os\";\"github.com/zhanglvtao/cece/internal/traecli\")\n"
+        "func main(){t,err:=traecli.RefreshToken();"
+        "if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)};fmt.Print(t)}\n"
+    )
+    tmp_dir = repo_root / "benchmarks" / "_gentok_tmp"
+    tmp = tmp_dir / "main.go"
+    try:
+        tmp_dir.mkdir(exist_ok=True)
+        tmp.write_text(prog)
+        r = subprocess.run(
+            ["go", "run", "./benchmarks/_gentok_tmp"],
+            cwd=str(repo_root), capture_output=True, text=True, timeout=120,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            _TRAECLI_TOKEN_CACHE = r.stdout.strip()
+            print("[setup] generated traecli token from host Aime config", flush=True)
+        else:
+            print(f"[setup] WARN: could not generate traecli token: {r.stderr.strip()[:200]}", flush=True)
+    except Exception as e:
+        print(f"[setup] WARN: traecli token generation failed: {e}", flush=True)
+    finally:
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    return _TRAECLI_TOKEN_CACHE
+
+
 class SWEBenchAdapter(BenchmarkAdapter):
     name = "swebench"
     requires_docker = True
@@ -120,7 +165,14 @@ class SWEBenchAdapter(BenchmarkAdapter):
         self._write_file(container_name, "/testbed/issue.md", problem_statement)
 
         exec_cmd = ["docker", "exec", "-i"]
-        if os.environ.get("TRAECLI_TOKEN"):
+        # traecli provider authenticates inside the container via TRAECLI_TOKEN.
+        # The container can't read the host's Aime config, so generate the token
+        # on the host and forward it. Prefer an explicit env var if provided.
+        if model.split("/")[0] == "traecli" or host_config["provider"].get("defaultProvider") == "traecli":
+            token = os.environ.get("TRAECLI_TOKEN") or _generate_traecli_token()
+            if token:
+                exec_cmd.extend(["-e", f"TRAECLI_TOKEN={token}"])
+        elif os.environ.get("TRAECLI_TOKEN"):
             exec_cmd.extend(["-e", f"TRAECLI_TOKEN={os.environ['TRAECLI_TOKEN']}"])
         exec_cmd.extend([container_name, "/usr/local/bin/cece", "engine", "--project-dir", "/testbed"])
 
