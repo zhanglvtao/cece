@@ -648,13 +648,25 @@ func (t *transcript) hasDirtyBlocks() bool {
 }
 
 // blockGap returns the newline separator between two adjacent transcript blocks.
-// Consecutive tool blocks are rendered tightly (single newline) so call chains
-// are readable at a glance; all other semantic boundaries keep a blank line.
+// Tool execution chains stay visually tight; other semantic boundaries keep a blank line.
 func blockGap(prev, next blockKind) string {
-	if prev == blockTool && next == blockTool {
+	if isTightToolChainBoundary(prev, next) {
 		return "\n"
 	}
 	return "\n\n"
+}
+
+func isTightToolChainBoundary(prev, next blockKind) bool {
+	return isTightToolChainBlock(prev) && isTightToolChainBlock(next)
+}
+
+func isTightToolChainBlock(kind blockKind) bool {
+	switch kind {
+	case blockTool, blockInfo, blockGate:
+		return true
+	default:
+		return false
+	}
 }
 
 func (t *transcript) renderOrderIndices() []int {

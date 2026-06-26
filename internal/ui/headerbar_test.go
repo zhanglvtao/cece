@@ -60,3 +60,23 @@ func TestFormatToolTitleKVsUsesDisplayAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestHeaderBarRenderIncludesCompletionHooksAndRestore(t *testing.T) {
+	h := NewHeaderBar()
+	h.IncrementAPI(true)
+	h.IncrementTurn(true)
+	h.IncrementCompletionHook()
+	h.IncrementCompletionHook()
+	h.UpdateTokens(1200, 3400, 500)
+
+	rendered := ansi.Strip(h.Render(200))
+	if !strings.Contains(rendered, "Hook 2") {
+		t.Fatalf("render missing completion hook count: %q", rendered)
+	}
+
+	h.Restore(3, map[string]int{"Read": 2}, 700, 4, 5)
+	restored := ansi.Strip(h.Render(200))
+	if !strings.Contains(restored, "Hook 5") {
+		t.Fatalf("restored render missing completion hook count: %q", restored)
+	}
+}

@@ -73,6 +73,7 @@ type HeaderBar struct {
 	turnOK   int
 	turnFail int
 
+	completionHooks int
 	inputTokens     int
 	outputTokens    int
 	cacheReadTokens int
@@ -121,10 +122,13 @@ func (h *HeaderBar) UpdateTokens(input, output, cacheRead int) {
 	h.cacheReadTokens = cacheRead
 }
 
+// IncrementCompletionHook adds one to the completion hook counter.
+func (h *HeaderBar) IncrementCompletionHook() { h.completionHooks++ }
+
 // Restore restores cumulative counters from a saved snapshot.
 // On restore, all existing counts are treated as successes since
 // the snapshot does not differentiate success/failure.
-func (h *HeaderBar) Restore(apiCalls int, toolCounts map[string]int, cacheRead int, turnCount int) {
+func (h *HeaderBar) Restore(apiCalls int, toolCounts map[string]int, cacheRead int, turnCount int, completionHookCalls int) {
 	h.apiOK = apiCalls
 	h.apiFail = 0
 
@@ -136,7 +140,8 @@ func (h *HeaderBar) Restore(apiCalls int, toolCounts map[string]int, cacheRead i
 
 	h.turnOK = turnCount
 	h.turnFail = 0
-
+	h.completionHooks = completionHookCalls
+	
 	h.cacheReadTokens = cacheRead
 }
 
@@ -155,6 +160,9 @@ func (h *HeaderBar) Render(width int) string {
 
 	// Turns
 	parts = append(parts, h.formatStatGroup("Turn", h.turnOK, h.turnFail))
+
+	// Completion hooks
+	parts = append(parts, h.styles.Status.Tokens.Render(fmt.Sprintf("Hook %d", h.completionHooks)))
 
 	// Tokens
 	tokenPart := fmt.Sprintf("in/out/cache:%s/%s/%s",

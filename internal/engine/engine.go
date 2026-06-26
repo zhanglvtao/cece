@@ -91,6 +91,7 @@ type Engine struct {
 	toolCounts                 map[string]int                       // cumulative tool execution counts (success + failure)
 	failedToolCounts           map[string]int                       // cumulative tool failure counts
 	turnCount                  int                                  // cumulative conversation turn count
+	completionHookCalls        int                                  // cumulative completion hook invocation count
 	cacheReadTokens            int                                  // cumulative cache read tokens
 	cacheCreationTokens        int                                  // cumulative cache creation tokens
 	lastCompactTurn            int                                  // turn count at last compact/prune
@@ -1078,6 +1079,13 @@ func (e *Engine) UpdateCacheTokens(read, creation int) {
 	e.cacheCreationTokens += creation
 }
 
+// IncrementCompletionHookCalls increments the completion hook counter.
+func (e *Engine) IncrementCompletionHookCalls() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.completionHookCalls++
+}
+
 // StatusBarSnapshot returns the current status bar data for persistence.
 func (e *Engine) StatusBarSnapshot() session.StatusBarSnapshot {
 	e.mu.Lock()
@@ -1102,6 +1110,7 @@ func (e *Engine) statusBarSnapshotLocked() session.StatusBarSnapshot {
 		CacheReadTokens:     e.cacheReadTokens,
 		CacheCreationTokens: e.cacheCreationTokens,
 		TurnCount:           e.turnCount,
+		CompletionHookCalls: e.completionHookCalls,
 	}
 }
 
@@ -1121,6 +1130,7 @@ func (e *Engine) SetStatusBarState(sb session.StatusBarSnapshot) {
 	e.cacheReadTokens = sb.CacheReadTokens
 	e.cacheCreationTokens = sb.CacheCreationTokens
 	e.turnCount = sb.TurnCount
+	e.completionHookCalls = sb.CompletionHookCalls
 	if sb.ToolFailedCounts != nil {
 		e.failedToolCounts = make(map[string]int, len(sb.ToolFailedCounts))
 		for k, v := range sb.ToolFailedCounts {
@@ -1541,6 +1551,8 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 				v.APICalls = e.apiCalls
 				v.ContextWindow = e.contextWindow
 				d = v
+			case protocol.CompletionGateEvaluated:
+				e.IncrementCompletionHookCalls()
 			case protocol.ToolExecCompleted:
 				v.ToolCounts = e.toolCountsSnapshot()
 				d = v

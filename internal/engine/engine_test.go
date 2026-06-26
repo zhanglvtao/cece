@@ -405,6 +405,23 @@ func TestTryAutoCompactFallsBackWhenCompactSummaryFails(t *testing.T) {
 	}
 }
 
+func TestStatusBarSnapshotPersistsCompletionHookCalls(t *testing.T) {
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.IncrementCompletionHookCalls()
+	eng.IncrementCompletionHookCalls()
+
+	snapshot := eng.StatusBarSnapshot()
+	if snapshot.CompletionHookCalls != 2 {
+		t.Fatalf("snapshot completion hook calls = %d, want 2", snapshot.CompletionHookCalls)
+	}
+
+	restored := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	restored.SetStatusBarState(snapshot)
+	if got := restored.StatusBarSnapshot().CompletionHookCalls; got != 2 {
+		t.Fatalf("restored completion hook calls = %d, want 2", got)
+	}
+}
+
 func TestTurnAutoCompactRunsAfterFailedCompactToolResult(t *testing.T) {
 	client := &compactToolFailureClient{}
 	eng := NewEngine(client, tool.NewRegistry(failingCompactTool{}), false, 16384, nil, "/tmp")

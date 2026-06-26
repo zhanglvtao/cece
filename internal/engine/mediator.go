@@ -280,6 +280,7 @@ func (m *EngineMediator) loadSession(sessionID string) {
 		CacheReadTokens:     sb.CacheReadTokens,
 		CacheCreationTokens: sb.CacheCreationTokens,
 		TurnCount:           sb.TurnCount,
+		CompletionHookCalls: sb.CompletionHookCalls,
 		InputHistory:        inputHistory,
 	})
 }

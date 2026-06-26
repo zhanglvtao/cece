@@ -435,6 +435,7 @@ type SessionLoadedEvent struct {
 	CacheReadTokens     int
 	CacheCreationTokens int
 	TurnCount           int
+	CompletionHookCalls int
 	InputHistory        []string
 	Err                 string
 }

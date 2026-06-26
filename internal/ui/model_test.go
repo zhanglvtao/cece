@@ -456,6 +456,47 @@ func TestGapBetweenToolAndAssistantIsDouble(t *testing.T) {
 	}
 }
 
+func TestToolChainBlocksStayTightAcrossInfoAndGate(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t1", Name: "Grep"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t1", Name: "Grep", Input: json.RawMessage(`{"pattern":"TODO"}`)})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t1", Name: "Grep", Result: protocol.ToolResult{Content: "match"}})
+	m.ApplyEventForTest(protocol.CompletionGateEvaluated{Attempt: 1, MaxAttempts: 3, Status: protocol.CompletionGateBlocked, Next: "continue"})
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t2", Name: "Read"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t2", Name: "Read", Input: json.RawMessage(`{"path":"/tmp/a.go"}`)})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t2", Name: "Read", Result: protocol.ToolResult{Content: "content"}})
+	m.ApplyEventForTest(protocol.ModelRequestStarted{Reason: "tool_result", EstimatedInputTokens: 42, ToolResults: []string{"MissingTool"}})
+	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t3", Name: "Bash"})
+	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t3", Name: "Bash", Input: json.RawMessage(`{"command":"pwd"}`)})
+	m.ApplyEventForTest(protocol.ToolExecStarted{ID: "t3", Name: "Bash"})
+	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t3", Name: "Bash", Result: protocol.ToolResult{Content: "/tmp\n"}})
+
+	rendered := stripAnsi(m.transcript.render(160, m.styles))
+	if strings.Contains(rendered, "Grep pattern: TODO ✓\n\nCompletion gate") {
+		t.Fatalf("expected tool and completion gate blocks to stay tight:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Completion gate\n  hook 1/3: blocked → continue\n\nRead path: /tmp/a.go ✓") {
+		t.Fatalf("expected completion gate and following tool blocks to stay tight:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Read path: /tmp/a.go ✓\n\nTool_result") {
+		t.Fatalf("expected tool and tool_result info blocks to stay tight:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "estimated input: 42 | tool results: MissingTool\n\nBash command: pwd") {
+		t.Fatalf("expected tool_result info and following tool blocks to stay tight:\n%s", rendered)
+	}
+}
+
+func TestCompletionHookCountAppearsInTopStatusBar(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.ApplyEventForTest(protocol.CompletionGateEvaluated{Attempt: 1, MaxAttempts: 3, Status: protocol.CompletionGateBlocked, Next: "continue"})
+	m.ApplyEventForTest(protocol.CompletionGateEvaluated{Attempt: 2, MaxAttempts: 3, Status: protocol.CompletionGatePassed, Next: "complete"})
+
+	rendered := stripAnsi(m.headerBar.Render(200))
+	if !strings.Contains(rendered, "Hook 2") {
+		t.Fatalf("header bar missing completion hook count: %q", rendered)
+	}
+}
+
 func TestSessionLoadedRebuildsTranscript(t *testing.T) {
 	m := NewModel(nil, "old", "/tmp")
 	m.ApplyEventForTest(protocol.SessionLoadedEvent{
