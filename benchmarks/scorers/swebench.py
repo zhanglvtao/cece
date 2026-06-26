@@ -66,7 +66,10 @@ def score_in_place(container_name: str, patch: str, inst: dict, timeout: int = 3
         ["docker", "exec", container_name, "bash", "-c", reset_and_apply],
         capture_output=True, text=True, timeout=30,
     )
-    if r.returncode != 0 or "error" in r.stdout.lower() or "error" in r.stderr.lower():
+    # Apply real failures surface as a nonzero return code (git apply --check
+    # gates the chained apply). Do NOT scan output for "error": git prints benign
+    # warnings like "warning: N lines add whitespace errors" on a successful apply.
+    if r.returncode != 0:
         detail = (r.stdout + r.stderr)[-1000:]
         emit(f"[score] patch apply failed (rc={r.returncode})")
         return {
