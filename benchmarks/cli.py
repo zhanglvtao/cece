@@ -360,16 +360,21 @@ def _load_config_for_benchmark(benchmark: str, config_path: Optional[str] = None
                 f"Expected {default_path} or ~/.cece/settings.json or pass --config."
             )
 
-    # Override benchmark-specific runtime settings
+    # Override with benchmark-specific settings. The benchmark config takes
+    # precedence over ~/.cece/settings.json for these keys (notably `model`),
+    # while user settings still supply provider auth (providers list, baseURL).
     import benchmarks as pkg
     pkg_dir = os.path.dirname(os.path.abspath(pkg.__file__))
     bench_cfg_path = os.path.join(pkg_dir, "configs", f"{benchmark}.json")
     if os.path.exists(bench_cfg_path):
         with open(bench_cfg_path) as f:
             bench_cfg = json.load(f)
-        for key in ("defaultMode", "yolo", "tool_result"):
+        for key in ("model", "defaultMode", "yolo", "tool_result"):
             if key in bench_cfg:
                 config[key] = bench_cfg[key]
+        # Keep provider.model in sync so adapters reading either location agree.
+        if "model" in bench_cfg and isinstance(config.get("provider"), dict):
+            config["provider"]["model"] = bench_cfg["model"]
 
     return config
 
