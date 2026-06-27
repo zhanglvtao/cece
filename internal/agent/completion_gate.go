@@ -59,6 +59,7 @@ type CompletionGate struct{}
 func NewCompletionGate() *CompletionGate { return &CompletionGate{} }
 
 func (g *CompletionGate) Evaluate(ctx CompletionGateContext) CompletionGateResult {
+	ctx.RequiresClosure = completionGateRequiresClosure(ctx)
 	checks := []CompletionGateCheck{
 		evaluatePlanModeGate(ctx),
 		evaluateTodoGate(ctx),
@@ -81,6 +82,19 @@ func (g *CompletionGate) Evaluate(ctx CompletionGateContext) CompletionGateResul
 		return CompletionGateResult{Pass: true, Checks: checks}
 	}
 	return CompletionGateResult{Pass: false, Checks: checks, Reasons: reasons, Reminder: buildCompletionGateReminder(reasons)}
+}
+
+func completionGateRequiresClosure(ctx CompletionGateContext) bool {
+	return ctx.RequiresClosure || ctx.Closure.Updated || hasSuccessfulCodeChangeEvidence(ctx.Evidence)
+}
+
+func hasSuccessfulCodeChangeEvidence(evidence []ClosureEvidence) bool {
+	for _, ev := range evidence {
+		if ev.Kind == ClosureEvidenceCodeChange && ev.OK {
+			return true
+		}
+	}
+	return false
 }
 
 func evaluatePlanModeGate(ctx CompletionGateContext) CompletionGateCheck {
@@ -221,21 +235,4 @@ func buildCompletionGateNoProgressReminder(reasons []string) string {
 	b.WriteString("Do not answer with plain text. You must take a state-changing action now: call UpdateTaskClosure, Todo, AskUserQuestion, or ExitPlanMode. If the task cannot continue, call UpdateTaskClosure with blocked or not_needed and a concrete reason.\n")
 	b.WriteString("</system-reminder>")
 	return b.String()
-}
-
-func RequiresTaskClosure(input string) bool {
-	text := strings.ToLower(input)
-	if strings.Contains(text, "<loaded_skill>") {
-		return false
-	}
-	keywords := []string{
-		"implement", "add", "update", "refactor", "fix", "bug", "test", "build", "failing", "failed", "failure", "error", "exception",
-		"实现", "修改", "修复", "报错", "失败", "异常", "回归", "构建", "测试",
-	}
-	for _, keyword := range keywords {
-		if strings.Contains(text, keyword) {
-			return true
-		}
-	}
-	return false
 }

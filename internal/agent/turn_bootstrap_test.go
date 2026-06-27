@@ -387,16 +387,20 @@ func TestTurnRunnerCompletionGateBlocksAndContinues(t *testing.T) {
 			CompletionGateContext: func() CompletionGateContext {
 				if streamCalls >= 2 {
 					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
-						Updated:            true,
-						NeedsCodeChange:    tool.ClosureDecisionNo,
-						CodeChangeStatus:   tool.ClosureCodeNotNeeded,
-						CodeChangeReason:   "blocked reminder handled in test",
-						NeedsVerification:  tool.ClosureDecisionNo,
-						VerificationStatus: tool.ClosureVerificationNotNeeded,
-						VerificationReason: "not needed in test",
-					}}
+						Updated:                  true,
+						NeedsCodeChange:          tool.ClosureDecisionYes,
+						CodeChangeStatus:         tool.ClosureCodeChanged,
+						CodeChangeReason:         "blocked reminder handled in test",
+						CodeChangeToolResultRefs: []string{"call_edit"},
+						NeedsVerification:        tool.ClosureDecisionNo,
+						VerificationStatus:       tool.ClosureVerificationNotNeeded,
+						VerificationReason:       "not needed in test",
+					}, Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}}}
 				}
-				return CompletionGateContext{Closure: tool.TaskClosureSnapshot{}}
+				return CompletionGateContext{
+					Closure:  tool.TaskClosureSnapshot{},
+					Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}},
+				}
 			},
 		},
 	)
@@ -454,6 +458,56 @@ func TestTurnRunnerCompletionGatePassesWithClosure(t *testing.T) {
 	waitForEventType(t, events, AssistantCompleted{})
 }
 
+func TestTurnRunnerDoesNotRequireClosureForReadOnlyKeywordInput(t *testing.T) {
+	responses := []<-chan ApiStreamEvent{textStream("这里是 bug/test/error/失败/测试 的解释"), textStream("done after reminder")}
+	streamCalls := 0
+	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
+		resp := responses[streamCalls]
+		streamCalls++
+		return resp, nil
+	}}
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		4096,
+		TurnDeps{
+			AppendMessage:     func(Message) {},
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			HistorySnapshot:   func() []Message { return nil },
+			IncrementAPICalls: func() {},
+			CompletionGateContext: func() CompletionGateContext {
+				if streamCalls >= 2 {
+					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
+						Updated:            true,
+						NeedsCodeChange:    tool.ClosureDecisionNo,
+						CodeChangeStatus:   tool.ClosureCodeNotNeeded,
+						CodeChangeReason:   "read-only explanation",
+						NeedsVerification:  tool.ClosureDecisionNo,
+						VerificationStatus: tool.ClosureVerificationNotNeeded,
+						VerificationReason: "not needed",
+					}}
+				}
+				return CompletionGateContext{}
+			},
+		},
+	)
+
+	events := make(chan Event, 64)
+	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "为什么这个 bug/test/error/失败/测试 会出现？"}}}, events)
+
+	got := waitForEventType(t, events, CompletionGateEvaluated{})
+	if got.Status != CompletionGatePassed || got.RequiresClosure || got.Next != "complete" {
+		t.Fatalf("CompletionGateEvaluated = %+v, want passed without closure", got)
+	}
+	if streamCalls != 1 {
+		t.Fatalf("streamCalls = %d, want 1", streamCalls)
+	}
+	waitForEventType(t, events, AssistantCompleted{})
+}
+
 func TestTurnRunnerCompletionGateKeepsRetryingAfterThreeBlockedAttempts(t *testing.T) {
 	responses := []<-chan ApiStreamEvent{
 		textStream("attempt 1"),
@@ -484,16 +538,20 @@ func TestTurnRunnerCompletionGateKeepsRetryingAfterThreeBlockedAttempts(t *testi
 			CompletionGateContext: func() CompletionGateContext {
 				if streamCalls >= 4 {
 					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
-						Updated:            true,
-						NeedsCodeChange:    tool.ClosureDecisionNo,
-						CodeChangeStatus:   tool.ClosureCodeNotNeeded,
-						CodeChangeReason:   "resolved after repeated reminders",
-						NeedsVerification:  tool.ClosureDecisionNo,
-						VerificationStatus: tool.ClosureVerificationNotNeeded,
-						VerificationReason: "not needed in test",
-					}}
+						Updated:                  true,
+						NeedsCodeChange:          tool.ClosureDecisionYes,
+						CodeChangeStatus:         tool.ClosureCodeChanged,
+						CodeChangeReason:         "resolved after repeated reminders",
+						CodeChangeToolResultRefs: []string{"call_edit"},
+						NeedsVerification:        tool.ClosureDecisionNo,
+						VerificationStatus:       tool.ClosureVerificationNotNeeded,
+						VerificationReason:       "not needed in test",
+					}, Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}}}
 				}
-				return CompletionGateContext{Closure: tool.TaskClosureSnapshot{}}
+				return CompletionGateContext{
+					Closure:  tool.TaskClosureSnapshot{},
+					Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}},
+				}
 			},
 		},
 	)

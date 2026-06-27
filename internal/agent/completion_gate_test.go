@@ -60,6 +60,72 @@ func TestCompletionGateSkipsTaskClosureWhenNotRequired(t *testing.T) {
 	}
 }
 
+func TestCompletionGateRequiresTaskClosureAfterCodeChangeEvidence(t *testing.T) {
+	gate := NewCompletionGate()
+	result := gate.Evaluate(CompletionGateContext{
+		Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}},
+	})
+
+	if result.Pass {
+		t.Fatal("gate passed, want blocked")
+	}
+	closure := result.Checks[2]
+	if closure.Name != "TaskClosureGate" || closure.Status != CompletionGateBlocked {
+		t.Fatalf("closure check = %+v, want blocked", closure)
+	}
+	if !strings.Contains(result.Reminder, "UpdateTaskClosure") {
+		t.Fatalf("Reminder = %q, want UpdateTaskClosure reason", result.Reminder)
+	}
+}
+
+func TestCompletionGateValidatesModelProvidedTaskClosure(t *testing.T) {
+	gate := NewCompletionGate()
+	result := gate.Evaluate(CompletionGateContext{
+		Closure: tool.TaskClosureSnapshot{
+			Updated:            true,
+			NeedsCodeChange:    tool.ClosureDecisionNo,
+			CodeChangeStatus:   tool.ClosureCodeNotNeeded,
+			CodeChangeReason:   "read-only answer",
+			NeedsVerification:  tool.ClosureDecisionNo,
+			VerificationStatus: tool.ClosureVerificationNotNeeded,
+			VerificationReason: "not needed",
+			RemainingWork:      []string{"explain the unresolved part"},
+		},
+	})
+
+	if result.Pass {
+		t.Fatal("gate passed, want blocked")
+	}
+	if !strings.Contains(result.Reminder, "remaining_work") {
+		t.Fatalf("Reminder = %q, want remaining_work reason", result.Reminder)
+	}
+}
+
+func TestCompletionGateValidatesCodeChangeClosureInferredFromEvidence(t *testing.T) {
+	gate := NewCompletionGate()
+	result := gate.Evaluate(CompletionGateContext{
+		Closure: tool.TaskClosureSnapshot{
+			Updated:                  true,
+			NeedsCodeChange:          tool.ClosureDecisionYes,
+			CodeChangeStatus:         tool.ClosureCodeChanged,
+			CodeChangeReason:         "changed code",
+			CodeChangeToolResultRefs: []string{"call_edit"},
+			NeedsVerification:        tool.ClosureDecisionNo,
+			VerificationStatus:       tool.ClosureVerificationNotNeeded,
+			VerificationReason:       "not needed",
+		},
+		Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}},
+	})
+
+	if !result.Pass {
+		t.Fatalf("gate blocked, want pass: %q", result.Reminder)
+	}
+	closure := result.Checks[2]
+	if closure.Name != "TaskClosureGate" || closure.Status != CompletionGatePassed {
+		t.Fatalf("closure check = %+v, want passed", closure)
+	}
+}
+
 func TestCompletionGateBlockedChecksFeedReminder(t *testing.T) {
 	gate := NewCompletionGate()
 	result := gate.Evaluate(CompletionGateContext{

@@ -63,11 +63,6 @@ func NewTurnRunner(streamer *ModelStreamer, interactionGate *InteractionGate, to
 
 func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event) {
 	// Agent loop: keep calling the model until it stops requesting tools.
-	input := strings.TrimSpace(plan.UserInput)
-	if input == "" && len(plan.Messages) > 0 {
-		input = plan.Messages[len(plan.Messages)-1].TextContent()
-	}
-	requiresClosure := RequiresTaskClosure(input)
 	gateFailures := 0
 	noProgressGateFailures := 0
 	const maxNoProgressGateFailures = 2
@@ -211,8 +206,9 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				toolResultNames = nil
 				continue
 			}
-			gateCtx := r.currentCompletionGateContext(requiresClosure)
+			gateCtx := r.currentCompletionGateContext()
 			gateResult := NewCompletionGate().Evaluate(gateCtx)
+			requiresClosure := completionGateRequiresClosure(gateCtx)
 			events <- CompletionGateEvaluated{Attempt: gateFailures + 1, MaxAttempts: 0, Status: completionGateStatus(gateResult), RequiresClosure: requiresClosure, Checks: gateResult.Checks, Next: completionGateNext(gateResult)}
 			if !gateResult.Pass {
 				gateFailures++
@@ -413,17 +409,15 @@ func (r *TurnRunner) refreshedHistorySnapshot(current []Message) ([]Message, boo
 	return refreshed, true
 }
 
-func (r *TurnRunner) evaluateCompletionGate(requiresClosure bool) CompletionGateResult {
-	return NewCompletionGate().Evaluate(r.currentCompletionGateContext(requiresClosure))
+func (r *TurnRunner) evaluateCompletionGate() CompletionGateResult {
+	return NewCompletionGate().Evaluate(r.currentCompletionGateContext())
 }
 
-func (r *TurnRunner) currentCompletionGateContext(requiresClosure bool) CompletionGateContext {
+func (r *TurnRunner) currentCompletionGateContext() CompletionGateContext {
 	if r.deps.CompletionGateContext == nil {
-		return CompletionGateContext{RequiresClosure: requiresClosure}
+		return CompletionGateContext{}
 	}
-	ctx := r.deps.CompletionGateContext()
-	ctx.RequiresClosure = requiresClosure
-	return ctx
+	return r.deps.CompletionGateContext()
 }
 
 func completionGateStatus(result CompletionGateResult) CompletionGateStatus {
