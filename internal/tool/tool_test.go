@@ -303,23 +303,40 @@ func TestPlanModeRemindersUseSystemReminderTags(t *testing.T) {
 	if !strings.Contains(fullReminder, DefaultPlanModeMockupAllowPattern) {
 		t.Fatalf("full reminder = %q, want default mockup allow path", fullReminder)
 	}
-	if !strings.Contains(fullReminder, "Asking Good Questions") {
-		t.Fatalf("full reminder = %q, want asking good questions guidance", fullReminder)
+	for _, want := range []string{
+		"Plan Quality Contract",
+		"Phase 1: Initial Understanding",
+		"Phase 2: Design",
+		"Phase 3: Review",
+		"Phase 4: Final Plan",
+		"Context",
+		"File Structure",
+		"Implementation Tasks",
+		"Verification",
+		"Risks",
+		"Non-goals",
+		"Open Questions / Assumptions",
+		"Do not call ExitPlanMode with a skeleton plan",
+		"Asking Good Questions",
+		"Bugfix Plans",
+		"When to Converge",
+		"every concrete input shape",
+	} {
+		if !strings.Contains(fullReminder, want) {
+			t.Fatalf("full reminder = %q, want %q", fullReminder, want)
+		}
 	}
-	if !strings.Contains(fullReminder, "Bugfix Plans") {
-		t.Fatalf("full reminder = %q, want bugfix plan guidance", fullReminder)
-	}
-	if !strings.Contains(fullReminder, "When to Converge") {
-		t.Fatalf("full reminder = %q, want convergence guidance", fullReminder)
-	}
-	if !strings.Contains(fullReminder, "every concrete input shape") {
-		t.Fatalf("full reminder = %q, want concrete input shape verification guidance", fullReminder)
-	}
-	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern), "Converge only when") {
-		t.Fatalf("sparse reminder = %q, want convergence guidance", BuildSparsePlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern))
-	}
-	if !strings.Contains(BuildSparsePlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern), "<system-reminder>") {
-		t.Fatalf("sparse reminder = %q, want system-reminder tag", BuildSparsePlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern))
+	sparseReminder := BuildSparsePlanReminder("/tmp/.cece/plans", DefaultPlanModeMockupAllowPattern)
+	for _, want := range []string{
+		"<system-reminder>",
+		"Plan mode still active.",
+		"Context, File Structure, Reuse, Implementation Tasks, Verification, Risks, and Non-goals",
+		"Do not call ExitPlanMode with a skeleton plan",
+		"End turns with AskUserQuestion or ExitPlanMode",
+	} {
+		if !strings.Contains(sparseReminder, want) {
+			t.Fatalf("sparse reminder = %q, want %q", sparseReminder, want)
+		}
 	}
 	if !strings.Contains(ExitPlanModeReminder(), "<system-reminder>") {
 		t.Fatalf("exit reminder = %q, want system-reminder tag", ExitPlanModeReminder())
@@ -369,6 +386,37 @@ func TestPlanModeStateRejectsEscapedAllowedPath(t *testing.T) {
 	}
 }
 
+func TestExitPlanModeInfoRequiresCompletePlan(t *testing.T) {
+	info := exitPlanModeTool{}.Info()
+	for _, want := range []string{
+		"complete implementation plan",
+		"Context, File Structure, Reuse, Implementation Tasks, Verification, Risks, and Non-goals",
+		"Do not use this tool for a skeleton or rough-note plan",
+	} {
+		if !strings.Contains(info.Description, want) {
+			t.Fatalf("description = %q, want %q", info.Description, want)
+		}
+	}
+
+	properties, ok := info.InputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v, want map[string]any", info.InputSchema["properties"])
+	}
+	planFile, ok := properties["plan_file"].(map[string]any)
+	if !ok {
+		t.Fatalf("plan_file = %#v, want map[string]any", properties["plan_file"])
+	}
+	description, ok := planFile["description"].(string)
+	if !ok {
+		t.Fatalf("plan_file description = %#v, want string", planFile["description"])
+	}
+	for _, want := range []string{"complete plan file", "ready for user approval", "not a skeleton"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("plan_file description = %q, want %q", description, want)
+		}
+	}
+}
+
 func TestExitPlanModeRejectsEmptyPlanFile(t *testing.T) {
 	state := NewPlanModeState()
 	state.SetProjectDir(t.TempDir())
@@ -390,6 +438,82 @@ func TestExitPlanModeRejectsEmptyPlanFile(t *testing.T) {
 	if state.Mode() != PermissionModePlan {
 		t.Fatalf("mode = %q, want plan", state.Mode())
 	}
+}
+
+func TestExitPlanModeRejectsLowQualityPlanFile(t *testing.T) {
+	state := NewPlanModeState()
+	state.SetProjectDir(t.TempDir())
+	state.Enter()
+
+	planFile := filepath.Join(state.PlansDir(), "low-quality.md")
+	if err := os.WriteFile(planFile, []byte("# Plan\n\n- Do it\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	input, _ := json.Marshal(map[string]string{"plan_file": planFile})
+	result := NewExitPlanMode(state).Run(context.Background(), input, nil)
+	if !result.IsError {
+		t.Fatalf("IsError = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "not ready for approval") {
+		t.Fatalf("content = %q, want not ready error", result.Content)
+	}
+	if state.Mode() != PermissionModePlan {
+		t.Fatalf("mode = %q, want plan", state.Mode())
+	}
+}
+
+func TestExitPlanModeAcceptsCompletePlanFile(t *testing.T) {
+	state := NewPlanModeState()
+	state.SetProjectDir(t.TempDir())
+	state.Enter()
+
+	planFile := filepath.Join(state.PlansDir(), "complete.md")
+	if err := os.WriteFile(planFile, []byte(completePlanForExitTest()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	input, _ := json.Marshal(map[string]string{"plan_file": planFile})
+	result := NewExitPlanMode(state).Run(context.Background(), input, nil)
+	if result.IsError {
+		t.Fatalf("IsError = true, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, ApprovedPlanResultHeading) {
+		t.Fatalf("content = %q, want approved plan heading", result.Content)
+	}
+	if state.Mode() != PermissionModeDefault {
+		t.Fatalf("mode = %q, want default", state.Mode())
+	}
+}
+
+func completePlanForExitTest() string {
+	return `# Complete Plan
+
+## Context
+This change makes plan mode produce implementation plans that another engineer can execute without relying on the surrounding conversation.
+
+## File Structure
+- internal/tool/plan_mode.go: owns reminder text, ExitPlanMode metadata, and the shared ready validation helper.
+- internal/agent/interaction_gate.go: uses the shared helper before showing approval.
+
+## Reuse
+- Reuse PlanModeState path handling for locating plan files.
+- Reuse the existing approval event flow instead of adding another tool.
+
+## Implementation Tasks
+1. Add prompt contract text to full and sparse reminders.
+2. Add a shared readiness validator for ExitPlanMode.
+3. Call the validator from both preview and Run paths.
+
+## Verification
+Run go test ./internal/tool ./internal/agent -count=1 and manually try a skeleton plan to confirm no approval popup appears.
+
+## Risks
+The validator could be too strict for tiny plans, so it only checks obvious incompleteness and required section headings.
+
+## Non-goals
+This does not add planner agents, restore builtin writing-plan, or grade plan quality with another model.
+`
 }
 
 // ── Registry ──────────────────────────────────────────────────────────────────

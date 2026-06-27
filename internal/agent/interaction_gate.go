@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/zhanglvtao/cece/internal/tool"
 )
@@ -250,7 +249,7 @@ func exitPlanModePreview(planState *tool.PlanModeState, calls []ApiToolUseBlock)
 				data, readErr := os.ReadFile(abs)
 				if readErr == nil {
 					planContent = string(data)
-					ok = strings.TrimSpace(planContent) != ""
+					ok = tool.ValidatePlanContentForExit(planContent) == nil
 				}
 			}
 		}

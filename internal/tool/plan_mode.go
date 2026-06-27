@@ -58,6 +58,37 @@ func BuildFullPlanReminder(plansDir string, allowedWritePaths ...string) string 
 		"## Allowed Plan-Mode Write Artifacts\n" +
 		planModeWriteInfo(plansDir, allowedWritePaths) + "\n" +
 		"\n" +
+		"## Plan Quality Contract\n" +
+		"You are not just writing notes. You are writing an implementation plan another engineer can execute without this conversation.\n" +
+		"\n" +
+		"### Phase 1: Initial Understanding\n" +
+		"- Read the user's request and inspect the relevant code before designing.\n" +
+		"- Search for existing functions, utilities, tests, and patterns to reuse.\n" +
+		"- Do not ask questions whose answers are available in the code.\n" +
+		"\n" +
+		"### Phase 2: Design\n" +
+		"- Choose one recommended implementation approach.\n" +
+		"- Prefer minimal, elegant, reusable, testable, decoupled changes.\n" +
+		"- Do not introduce a planner agent, new subsystem, or abstraction unless the task requires it.\n" +
+		"\n" +
+		"### Phase 3: Review\n" +
+		"- Re-read the critical files that will change.\n" +
+		"- Check that the plan matches the user's original request.\n" +
+		"- Use AskUserQuestion only for requirements, tradeoffs, or priorities the code cannot answer.\n" +
+		"\n" +
+		"### Phase 4: Final Plan\n" +
+		"The final plan file must include:\n" +
+		"- **Context**: why this change is being made and the intended outcome.\n" +
+		"- **File Structure**: exact files to modify/create and each file's responsibility.\n" +
+		"- **Reuse**: existing functions/utilities/patterns to reuse, with file paths.\n" +
+		"- **Implementation Tasks**: ordered tasks with concrete steps.\n" +
+		"- **Verification**: exact commands and manual checks.\n" +
+		"- **Risks**: edge cases, compatibility concerns, or blast radius.\n" +
+		"- **Non-goals**: what this plan intentionally does not do.\n" +
+		"- **Open Questions / Assumptions**: only if unresolved requirements remain.\n" +
+		"\n" +
+		"Do not call ExitPlanMode with a skeleton plan.\n" +
+		"\n" +
 		"## Iterative Planning Workflow\n" +
 		"You are pair-planning with the user. Explore the code, ask questions when you\n" +
 		"hit decisions you can't make alone, and write findings into the plan file.\n" +
@@ -105,8 +136,79 @@ func BuildFullPlanReminder(plansDir string, allowedWritePaths ...string) string 
 func BuildSparsePlanReminder(plansDir string, allowedWritePaths ...string) string {
 	return "<system-reminder>\n" +
 		fmt.Sprintf("Plan mode still active. Read-only except plan files under %s/ and allowed artifacts: %s. DO NOT write to project root.\n", plansDir, strings.Join(planModeAllowedWriteLabels(plansDir, allowedWritePaths), ", ")) +
-		"Continue iterative workflow. Converge only when the plan covers reuse, risks, and verification. End turns with AskUserQuestion or ExitPlanMode.\n" +
+		"Continue planning until the final plan includes Context, File Structure, Reuse, Implementation Tasks, Verification, Risks, and Non-goals. Do not call ExitPlanMode with a skeleton plan. End turns with AskUserQuestion or ExitPlanMode.\n" +
 		"</system-reminder>"
+}
+
+func ValidatePlanContentForExit(plan string) error {
+	trimmed := strings.TrimSpace(plan)
+	if trimmed == "" {
+		return fmt.Errorf("plan is empty")
+	}
+	if len([]rune(trimmed)) < 300 {
+		return fmt.Errorf("plan is too short to be ready")
+	}
+	if placeholder, ok := planPlaceholderText(trimmed); ok {
+		return fmt.Errorf("plan contains placeholder text: %s", placeholder)
+	}
+
+	required := []struct {
+		label string
+		names []string
+	}{
+		{label: "Context", names: []string{"Context"}},
+		{label: "File Structure", names: []string{"File Structure", "Files"}},
+		{label: "Reuse", names: []string{"Reuse"}},
+		{label: "Implementation Tasks", names: []string{"Implementation Tasks", "Tasks"}},
+		{label: "Verification", names: []string{"Verification", "Test plan"}},
+		{label: "Risks", names: []string{"Risks"}},
+		{label: "Non-goals", names: []string{"Non-goals", "Out of scope"}},
+	}
+	for _, section := range required {
+		if !planHasAnySection(trimmed, section.names...) {
+			return fmt.Errorf("plan is missing required section: %s", section.label)
+		}
+	}
+	return nil
+}
+
+func planPlaceholderText(plan string) (string, bool) {
+	for _, phrase := range []string{"implement later", "fill in details"} {
+		if strings.Contains(strings.ToLower(plan), phrase) {
+			return phrase, true
+		}
+	}
+	for _, line := range strings.Split(plan, "\n") {
+		cleaned := strings.Trim(strings.ToLower(line), " \t-*_:[]()")
+		if cleaned == "todo" || cleaned == "tbd" || strings.HasPrefix(cleaned, "todo ") || strings.HasPrefix(cleaned, "tbd ") {
+			return strings.TrimSpace(line), true
+		}
+	}
+	return "", false
+}
+
+func planHasAnySection(plan string, names ...string) bool {
+	for _, name := range names {
+		if planHasSection(plan, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func planHasSection(plan, name string) bool {
+	escaped := regexp.QuoteMeta(name)
+	patterns := []string{
+		`(?im)^\s{0,3}#{1,6}\s+` + escaped + `\b`,
+		`(?im)^\s*[-*]?\s*\*\*` + escaped + `\*\*\s*:?`,
+		`(?im)^\s*` + escaped + `\s*:`,
+	}
+	for _, pattern := range patterns {
+		if regexp.MustCompile(pattern).FindStringIndex(plan) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func planModeWriteInfo(plansDir string, allowedWritePaths []string) string {
@@ -695,13 +797,13 @@ func (exitPlanModeTool) Effect() Effect { return EffectMode }
 func (exitPlanModeTool) Info() Definition {
 	return Definition{
 		Name:        ExitPlanModeToolName,
-		Description: "Use this tool when plan mode is active and you have finished writing the implementation plan to the plan file. It asks the user to approve the plan before any code changes are made.",
+		Description: "Use this tool only when plan mode is active and you have written a complete implementation plan to the plan file. The plan must include Context, File Structure, Reuse, Implementation Tasks, Verification, Risks, and Non-goals. Do not use this tool for a skeleton or rough-note plan; ask questions or keep planning instead.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"plan_file": map[string]any{
 					"type":        "string",
-					"description": "The path of the plan file you wrote (must be under the plans directory).",
+					"description": "The path of the complete plan file you wrote under the plans directory. The file must be ready for user approval, not a skeleton.",
 				},
 			},
 			"required": []string{"plan_file"},
@@ -739,8 +841,8 @@ func (t exitPlanModeTool) Run(ctx context.Context, input json.RawMessage, emitte
 		return Result{Content: fmt.Sprintf("Failed to read plan file %s: %v", args.PlanFile, err), IsError: true}
 	}
 	plan := string(data)
-	if strings.TrimSpace(plan) == "" {
-		return Result{Content: fmt.Sprintf("Plan file %s is empty. Write your plan before calling ExitPlanMode.", args.PlanFile), IsError: true}
+	if err := ValidatePlanContentForExit(plan); err != nil {
+		return Result{Content: fmt.Sprintf("Plan file %s is not ready for approval: %v. Continue planning before calling ExitPlanMode.", args.PlanFile, err), IsError: true}
 	}
 
 	if !t.state.Exit() {

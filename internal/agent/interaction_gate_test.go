@@ -21,7 +21,7 @@ func TestExitPlanModeRequiresApprovalInPlanMode(t *testing.T) {
 	planState.Enter()
 
 	planFile := filepath.Join(planState.PlansDir(), "plan.md")
-	if err := os.WriteFile(planFile, []byte("# Plan\n\n- Do it\n"), 0o644); err != nil {
+	if err := os.WriteFile(planFile, []byte(completePlanForApprovalTest()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,6 +97,69 @@ func TestExitPlanModeWithEmptyPlanDoesNotRequestApproval(t *testing.T) {
 		t.Fatalf("unexpected event: %T", ev)
 	default:
 	}
+}
+
+func TestExitPlanModeWithLowQualityPlanDoesNotRequestApproval(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(tool.NewExitPlanMode(nil))
+
+	projectDir := t.TempDir()
+	planState := tool.NewPlanModeState()
+	planState.SetProjectDir(projectDir)
+	planState.Enter()
+
+	planFile := filepath.Join(planState.PlansDir(), "low-quality.md")
+	if err := os.WriteFile(planFile, []byte("# Plan\n\n- Do it\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	confirmCh := make(chan struct{}, 1)
+	gate := NewInteractionGate(registry, planState, false, confirmCh, nil, nil)
+	calls := []ApiToolUseBlock{{
+		ID:    "call_1",
+		Name:  tool.ExitPlanModeToolName,
+		Input: json.RawMessage(`{"plan_file": "` + planFile + `"}`),
+	}}
+	events := make(chan Event, 16)
+
+	if err := gate.WaitIfNeeded(context.Background(), calls, events); err != nil {
+		t.Fatalf("WaitIfNeeded returned error: %v", err)
+	}
+	select {
+	case ev := <-events:
+		t.Fatalf("unexpected event: %T", ev)
+	default:
+	}
+}
+
+func completePlanForApprovalTest() string {
+	return `# Complete Plan
+
+## Context
+This plan improves plan approval so users only review implementation plans that are complete enough to execute.
+
+## File Structure
+- internal/tool/plan_mode.go: owns the shared ExitPlanMode readiness validation contract.
+- internal/agent/interaction_gate.go: calls the shared validation contract before requesting approval.
+
+## Reuse
+- Reuse the existing PlanApprovalRequested event so no additional tool or UI flow is needed.
+- Reuse PlanModeState.PlansDir to resolve relative plan_file inputs.
+
+## Implementation Tasks
+1. Validate plan content before ExitPlanMode changes permission mode.
+2. Validate the same content before emitting PlanApprovalRequested.
+3. Keep incomplete plans in the normal tool-result correction flow.
+
+## Verification
+Run go test ./internal/tool ./internal/agent -count=1 and confirm skeleton plans do not trigger approval.
+
+## Risks
+The keyword validator can reject unusual but valid plans, so the rule stays limited to obvious missing sections and placeholders.
+
+## Non-goals
+This does not create a second ExitPlanMode tool, add a planner agent, or replace user approval.
+`
 }
 
 func TestPlanModeAllowedWritesDoNotRequestApproval(t *testing.T) {

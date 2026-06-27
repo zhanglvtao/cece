@@ -147,7 +147,7 @@ func TestTurnRunnerExitPlanModeRejectedPersistsRejectToolResult(t *testing.T) {
 	planState.SetProjectDir(t.TempDir())
 	planState.SetMode(tool.PermissionModePlan)
 	planFile := filepath.Join(planState.PlansDir(), "plan.md")
-	if err := os.WriteFile(planFile, []byte("# plan"), 0o644); err != nil {
+	if err := os.WriteFile(planFile, []byte(completeTurnRunnerPlanForExitTest()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -219,7 +219,7 @@ func TestTurnRunnerExitPlanModeApprovedInjectsExecutionContext(t *testing.T) {
 	planState.SetProjectDir(t.TempDir())
 	planState.SetMode(tool.PermissionModePlan)
 	planFile := filepath.Join(planState.PlansDir(), "plan.md")
-	if err := os.WriteFile(planFile, []byte("# Plan\n\n- Edit the target file\n- Run go test\n"), 0o644); err != nil {
+	if err := os.WriteFile(planFile, []byte(completeTurnRunnerPlanForExitTest()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -297,6 +297,36 @@ func TestTurnRunnerExitPlanModeApprovedInjectsExecutionContext(t *testing.T) {
 	if len(history) == 0 || history[len(history)-1].Role == UserRole && strings.Contains(history[len(history)-1].TextContent(), "Plan approved") {
 		t.Fatalf("approved-plan continuation should be request-local, history = %+v", history)
 	}
+}
+
+func completeTurnRunnerPlanForExitTest() string {
+	return `# Plan
+
+## Context
+This plan lets the turn runner leave plan mode only after the user reviews a complete implementation plan.
+
+## File Structure
+- internal/agent/turn_runner.go: persists rejected approval results and injects execution context after approval.
+- internal/tool/plan_mode.go: validates ExitPlanMode plan content before exiting plan mode.
+
+## Reuse
+- Reuse the existing PlanApprovalRequested and PlanRejected events.
+- Reuse the approved-plan continuation path that tells the model to begin implementing.
+
+## Implementation Tasks
+1. Request approval when ExitPlanMode points at a complete plan file.
+2. Persist a rejection tool_result when the user rejects approval.
+3. After approval, execute ExitPlanMode and inject the approved plan into the next request.
+
+## Verification
+Run go test ./internal/agent -run TestTurnRunnerExitPlanMode -count=1 and confirm the approved continuation mentions Edit the target file.
+
+## Risks
+If a test fixture is too small, the readiness gate will skip approval and the turn runner will not exercise the approval branch.
+
+## Non-goals
+This does not test model planning quality or add another approval tool.
+`
 }
 
 func waitForEventType[T Event](t *testing.T, events <-chan Event, _ T) T {
