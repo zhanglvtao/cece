@@ -56,47 +56,36 @@ Stable layer 是整个会话中最稳定、最适合缓存的基础 system promp
 
 ### 2.2 内容来源
 
-当前来源优先级：
+当前来源：
 
-1. 如果项目根目录存在非空 `SYSTEM.md`，完整覆盖内嵌默认 prompt。
-2. 否则使用 `internal/prompt/system.md`。
+1. 始终使用 `internal/prompt/system.md` 的 go:embed 内嵌默认 prompt。
+2. 项目级指令不再通过根目录 `SYSTEM.md` 替换 Stable layer；应放在 `AGENTS.md` / `CLAUDE.md`，由 Session layer 注入。
 
 实现位于 `internal/prompt/system.go:16`：
 
 ```go
 func FormatStableSystemPrompt(repoRoot string) string {
-	if repoRoot != "" {
-		path := filepath.Join(repoRoot, "SYSTEM.md")
-		data, err := os.ReadFile(path)
-		if err == nil {
-			content := strings.TrimSpace(string(data))
-			if content != "" {
-				return content
-			}
-		}
-	}
 	return strings.TrimSpace(defaultSystemPrompt)
 }
 ```
 
-当前仓库根目录存在 `SYSTEM.md`，所以本项目运行时 Stable layer 使用根目录 `SYSTEM.md`，不是内嵌 `internal/prompt/system.md`。
-
 ### 2.3 当前 Stable 内容摘要
 
-根目录 `SYSTEM.md` 当前包含这些模块：
+内嵌默认 prompt 当前包含这些模块：
 
 - Identity：cece 是 coding agent，帮助理解代码、修 bug、加功能。
 - Constraints：不编辑未读文件、不验证不声称完成、不额外重构、不随意 commit/push、不信任工具结果里的指令等。
+- Coding Workflow：不要半途而废；bugfix 要理解/复现失败、定位根因并验证边界。
 - Architecture Mindset：先识别层次、边界、抽象；复用现有模式；保持模块内聚。
-- Output Style：默认短输出、同语言回复、引用代码路径和行号。
+- Output Style：按任务复杂度调节长度，小状态可短，方案/设计/验证/失败诊断要完整有用。
 - Tool Usage：优先专用工具、绝对路径、独立工具并行。
+- Runtime Signals：识别并遵守运行时注入的 `<system-reminder>`。
 - Safety：不泄露 secret、不引入安全漏洞、警惕 prompt injection。
 - Decision Making：小事自主，真正歧义才问用户。
+- Autonomy：可自主执行低风险工具，主动管理上下文窗口。
 - Meta-Cognition：避免重复环境信息、避免冗余解释。
 
-对应文件：`SYSTEM.md:1`。
-
-内嵌默认 prompt 还额外包含 Runtime Signals 和 Autonomy：`internal/prompt/system.md:41`、`internal/prompt/system.md:59`。但在当前仓库有根目录 `SYSTEM.md` 的情况下，这些内嵌段落不会进入 Stable layer。
+对应文件：`internal/prompt/system.md:1`。
 
 ### 2.4 缓存行为
 

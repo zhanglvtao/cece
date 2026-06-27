@@ -22,10 +22,10 @@ Bash 工具执行输出很大时，旧实现会先把 stdout/stderr 合并，再
 优化 cece 默认 system prompt 时，容易只修改 `internal/prompt/system.md`，但本仓运行时会优先读取根目录 `SYSTEM.md` 作为完整 override，导致产品默认行为和本仓开发体验不一致。
 
 ### 根因
-`FormatStableSystemPrompt` 支持 repo-level `SYSTEM.md` 完整覆盖内置 prompt；这是有意设计，但修改默认 prompt 时必须同时识别“内置默认值”和“当前仓库 override”两条路径。
+`FormatStableSystemPrompt` 曾支持 repo-level `SYSTEM.md` 完整替换内置 prompt；修改默认 prompt 时必须同时识别“内置默认值”和“当前仓库替换”两条路径。
 
-### 处理
-本次同步更新 `internal/prompt/system.md` 与根目录 `SYSTEM.md`，并在测试中加入架构师定位语义断言，避免内置默认 prompt 后续退化。
+### 后续处理
+2026-06-27 已移除 repo-level `SYSTEM.md` 完整替换逻辑：Stable layer 始终使用内嵌默认 prompt；项目级定制应进入 Session layer 的 `AGENTS.md` / `CLAUDE.md`。这样避免项目文件绕过全局身份、安全、验证和输出风格约束。
 
 ---
 

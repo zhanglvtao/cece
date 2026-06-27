@@ -81,6 +81,11 @@
 - 定位：SWE-bench harness 为了无人值守把 `defaultMode` 强制成 `auto-accept`，导致 agent 首轮缺少 plan mode reminder；而 yolo 已可自动放行 `ExitPlanMode`，不需要牺牲 plan-first 流程。
 - 结论：评测容器应使用 `defaultMode=plan` + `yolo.enabled=true`：让模型先规划复现和边界，同时避免计划审批卡住 batch runner。
 
+## SWE-bench testbed env 不能只靠镜像 shell 初始化
+- 现象：SWE-bench 官方镜像虽然会在 shell 初始化里准备 `testbed` conda 环境，但 cece 的 Bash 工具默认走 `bash -c`，不会读取 `/root/.bashrc`；结果 agent 在 benchmark 内自测时可能悄悄掉回 base conda，出现 `ModuleNotFoundError`，而评分器因为手动 activate 仍能跑通。
+- 定位：问题边界在 benchmark runtime，而不是全局 Bash 工具本身；真正缺的是“cece engine 启动后，后续 Bash 调用默认处在 testbed env”。同时 benchmark 专用 `SYSTEM.md` 如果写得太弱，还会替换掉 cece 默认的强验证约束。
+- 结论：数据集特有环境问题优先在 `benchmarks/adapters/swebench.py` 这一层对齐官方 runner 的显式激活方式，不要污染全局 Bash 语义；benchmark prompt 也必须显式要求复现、跑仓库测试、如实汇报失败。
+
 ## 无 tool call 不等于任务闭环
 - 现象：复杂实现/bugfix 过程中，模型一旦输出普通文本且没有继续发 tool call，`TurnRunner` 就发 `AssistantCompleted`，Engine 随后发 `TurnCompleted`，UI 进入 Ready；任务可能还没验证或 Todo 仍未完成。
 - 定位：`AssistantCompleted` 只是“assistant 本次响应完成”，不是“用户任务完成”。仅靠 prompt 里的“不要半途而废”无法形成运行时约束，尤其还和短输出风格存在张力。
@@ -140,6 +145,11 @@
 - 现象：拓扑把 `runtime → hub → engine` 画在主链路中，容易误解为 Observatory Hub 负责调度 Engine，也导致 TUI Client 和 Engine 之间看不到真正的控制路径。
 - 定位：Hub 实际是观测旁路，负责收集事件、写入 Store、通过 SSE 推给 Web；业务控制路径应是 `user → tui → runtime → engine → model`。
 - 结论：拓扑语义要区分 control path 和 telemetry path；观测 Hub 应作为旁路节点，只接收 telemetry，不指向业务模块。
+
+## Repo SYSTEM.md 替换内置 stable prompt 会破坏全局约束
+- 现象：修改 cece 默认 prompt 时，仓库根目录 `SYSTEM.md` 会完整替换 `internal/prompt/system.md`，导致内置身份、安全、验证、输出风格等约束在本仓开发体验中失效或漂移。
+- 定位：`FormatStableSystemPrompt(repoRoot)` 把项目文件作为 Stable layer 完整替换；但项目定制和全局 stable contract 属于不同层，不能互相替代。
+- 结论：Stable layer 始终来自内嵌默认 prompt；项目级定制放入 Session layer 的 `AGENTS.md` / `CLAUDE.md`。根目录 `SYSTEM.md` 不再作为运行时 prompt 来源。
 
 ## reasoning_effort 和 __chat_completion_model 导致 Aiden API 400
 - 现象：Aiden API 返回 `Invalid reasoning_effort: xhigh` 和 `json: unknown field "__chat_completion_model"` 两种 400 错误。

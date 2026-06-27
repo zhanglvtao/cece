@@ -59,6 +59,33 @@ func TestFormatStableSystemPromptContainsAllSections(t *testing.T) {
 	}
 }
 
+func TestFormatStableSystemPromptUsesScenarioBasedOutputStyle(t *testing.T) {
+	got := FormatStableSystemPrompt("")
+
+	expected := []string{
+		"Match response length to task complexity",
+		"tiny status updates can be terse",
+		"plans, design choices, verification results, failures, and risk trade-offs",
+		"complete enough to be useful",
+		"Avoid filler",
+	}
+	for _, value := range expected {
+		if !strings.Contains(got, value) {
+			t.Fatalf("missing scenario-based output style phrase %q", value)
+		}
+	}
+
+	disallowed := []string{
+		"Keep text output under 4 lines",
+		"One-word answers when possible",
+	}
+	for _, value := range disallowed {
+		if strings.Contains(got, value) {
+			t.Fatalf("system prompt should not contain hard brevity rule %q", value)
+		}
+	}
+}
+
 func TestFormatStableSystemPromptContainsArchitectureMindset(t *testing.T) {
 	got := FormatStableSystemPrompt("")
 
@@ -99,7 +126,7 @@ func TestFormatStableSystemPromptContainsCodingWorkflow(t *testing.T) {
 	}
 }
 
-func TestFormatStableSystemPromptOverrideWithSYSTEMmd(t *testing.T) {
+func TestFormatStableSystemPromptIgnoresRepoSYSTEMmd(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	customContent := "# Custom System Prompt\n- Custom rule 1\n- Custom rule 2"
@@ -108,11 +135,12 @@ func TestFormatStableSystemPromptOverrideWithSYSTEMmd(t *testing.T) {
 	}
 
 	got := FormatStableSystemPrompt(tmpDir)
-	if !strings.Contains(got, "Custom rule 1") {
-		t.Fatalf("expected SYSTEM.md override content, got %q", got)
+	defaultGot := FormatStableSystemPrompt("")
+	if got != defaultGot {
+		t.Fatalf("expected embedded prompt even when repo SYSTEM.md exists\ngot:     %q\ndefault: %q", got, defaultGot)
 	}
-	if strings.Contains(got, "# Identity") {
-		t.Fatal("should not contain default prompt sections when overridden")
+	if strings.Contains(got, "Custom rule 1") {
+		t.Fatalf("repo SYSTEM.md must not override embedded stable prompt: %q", got)
 	}
 }
 
@@ -124,17 +152,5 @@ func TestFormatStableSystemPromptFallsBackToDefaultWhenNoFile(t *testing.T) {
 
 	if got != defaultGot {
 		t.Fatalf("expected default prompt when no override file exists\ngot:      %q\ndefault:  %q", got, defaultGot)
-	}
-}
-
-func TestFormatStableSystemPromptIgnoresEmptyFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, "SYSTEM.md"), []byte("   \n\t\n  "), 0644)
-
-	got := FormatStableSystemPrompt(tmpDir)
-	defaultGot := FormatStableSystemPrompt("")
-
-	if got != defaultGot {
-		t.Fatalf("empty SYSTEM.md should fall back to default")
 	}
 }
