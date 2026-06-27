@@ -565,3 +565,53 @@ func TestPlanModeWriteAllowlistProjectOverridesUser(t *testing.T) {
 		t.Fatalf("PlanModeWriteAllowlist = %+v, want project override", merged.Permissions.PlanModeWriteAllowlist)
 	}
 }
+
+func TestSaveEnabledSkillsWritesProjectSettingsOnly(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	globalPath := filepath.Join(homeDir, ".cece", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	globalSettings := `{
+		"skills": { "enabled": ["user-skill"] },
+		"defaultMode": { "mode": "auto-accept" }
+	}`
+	if err := os.WriteFile(globalPath, []byte(globalSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveEnabledSkills(projectDir, []string{"project-skill", "shared-skill"}); err != nil {
+		t.Fatalf("SaveEnabledSkills returned error: %v", err)
+	}
+
+	projectPath := filepath.Join(projectDir, ".cece", "settings.json")
+	projectData, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatalf("read project settings: %v", err)
+	}
+	var project settingsFile
+	if err := json.Unmarshal(projectData, &project); err != nil {
+		t.Fatalf("unmarshal project settings: %v", err)
+	}
+	if len(project.Skills.Enabled) != 2 || project.Skills.Enabled[0] != "project-skill" || project.Skills.Enabled[1] != "shared-skill" {
+		t.Fatalf("project skills.enabled = %+v, want project values", project.Skills.Enabled)
+	}
+
+	globalData, err := os.ReadFile(globalPath)
+	if err != nil {
+		t.Fatalf("read global settings: %v", err)
+	}
+	var global settingsFile
+	if err := json.Unmarshal(globalData, &global); err != nil {
+		t.Fatalf("unmarshal global settings: %v", err)
+	}
+	if len(global.Skills.Enabled) != 1 || global.Skills.Enabled[0] != "user-skill" {
+		t.Fatalf("global skills.enabled = %+v, want unchanged user value", global.Skills.Enabled)
+	}
+	if global.DefaultMode.Mode != "auto-accept" {
+		t.Fatalf("global defaultMode = %q, want unchanged auto-accept", global.DefaultMode.Mode)
+	}
+}
