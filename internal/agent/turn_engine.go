@@ -65,4 +65,5 @@ type TurnEngine interface {
 
 	// Auto compact
 	TryAutoCompact(ctx context.Context) bool
+	EnsureContextBudget(ctx context.Context, targetTokens int) bool
 }

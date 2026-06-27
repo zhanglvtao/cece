@@ -34,25 +34,36 @@ type toolCallState struct {
 
 // ModelStreamRequest describes one streaming model call within an agent turn.
 type ModelStreamRequest struct {
-	Messages      []Message
-	System        SystemPrompt
-	Reason        string
-	MaxTokens     int
-	ContextWindow int
-	ToolResults   []string
+	Messages              []Message
+	System                SystemPrompt
+	Reason                string
+	MaxTokens             int
+	ContextWindow         int
+	ToolResults           []string
+	EstimatedInputTokens  int
+	ReserveTokens         int
+	UnderestimateP95      int
+	AvailableMaxTokens    int
+	BudgetFits            bool
+	ManagementTriggered   bool
 }
 
 // ModelStreamer converts provider stream chunks into chat events and a modelResponse.
 type ModelStreamer struct {
-	client           ModelClient
-	registry         *tool.Registry
-	onInputTokens    func(int)
-	lastInputTokens  int // actual input tokens from last API response
-	lastMessageCount int // number of messages in last request
+	client              ModelClient
+	registry            *tool.Registry
+	onInputTokens       func(int)
+	lastInputTokens     int // actual input tokens from last API response
+	lastMessageCount    int // number of messages in last request
+	underestimateStats  *UnderestimateStats
 }
 
 func NewModelStreamer(client ModelClient, registry *tool.Registry, onInputTokens func(int)) *ModelStreamer {
-	return &ModelStreamer{client: client, registry: registry, onInputTokens: onInputTokens}
+	return &ModelStreamer{client: client, registry: registry, onInputTokens: onInputTokens, underestimateStats: NewUnderestimateStats(defaultUnderestimateN)}
+}
+
+func (s *ModelStreamer) SetUnderestimateStats(stats *UnderestimateStats) {
+	s.underestimateStats = stats
 }
 
 // Stream executes one streaming model call, emits UI events to ch,
@@ -63,7 +74,10 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		tools = s.registry.Definitions()
 	}
 
-	estimated := EstimateRequestTokens(req.System, req.Messages, tools)
+	estimated := req.EstimatedInputTokens
+	if estimated <= 0 {
+		estimated = EstimateRequestTokens(req.System, req.Messages, tools)
+	}
 
 	// Calibrate using last actual InputTokens as a water level:
 	// estimated = max(pure_estimate, lastActual + incremental_delta)
@@ -78,6 +92,11 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		Reason:               req.Reason,
 		ToolResults:          req.ToolResults,
 		EstimatedInputTokens: estimated,
+		ReserveTokens:        req.ReserveTokens,
+		UnderestimateP95:     req.UnderestimateP95,
+		AvailableMaxTokens:   req.AvailableMaxTokens,
+		BudgetFits:           req.BudgetFits,
+		ManagementTriggered:  req.ManagementTriggered,
 	})
 
 	streamStart := time.Now()
@@ -158,6 +177,9 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			if s.onInputTokens != nil {
 				s.onInputTokens(resp.inputTokens)
 			}
+			if s.underestimateStats != nil {
+				s.underestimateStats.Record(maxInt(resp.inputTokens-estimated, 0))
+			}
 			s.lastInputTokens = resp.inputTokens
 			s.lastMessageCount = len(req.Messages)
 			resp.cacheReadTokens = chunk.CacheReadTokens
@@ -183,6 +205,9 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				resp.inputTokens = chunk.InputTokens
 				if s.onInputTokens != nil {
 					s.onInputTokens(resp.inputTokens)
+				}
+				if s.underestimateStats != nil {
+					s.underestimateStats.Record(maxInt(resp.inputTokens-estimated, 0))
 				}
 				s.lastInputTokens = resp.inputTokens
 			}

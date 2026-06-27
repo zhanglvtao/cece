@@ -405,6 +405,27 @@ func TestTryAutoCompactFallsBackWhenCompactSummaryFails(t *testing.T) {
 	}
 }
 
+func TestEnsureContextBudgetRunsFallbackChain(t *testing.T) {
+	eng := NewEngine(&fakeClient{chunks: []agent.ApiStreamEvent{{Err: errors.New("summary boom")}}}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.SetModelInfo("model", 1000)
+	large := strings.Repeat("x", 8000)
+	eng.LoadHistory(context.Background(), "", []agent.Message{
+		{Role: agent.UserRole, Content: "u0"},
+		{Role: agent.AssistantRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolUseContentType, ToolUse: &agent.ApiToolUseBlock{ID: "call_1", Name: "Read", Input: json.RawMessage(`{}`)}}}},
+		{Role: agent.ToolRole, ContentBlocks: []agent.ApiContentBlock{{Type: agent.ApiToolResultContentType, ToolResult: &agent.ApiToolResultBlock{ToolUseID: "call_1", Content: large}}}},
+		{Role: agent.UserRole, Content: "u1"},
+	})
+
+	before := agent.EstimateMessagesTokens(agent.MessagesAfterCompactBoundary(eng.HistorySnapshot()))
+	if !eng.EnsureContextBudget(context.Background(), 200) {
+		t.Fatal("EnsureContextBudget returned false, want fallback chain to run")
+	}
+	after := agent.EstimateMessagesTokens(agent.MessagesAfterCompactBoundary(eng.HistorySnapshot()))
+	if after >= before {
+		t.Fatalf("tokens before=%d after=%d, want reduction", before, after)
+	}
+}
+
 func TestStatusBarSnapshotPersistsCompletionHookCalls(t *testing.T) {
 	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
 	eng.IncrementCompletionHookCalls()

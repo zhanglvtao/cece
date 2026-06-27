@@ -45,3 +45,56 @@ func TestIsContextBudgetProviderError_AidenGeneric400(t *testing.T) {
 		t.Fatal("expected Aiden 1210/-4316 to be recognized as context budget provider error")
 	}
 }
+
+func TestReserveBudgetUsesP95Underestimate(t *testing.T) {
+	stats := NewUnderestimateStats(5)
+	for _, sample := range []int{100, 200, 300, 400, 500} {
+		stats.Record(sample)
+	}
+
+	budget := ComputeReserveBudget(ReserveBudgetInput{
+		EstimatedInputTokens: 1000,
+		RequestedMaxTokens:   4096,
+		ModelMaxOutput:       8192,
+		ContextWindow:        50000,
+		ReserveRatio:         0.1,
+		UnderestimateP95:     stats.P95(),
+	})
+
+	if budget.UnderestimateP95 != 500 {
+		t.Fatalf("UnderestimateP95 = %d, want 500", budget.UnderestimateP95)
+	}
+	if budget.ReserveTokens != 20000 {
+		t.Fatalf("ReserveTokens = %d, want 20000", budget.ReserveTokens)
+	}
+	if !budget.Fits {
+		t.Fatal("expected budget to fit")
+	}
+}
+
+func TestModelStreamerRecordsUnderestimateFromActualInputTokens(t *testing.T) {
+	client := staticStreamClient{events: []ApiStreamEvent{
+		{EventType: "message_start", InputTokens: 1800},
+		{EventType: "message_delta", StopReason: "end_turn", OutputTokens: 1},
+		{Done: true, EventType: "message_stop"},
+	}}
+	stats := NewUnderestimateStats(8)
+	streamer := NewModelStreamer(client, tool.NewRegistry(), nil)
+	streamer.SetUnderestimateStats(stats)
+
+	_, err := streamer.Stream(context.Background(), ModelStreamRequest{
+		Messages:      []Message{{Role: UserRole, Content: "hello"}},
+		System:        SystemPrompt{},
+		Reason:        "user",
+		MaxTokens:     1024,
+		ContextWindow: 32000,
+		EstimatedInputTokens: 1200,
+	}, make(chan Event, 8))
+	if err != nil {
+		t.Fatalf("Stream error = %v", err)
+	}
+
+	if got := stats.P95(); got != 600 {
+		t.Fatalf("P95 = %d, want 600", got)
+	}
+}

@@ -29,6 +29,11 @@ type ModelRequestStarted struct {
 	Reason               string   // "user" or "tool_result"
 	ToolResults          []string // tool result names (when Reason="tool_result")
 	EstimatedInputTokens int      // locally estimated input tokens (system + messages + tools)
+	ReserveTokens        int
+	UnderestimateP95     int
+	AvailableMaxTokens   int
+	BudgetFits           bool
+	ManagementTriggered  bool
 }
 
 func (ModelRequestStarted) isEvent() {}

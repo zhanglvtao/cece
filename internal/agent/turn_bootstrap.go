@@ -188,6 +188,7 @@ func (b *TurnBootstrap) turnDeps() TurnDeps {
 		DrainQueuedInputs:   eng.DrainQueuedInputs,
 		DrainModeReminder:   eng.PlanState().DrainModeReminder,
 		TryAutoCompact:      eng.TryAutoCompact,
+		EnsureContextBudget: eng.EnsureContextBudget,
 		HistorySnapshot:     eng.HistorySnapshot,
 		IncrementAPICalls:   eng.IncrementAPICalls,
 		RecordToolExecution: eng.RecordToolExecution,

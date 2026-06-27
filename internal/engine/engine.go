@@ -1027,8 +1027,10 @@ func (e *Engine) TryAutoCompact(ctx context.Context) bool {
 	if !e.shouldAutoCompact() {
 		return false
 	}
+	return e.EnsureContextBudget(ctx, e.autoCompactTargetTokens())
+}
 
-	targetTokens := e.autoCompactTargetTokens()
+func (e *Engine) EnsureContextBudget(ctx context.Context, targetTokens int) bool {
 	before := e.currentVisibleTokens()
 
 	e.CompactHistory(ctx)
