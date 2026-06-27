@@ -321,8 +321,23 @@ const ExitPlanModeReminderText = "<system-reminder>\n" +
 	"Exited plan mode. You may now implement the approved plan.\n" +
 	"</system-reminder>"
 
+const ApprovedPlanResultHeading = "## Approved Plan:"
+
 func ExitPlanModeReminder() string {
 	return ExitPlanModeReminderText
+}
+
+func BuildApprovedPlanContinuation(plan string) string {
+	plan = strings.TrimSpace(plan)
+	if plan == "" {
+		return "<system-reminder>\n" +
+			"Plan approved. Begin implementing the approved plan now. Continue with the next concrete implementation step; do not stop to summarize or ask for approval again.\n" +
+			"</system-reminder>"
+	}
+	return "<system-reminder>\n" +
+		"Plan approved. Begin implementing the approved plan now. Continue with the next concrete implementation step; do not stop to summarize or ask for approval again. Use tools according to the current permission mode.\n" +
+		"</system-reminder>\n\n" +
+		"## Approved Plan\n\n" + plan
 }
 
 // ── PlanModeState ───────────────────────────────────────────────────────────
@@ -731,5 +746,5 @@ func (t exitPlanModeTool) Run(ctx context.Context, input json.RawMessage, emitte
 	if !t.state.Exit() {
 		return Result{Content: "ExitPlanMode can only be used while plan mode is active.", IsError: true}
 	}
-	return Result{Content: ExitPlanModeReminderText + "\n\n## Approved Plan:\n" + plan}
+	return Result{Content: ExitPlanModeReminderText + "\n\n" + ApprovedPlanResultHeading + "\n" + plan}
 }

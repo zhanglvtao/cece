@@ -62,6 +62,9 @@ func (e *dryRunEngine) ResetQuestionAnswers()                     {}
 func (e *dryRunEngine) GetQuestionAnswers() []tool.QuestionAnswer { return nil }
 func (e *dryRunEngine) DrainQueuedInputs() []string               { return nil }
 func (e *dryRunEngine) TryAutoCompact(ctx context.Context) bool   { return false }
+func (e *dryRunEngine) EnsureContextBudget(ctx context.Context, targetTokens int) bool {
+	return false
+}
 
 type dryRunCollector struct{}
 
@@ -209,6 +212,91 @@ func TestTurnRunnerExitPlanModeRejectedPersistsRejectToolResult(t *testing.T) {
 	}
 	waitForEventType(t, events, PlanRejected{})
 	waitForEventType(t, events, AssistantCompleted{})
+}
+
+func TestTurnRunnerExitPlanModeApprovedInjectsExecutionContext(t *testing.T) {
+	planState := tool.NewPlanModeState()
+	planState.SetProjectDir(t.TempDir())
+	planState.SetMode(tool.PermissionModePlan)
+	planFile := filepath.Join(planState.PlansDir(), "plan.md")
+	if err := os.WriteFile(planFile, []byte("# Plan\n\n- Edit the target file\n- Run go test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	streamCalls := 0
+	var secondRequest []Message
+	client := &mockStreamClient{streamFn: func(_ context.Context, messages []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
+		streamCalls++
+		if streamCalls == 2 {
+			secondRequest = append([]Message(nil), messages...)
+			return textStream("implementation started"), nil
+		}
+		ch := make(chan ApiStreamEvent, 8)
+		ch <- ApiStreamEvent{EventType: "message_start", InputTokens: 10}
+		ch <- ApiStreamEvent{EventType: "content_block_start", Index: 0, ToolCallID: "call_exit", ToolCallName: tool.ExitPlanModeToolName}
+		ch <- ApiStreamEvent{EventType: "content_block_delta", Detail: "input_json_delta", Index: 0, ToolCallInput: `{"plan_file":"` + planFile + `"}`}
+		ch <- ApiStreamEvent{EventType: "content_block_stop", Index: 0}
+		ch <- ApiStreamEvent{EventType: "message_delta", StopReason: "tool_use", OutputTokens: 5}
+		ch <- ApiStreamEvent{Done: true, EventType: "message_stop"}
+		close(ch)
+		return ch, nil
+	}}
+
+	registry := tool.NewRegistry()
+	registry.Register(tool.NewExitPlanMode(planState))
+
+	var history []Message
+	confirmCh := make(chan struct{}, 1)
+	runner := NewTurnRunner(
+		NewModelStreamer(client, registry, nil),
+		NewInteractionGate(registry, planState, false, confirmCh, nil, nil),
+		NewToolExecutor(registry, planState, nil, ToolResultPolicy{}, nil),
+		4096,
+		TurnDeps{
+			AppendMessage:       func(m Message) { history = append(history, m) },
+			PersistMessage:      func(context.Context, Message) {},
+			UpdateSessionMeta:   func(context.Context, modelResponse) {},
+			DrainQueuedInputs:   func() []string { return nil },
+			DrainModeReminder:   planState.DrainModeReminder,
+			TryAutoCompact:      func(context.Context) bool { return false },
+			HistorySnapshot:     func() []Message { return append([]Message(nil), history...) },
+			IncrementAPICalls:   func() {},
+			RecordToolExecution: func(string, bool) {},
+			CompletionGateContext: func() CompletionGateContext {
+				return CompletionGateContext{}
+			},
+		},
+	)
+
+	events := make(chan Event, 64)
+	done := make(chan struct{})
+	go func() {
+		runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "start"}}}, events)
+		close(done)
+	}()
+
+	waitForEventType(t, events, PlanApprovalRequested{})
+	confirmCh <- struct{}{}
+	<-done
+
+	if streamCalls != 2 {
+		t.Fatalf("streamCalls = %d, want 2", streamCalls)
+	}
+	if len(secondRequest) < 2 {
+		t.Fatalf("secondRequest len = %d, want at least tool_result + continuation", len(secondRequest))
+	}
+	last := secondRequest[len(secondRequest)-1]
+	if last.Role != UserRole {
+		t.Fatalf("last injected message role = %s, want user", last.Role)
+	}
+	for _, want := range []string{"Plan approved", "Begin implementing", "do not stop to summarize", "# Plan", "Edit the target file"} {
+		if !strings.Contains(last.TextContent(), want) {
+			t.Fatalf("injected context = %q, want %q", last.TextContent(), want)
+		}
+	}
+	if len(history) == 0 || history[len(history)-1].Role == UserRole && strings.Contains(history[len(history)-1].TextContent(), "Plan approved") {
+		t.Fatalf("approved-plan continuation should be request-local, history = %+v", history)
+	}
 }
 
 func waitForEventType[T Event](t *testing.T, events <-chan Event, _ T) T {
@@ -469,7 +557,7 @@ func TestTurnRunnerPreflightCompactsAndRefreshesSnapshot(t *testing.T) {
 	original := []Message{{Role: UserRole, Content: strings.Repeat("x ", 4000)}}
 	compacted := []Message{{Role: UserRole, Content: "summary"}}
 	requestedMaxTokens := 4096
-	contextWindow := EstimateRequestTokens(SystemPrompt{}, original, nil) + requestedMaxTokens + contextBudgetSafetyMargin - 1
+	contextWindow := EstimateRequestTokens(SystemPrompt{}, compacted, nil) + defaultReserveMinTokens + 1000
 
 	compactCalls := 0
 	var streamMessages []Message
@@ -518,8 +606,8 @@ func TestTurnRunnerPreflightCompactsAndRefreshesSnapshot(t *testing.T) {
 func TestTurnRunnerPreflightShrinksMaxTokensToFitBudget(t *testing.T) {
 	messages := []Message{{Role: UserRole, Content: strings.Repeat("x ", 4000)}}
 	requestedMaxTokens := 4096
-	wantMaxTokens := minContextBudgetMaxTokens + 500
-	contextWindow := EstimateRequestTokens(SystemPrompt{}, messages, nil) + wantMaxTokens + contextBudgetSafetyMargin
+	wantMaxTokens := requestedMaxTokens
+	contextWindow := EstimateRequestTokens(SystemPrompt{}, messages, nil) + defaultReserveMinTokens + wantMaxTokens
 
 	compactCalls := 0
 	var streamMaxTokens int
@@ -550,8 +638,8 @@ func TestTurnRunnerPreflightShrinksMaxTokensToFitBudget(t *testing.T) {
 
 	runner.Run(context.Background(), TurnPlan{Messages: messages}, make(chan Event, 64))
 
-	if compactCalls != 2 {
-		t.Fatalf("compactCalls = %d, want 2", compactCalls)
+	if compactCalls != 1 {
+		t.Fatalf("compactCalls = %d, want 1", compactCalls)
 	}
 	if streamMaxTokens != wantMaxTokens {
 		t.Fatalf("stream maxTokens = %d, want %d", streamMaxTokens, wantMaxTokens)
@@ -561,7 +649,7 @@ func TestTurnRunnerPreflightShrinksMaxTokensToFitBudget(t *testing.T) {
 func TestTurnRunnerPreflightKeepsMaxTokensWhenBudgetFits(t *testing.T) {
 	messages := []Message{{Role: UserRole, Content: "small"}}
 	requestedMaxTokens := 4096
-	contextWindow := EstimateRequestTokens(SystemPrompt{}, messages, nil) + requestedMaxTokens + contextBudgetSafetyMargin
+	contextWindow := EstimateRequestTokens(SystemPrompt{}, messages, nil) + defaultReserveMinTokens + 1000
 
 	compactCalls := 0
 	var streamMaxTokens int
@@ -597,6 +685,49 @@ func TestTurnRunnerPreflightKeepsMaxTokensWhenBudgetFits(t *testing.T) {
 	}
 	if streamMaxTokens != requestedMaxTokens {
 		t.Fatalf("stream maxTokens = %d, want %d", streamMaxTokens, requestedMaxTokens)
+	}
+}
+
+func TestTurnRunnerPreflightUsesReserveBudgetBeforeShrinking(t *testing.T) {
+	messages := []Message{{Role: UserRole, Content: strings.Repeat("x ", 4000)}}
+	requestedMaxTokens := 4096
+	estimated := EstimateRequestTokens(SystemPrompt{}, messages, nil)
+	contextWindow := estimated + defaultReserveMinTokens - 1
+
+	compactCalls := 0
+	var streamMaxTokens int
+	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, maxTokens int) (<-chan ApiStreamEvent, error) {
+		streamMaxTokens = maxTokens
+		return textStream("ok"), nil
+	}}
+
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		requestedMaxTokens,
+		TurnDeps{
+			AppendMessage:     func(Message) {},
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			TryAutoCompact: func(context.Context) bool {
+				compactCalls++
+				return false
+			},
+			HistorySnapshot:   func() []Message { return append([]Message(nil), messages...) },
+			IncrementAPICalls: func() {},
+			ContextWindow:     contextWindow,
+		},
+	)
+
+	runner.Run(context.Background(), TurnPlan{Messages: messages}, make(chan Event, 64))
+
+	if compactCalls != 2 {
+		t.Fatalf("compactCalls = %d, want 2", compactCalls)
+	}
+	if streamMaxTokens != minContextBudgetMaxTokens {
+		t.Fatalf("stream maxTokens = %d, want %d", streamMaxTokens, minContextBudgetMaxTokens)
 	}
 }
 

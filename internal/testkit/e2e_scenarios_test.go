@@ -455,6 +455,23 @@ func TestE2E_PlanApproval_Approve(t *testing.T) {
 	if got := llm.Calls(); got != 2 {
 		t.Fatalf("LLM calls after ApprovePlan = %d, want 2", got)
 	}
+	recorded := llm.Recorded()
+	if len(recorded) != 2 {
+		t.Fatalf("recorded request count = %d, want 2", len(recorded))
+	}
+	secondRequest := recorded[1]
+	if len(secondRequest) == 0 {
+		t.Fatalf("second LLM request was empty")
+	}
+	last := secondRequest[len(secondRequest)-1]
+	if last.Role != agent.UserRole {
+		t.Fatalf("last message role = %s, want user", last.Role)
+	}
+	for _, want := range []string{"Plan approved", "Begin implementing", "do not stop to summarize", "# Plan", "Do it"} {
+		if !strings.Contains(last.TextContent(), want) {
+			t.Fatalf("last message = %q, want %q", last.TextContent(), want)
+		}
+	}
 }
 
 func TestE2E_PlanApproval_ApproveAuto(t *testing.T) {

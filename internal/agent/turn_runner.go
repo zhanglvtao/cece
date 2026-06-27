@@ -32,6 +32,7 @@ type TurnDeps struct {
 	DrainQueuedInputs     func() []string
 	DrainModeReminder     func() string
 	TryAutoCompact        func(ctx context.Context) bool
+	EnsureContextBudget   func(ctx context.Context, targetTokens int) bool
 	HistorySnapshot       func() []Message
 	ResetQuestionAnswers  func()
 	IncrementAPICalls     func()
@@ -90,12 +91,18 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 
 		diag.Log("turn_runner: calling streamer.Stream() loop_iter=%d reason=%q messages=%d", loopIter, reason, len(messages))
 		resp, err := r.streamer.Stream(ctx, ModelStreamRequest{
-			Messages:      messages,
-			System:        plan.System,
-			Reason:        reason,
-			MaxTokens:     prepared.maxTokens,
-			ContextWindow: r.deps.ContextWindow,
-			ToolResults:   toolResultNames,
+			Messages:             messages,
+			System:               plan.System,
+			Reason:               reason,
+			MaxTokens:            prepared.maxTokens,
+			ContextWindow:        r.deps.ContextWindow,
+			ToolResults:          toolResultNames,
+			EstimatedInputTokens: prepared.estimatedInputTokens,
+			ReserveTokens:        prepared.reserveTokens,
+			UnderestimateP95:     prepared.underestimateP95,
+			AvailableMaxTokens:   prepared.availableMaxTokens,
+			BudgetFits:           prepared.budgetFits,
+			ManagementTriggered:  prepared.managementTriggered,
 		}, events)
 		diag.Log("turn_runner: streamer.Stream() returned err=%v resp_text=%q tool_calls=%d", err, resp.textContent, len(resp.toolCalls))
 		if err != nil {
@@ -127,12 +134,18 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 			slog.Info("output truncated, escalating max_tokens", "from", r.maxTokens, "to", prepared.maxTokens)
 			r.deps.IncrementAPICalls()
 			resp, err = r.streamer.Stream(ctx, ModelStreamRequest{
-				Messages:      messages,
-				System:        plan.System,
-				Reason:        reason,
-				MaxTokens:     prepared.maxTokens,
-				ContextWindow: r.deps.ContextWindow,
-				ToolResults:   toolResultNames,
+				Messages:             messages,
+				System:               plan.System,
+				Reason:               reason,
+				MaxTokens:            prepared.maxTokens,
+				ContextWindow:        r.deps.ContextWindow,
+				ToolResults:          toolResultNames,
+				EstimatedInputTokens: prepared.estimatedInputTokens,
+				ReserveTokens:        prepared.reserveTokens,
+				UnderestimateP95:     prepared.underestimateP95,
+				AvailableMaxTokens:   prepared.availableMaxTokens,
+				BudgetFits:           prepared.budgetFits,
+				ManagementTriggered:  prepared.managementTriggered,
 			}, events)
 			if err != nil {
 				if ctx.Err() != nil {
@@ -275,6 +288,11 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 		r.deps.AppendMessage(resultMsg)
 		r.deps.PersistMessage(ctx, resultMsg)
 
+		approvedPlanContinuation := ""
+		if approvedPlan, ok := successfulExitPlanModePlan(resp.toolCalls, toolResults); ok {
+			approvedPlanContinuation = tool.BuildApprovedPlanContinuation(approvedPlan)
+		}
+
 		// Check for queued user inputs between tool calls.
 		r.promoteQueuedInputs(ctx, events, reason)
 		r.tryAutoCompact(ctx)
@@ -285,6 +303,9 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 			if reminder := r.deps.DrainModeReminder(); reminder != "" {
 				messages = append(messages, Message{Role: UserRole, Content: reminder})
 			}
+		}
+		if approvedPlanContinuation != "" {
+			messages = append(messages, Message{Role: UserRole, Content: approvedPlanContinuation})
 		}
 		// Inject context-pressure nudge if needed.
 		// (removed: agentic loop no longer injects nudge; autoCompact handles high context)
@@ -297,43 +318,51 @@ const contextBudgetSafetyMargin = 1024
 const minContextBudgetMaxTokens = 1024
 
 type preparedModelRequest struct {
-	messages  []Message
-	maxTokens int
+	messages             []Message
+	maxTokens            int
+	estimatedInputTokens int
+	reserveTokens        int
+	underestimateP95     int
+	availableMaxTokens   int
+	budgetFits           bool
+	managementTriggered  bool
 }
 
 func (r *TurnRunner) prepareModelStreamRequest(ctx context.Context, messages []Message, system SystemPrompt, requestedMaxTokens int) (preparedModelRequest, error) {
 	if requestedMaxTokens <= 0 || r.deps.ContextWindow <= 0 {
-		return preparedModelRequest{messages: r.applyToolUseFallback(messages, system), maxTokens: requestedMaxTokens}, nil
+		prepared := r.applyToolUseFallback(messages, system)
+		estimated := EstimateRequestTokens(system, prepared, r.toolDefinitions())
+		return preparedModelRequest{messages: prepared, maxTokens: requestedMaxTokens, estimatedInputTokens: estimated}, nil
 	}
 
 	tools := r.toolDefinitions()
 	preparedMessages := messages
-	estimated := EstimateRequestTokens(system, preparedMessages, tools)
-	if !fitsContextBudget(estimated, requestedMaxTokens, r.deps.ContextWindow) {
-		slog.Warn("context budget preflight exceeded", "estimated_input", estimated, "max_tokens", requestedMaxTokens, "context_window", r.deps.ContextWindow)
-		if r.tryAutoCompact(ctx) {
-			if refreshed, ok := r.refreshedHistorySnapshot(messages); ok {
-				preparedMessages = refreshed
-				estimated = EstimateRequestTokens(system, preparedMessages, tools)
-			}
+	managementTriggered := false
+	budget := r.computeReserveBudget(system, preparedMessages, requestedMaxTokens, tools)
+	if !budget.Fits {
+		slog.Warn("context reserve preflight exceeded", "estimated_input", budget.EstimatedInputTokens, "reserve", budget.ReserveTokens, "context_window", r.deps.ContextWindow)
+		managementTriggered = r.ensureContextBudget(ctx, budget.ReserveTokens)
+		if refreshed, ok := r.refreshedHistorySnapshot(messages); ok {
+			preparedMessages = refreshed
+			budget = r.computeReserveBudget(system, preparedMessages, requestedMaxTokens, tools)
 		}
 	}
 
 	preparedMessages = r.applyToolUseFallback(preparedMessages, system)
-	estimated = EstimateRequestTokens(system, preparedMessages, tools)
-	if fitsContextBudget(estimated, requestedMaxTokens, r.deps.ContextWindow) {
-		return preparedModelRequest{messages: preparedMessages, maxTokens: requestedMaxTokens}, nil
+	budget = r.computeReserveBudget(system, preparedMessages, requestedMaxTokens, tools)
+	if budget.Fits {
+		return preparedModelRequest{messages: preparedMessages, maxTokens: requestedMaxTokens, estimatedInputTokens: budget.EstimatedInputTokens, reserveTokens: budget.ReserveTokens, underestimateP95: budget.UnderestimateP95, availableMaxTokens: budget.AvailableMaxTokens, budgetFits: true, managementTriggered: managementTriggered}, nil
 	}
 
-	available := r.deps.ContextWindow - estimated - contextBudgetSafetyMargin
+	available := budget.AvailableMaxTokens
 	if available < minContextBudgetMaxTokens {
-		slog.Warn("context budget extremely tight — using minimum max_tokens", "estimated_input", estimated, "context_window", r.deps.ContextWindow)
+		slog.Warn("context budget extremely tight — using minimum max_tokens", "estimated_input", budget.EstimatedInputTokens, "reserve", budget.ReserveTokens, "context_window", r.deps.ContextWindow)
 		requestedMaxTokens = minContextBudgetMaxTokens
 	} else if available < requestedMaxTokens {
-		slog.Warn("shrinking max_tokens to fit context budget", "from", requestedMaxTokens, "to", available, "estimated_input", estimated, "context_window", r.deps.ContextWindow)
+		slog.Warn("shrinking max_tokens to fit reserve budget", "from", requestedMaxTokens, "to", available, "estimated_input", budget.EstimatedInputTokens, "reserve", budget.ReserveTokens, "context_window", r.deps.ContextWindow)
 		requestedMaxTokens = available
 	}
-	return preparedModelRequest{messages: preparedMessages, maxTokens: requestedMaxTokens}, nil
+	return preparedModelRequest{messages: preparedMessages, maxTokens: requestedMaxTokens, estimatedInputTokens: budget.EstimatedInputTokens, reserveTokens: budget.ReserveTokens, underestimateP95: budget.UnderestimateP95, availableMaxTokens: budget.AvailableMaxTokens, budgetFits: false, managementTriggered: managementTriggered}, nil
 }
 
 func fitsContextBudget(estimatedInput, maxTokens, contextWindow int) bool {
@@ -341,6 +370,29 @@ func fitsContextBudget(estimatedInput, maxTokens, contextWindow int) bool {
 		return true
 	}
 	return estimatedInput+maxTokens+contextBudgetSafetyMargin <= contextWindow
+}
+
+func (r *TurnRunner) computeReserveBudget(system SystemPrompt, messages []Message, requestedMaxTokens int, tools []tool.Definition) ReserveBudget {
+	estimated := EstimateRequestTokens(system, messages, tools)
+	underestimateP95 := 0
+	if r.streamer != nil && r.streamer.underestimateStats != nil {
+		underestimateP95 = r.streamer.underestimateStats.P95()
+	}
+	return ComputeReserveBudget(ReserveBudgetInput{
+		EstimatedInputTokens: estimated,
+		RequestedMaxTokens:   requestedMaxTokens,
+		ModelMaxOutput:       requestedMaxTokens,
+		ContextWindow:        r.deps.ContextWindow,
+		ReserveRatio:         defaultReserveRatio,
+		UnderestimateP95:     underestimateP95,
+	})
+}
+
+func (r *TurnRunner) ensureContextBudget(ctx context.Context, targetTokens int) bool {
+	if r.deps.EnsureContextBudget != nil {
+		return r.deps.EnsureContextBudget(ctx, targetTokens)
+	}
+	return r.tryAutoCompact(ctx)
 }
 
 func (r *TurnRunner) toolDefinitions() []tool.Definition {
@@ -373,7 +425,6 @@ func (r *TurnRunner) currentCompletionGateContext(requiresClosure bool) Completi
 	ctx.RequiresClosure = requiresClosure
 	return ctx
 }
-
 
 func completionGateStatus(result CompletionGateResult) CompletionGateStatus {
 	if result.Pass {
@@ -502,7 +553,32 @@ func assistantMessageFromResponse(resp modelResponse) Message {
 	}
 }
 
-// rejectToolResults builds tool_result content blocks that tell the LLM
+func successfulExitPlanModePlan(calls []ApiToolUseBlock, results []ApiContentBlock) (string, bool) {
+	for i, call := range calls {
+		if call.Name != tool.ExitPlanModeToolName || i >= len(results) {
+			continue
+		}
+		tr, ok := results[i].AsToolResult()
+		if !ok || tr.IsError {
+			continue
+		}
+		plan := approvedPlanFromExitResult(tr.Content)
+		if strings.TrimSpace(plan) == "" {
+			continue
+		}
+		return plan, true
+	}
+	return "", false
+}
+
+func approvedPlanFromExitResult(content string) string {
+	idx := strings.Index(content, tool.ApprovedPlanResultHeading)
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimSpace(content[idx+len(tool.ApprovedPlanResultHeading):])
+}
+
 // the user rejected the tool calls. The rejection message varies by tool type.
 func rejectToolResults(calls []ApiToolUseBlock) []ApiContentBlock {
 	blocks := make([]ApiContentBlock, len(calls))
