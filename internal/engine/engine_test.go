@@ -274,7 +274,7 @@ func TestEngineHistorySnapshotRemovesOrphanToolResultsAfterCompactBoundary(t *te
 		{
 			Role: agent.AssistantRole,
 			ContentBlocks: []agent.ApiContentBlock{{
-				Type: agent.ApiToolUseContentType,
+				Type:    agent.ApiToolUseContentType,
 				ToolUse: &agent.ApiToolUseBlock{ID: "call_old", Name: "Bash", Input: json.RawMessage(`{"command":"pwd"}`)},
 			}},
 		},
@@ -788,14 +788,62 @@ func TestBuildContextNudgeReminderFramesAsContextManagement(t *testing.T) {
 
 	checks := []string{
 		"Context pressure: 80% used (8K/10K), 3 turns since last context management.",
-		"Manage context as needed.",
-		"Compact, TrimToolResults, or Prune",
-		"based on what best fits the current state",
+		"Context has grown substantially since the last reminder or context-management action.",
+		"Before continuing the original task, decide whether context management is needed.",
+		"Compact to preserve older semantic context",
+		"TrimToolResults to remove bulky tool outputs",
+		"Prune when older context is no longer needed",
+		"After managing context, continue the original task.",
 	}
 	for _, check := range checks {
 		if !strings.Contains(reminder, check) {
 			t.Fatalf("reminder missing %q: %s", check, reminder)
 		}
+	}
+}
+
+func TestShouldNudgeAfterContextGrowsByQuarterSinceLastNudge(t *testing.T) {
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.SetModelInfo("model", 1000)
+	eng.SetNudgeStateForTest(260)
+
+	ok, _, pct, _ := eng.shouldNudge()
+	if !ok {
+		t.Fatalf("shouldNudge = false, want true after growing 25%% from baseline")
+	}
+	if pct < 25 || pct > 40 {
+		t.Fatalf("context pct = %d, want around current usage", pct)
+	}
+
+	_, nudged, _, _, used, _ := eng.MaybeInjectContextNudge([]agent.Message{{Role: agent.UserRole, Content: "next"}})
+	if !nudged {
+		t.Fatalf("MaybeInjectContextNudge did not inject reminder")
+	}
+	if used < 250 {
+		t.Fatalf("context used = %d, want >= 250", used)
+	}
+
+	eng.SetLastInputTokens(400)
+	ok, _, _, _ = eng.shouldNudge()
+	if ok {
+		t.Fatalf("shouldNudge = true after only 140 token growth from last nudge, want false")
+	}
+
+	eng.SetLastInputTokens(520)
+	ok, _, _, _ = eng.shouldNudge()
+	if !ok {
+		t.Fatalf("shouldNudge = false after another 25%% growth from last nudge, want true")
+	}
+}
+
+func TestShouldNudgeDoesNotFireInsideHardFallbackZone(t *testing.T) {
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	eng.SetModelInfo("model", 1000)
+	eng.SetNudgeStateForTest(760)
+
+	ok, _, pct, _ := eng.shouldNudge()
+	if ok {
+		t.Fatalf("shouldNudge = true at %d%% used, want false because remaining <= 25%% should hard fallback", pct)
 	}
 }
 

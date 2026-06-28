@@ -63,7 +63,8 @@ type TurnEngine interface {
 	// Queued inputs
 	DrainQueuedInputs() []string
 
-	// Auto compact
+	// Auto compact and context nudge
 	TryAutoCompact(ctx context.Context) bool
 	EnsureContextBudget(ctx context.Context, targetTokens int) bool
+	MaybeInjectContextNudge(snapshot []Message) ([]Message, bool, int, int, int, int)
 }

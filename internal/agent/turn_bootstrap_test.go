@@ -65,6 +65,9 @@ func (e *dryRunEngine) TryAutoCompact(ctx context.Context) bool   { return false
 func (e *dryRunEngine) EnsureContextBudget(ctx context.Context, targetTokens int) bool {
 	return false
 }
+func (e *dryRunEngine) MaybeInjectContextNudge(snapshot []Message) ([]Message, bool, int, int, int, int) {
+	return snapshot, false, 0, 0, 0, e.ContextWindow()
+}
 
 type dryRunCollector struct{}
 
@@ -638,6 +641,63 @@ func TestTurnRunnerCompletionGateEscalatesAfterNoProgress(t *testing.T) {
 	}
 	if got := waitForEventType(t, events, CompletionGateEvaluated{}); got.Status != CompletionGatePassed {
 		t.Fatalf("CompletionGateEvaluated = %+v, want passed", got)
+	}
+}
+
+func TestTurnRunnerInjectsContextNudgeBeforeModelRequest(t *testing.T) {
+	base := []Message{{Role: UserRole, Content: "work"}}
+	var streamMessages []Message
+	client := &mockStreamClient{streamFn: func(_ context.Context, messages []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
+		streamMessages = append([]Message(nil), messages...)
+		return textStream("ok"), nil
+	}}
+
+	events := make(chan Event, 16)
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		1024,
+		TurnDeps{
+			AppendMessage:     func(Message) {},
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			TryAutoCompact:    func(context.Context) bool { return false },
+			HistorySnapshot:   func() []Message { return append([]Message(nil), base...) },
+			IncrementAPICalls: func() {},
+			ContextWindow:     100000,
+			MaybeInjectContextNudge: func(snapshot []Message) ([]Message, bool, int, int, int, int) {
+				return append(snapshot, Message{Role: UserRole, Content: "<system-reminder>manage context</system-reminder>"}), true, 2, 51, 510, 1000
+			},
+		},
+	)
+
+	runner.Run(context.Background(), TurnPlan{Messages: base}, events)
+
+	if len(streamMessages) != 2 {
+		t.Fatalf("stream messages = %+v, want original + nudge", streamMessages)
+	}
+	if !strings.Contains(streamMessages[1].Content, "manage context") {
+		t.Fatalf("nudge message = %q", streamMessages[1].Content)
+	}
+
+	found := false
+	for {
+		select {
+		case ev := <-events:
+			if n, ok := ev.(ContextNudged); ok {
+				found = true
+				if n.ContextPct != 51 || n.ContextUsed != 510 || n.ContextWindow != 1000 {
+					t.Fatalf("ContextNudged = %+v", n)
+				}
+			}
+		default:
+			if !found {
+				t.Fatalf("ContextNudged event not emitted")
+			}
+			return
+		}
 	}
 }
 

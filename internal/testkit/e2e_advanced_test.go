@@ -367,9 +367,8 @@ func TestE2E_ContextNudge_TriggersAtThreshold(t *testing.T) {
 	h.Send("first message")
 	testkit.WaitForEvent[protocol.TurnCompleted](t, h, nil, 5*time.Second)
 
-	// Set engine state so contextPct >= 60%:
-	// lastInputTokens = 800 (80% of 1000 > 60% threshold)
-	h.Eng.SetNudgeStateForTest(800)
+	// Set engine state so context has grown by at least 25% from the nudge baseline.
+	h.Eng.SetNudgeStateForTest(300)
 
 	// Trigger a new turn which should check and fire the nudge
 	h.Send("next message")
@@ -379,7 +378,7 @@ func TestE2E_ContextNudge_TriggersAtThreshold(t *testing.T) {
 	if !ok {
 		t.Fatalf("ContextNudgedEvent not found")
 	}
-	if nudge.ContextPct < 60 {
-		t.Fatalf("ContextNudgedEvent.ContextPct = %d, want >= 60", nudge.ContextPct)
+	if nudge.ContextPct < 25 {
+		t.Fatalf("ContextNudgedEvent.ContextPct = %d, want >= 25", nudge.ContextPct)
 	}
 }

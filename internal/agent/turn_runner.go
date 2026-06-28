@@ -26,20 +26,21 @@ type TurnPlan struct {
 // TurnDeps contains the Runtime-owned operations a turn needs while keeping
 // the agent loop outside the Runtime facade.
 type TurnDeps struct {
-	AppendMessage         func(Message)
-	PersistMessage        func(context.Context, Message)
-	UpdateSessionMeta     func(context.Context, modelResponse)
-	DrainQueuedInputs     func() []string
-	DrainModeReminder     func() string
-	TryAutoCompact        func(ctx context.Context) bool
-	EnsureContextBudget   func(ctx context.Context, targetTokens int) bool
-	HistorySnapshot       func() []Message
-	ResetQuestionAnswers  func()
-	IncrementAPICalls     func()
-	RecordToolExecution   func(name string, isError bool)
-	UpdateCacheTokens     func(read, creation int)
-	ContextWindow         int
-	CompletionGateContext func() CompletionGateContext
+	AppendMessage           func(Message)
+	PersistMessage          func(context.Context, Message)
+	UpdateSessionMeta       func(context.Context, modelResponse)
+	DrainQueuedInputs       func() []string
+	DrainModeReminder       func() string
+	TryAutoCompact          func(ctx context.Context) bool
+	EnsureContextBudget     func(ctx context.Context, targetTokens int) bool
+	MaybeInjectContextNudge func(snapshot []Message) ([]Message, bool, int, int, int, int)
+	HistorySnapshot         func() []Message
+	ResetQuestionAnswers    func()
+	IncrementAPICalls       func()
+	RecordToolExecution     func(name string, isError bool)
+	UpdateCacheTokens       func(read, creation int)
+	ContextWindow           int
+	CompletionGateContext   func() CompletionGateContext
 }
 
 // TurnRunner owns the agent loop for one user turn.
@@ -76,6 +77,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 	loopIter := 0
 	for {
 		loopIter++
+		messages = r.maybeInjectContextNudge(messages, events)
 		prepared, err := r.prepareModelStreamRequest(ctx, messages, plan.System, r.maxTokens)
 		if err != nil {
 			events <- RunFailed{Err: err}
@@ -432,6 +434,23 @@ func completionGateNext(result CompletionGateResult) string {
 		return "complete"
 	}
 	return "continue"
+}
+
+func (r *TurnRunner) maybeInjectContextNudge(messages []Message, events chan<- Event) []Message {
+	if r.deps.MaybeInjectContextNudge == nil {
+		return messages
+	}
+	updated, nudged, turns, pct, used, cw := r.deps.MaybeInjectContextNudge(messages)
+	if !nudged {
+		return updated
+	}
+	events <- ContextNudged{
+		TurnsSinceCompact: turns,
+		ContextPct:        pct,
+		ContextUsed:       used,
+		ContextWindow:     cw,
+	}
+	return updated
 }
 
 func (r *TurnRunner) tryAutoCompact(ctx context.Context) bool {
