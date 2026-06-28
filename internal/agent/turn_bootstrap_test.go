@@ -644,6 +644,79 @@ func TestTurnRunnerCompletionGateEscalatesAfterNoProgress(t *testing.T) {
 	}
 }
 
+func TestTurnRunnerStopsAfterRepeatedNoProgressCompletionGateFailures(t *testing.T) {
+	responses := []<-chan ApiStreamEvent{
+		textStream("attempt 1"),
+		textStream("attempt 2"),
+		textStream("attempt 3"),
+		textStream("attempt 4"),
+		textStream("attempt 5"),
+	}
+	streamCalls := 0
+	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
+		resp := responses[streamCalls]
+		streamCalls++
+		return resp, nil
+	}}
+
+	var history []Message
+	runner := NewTurnRunner(
+		NewModelStreamer(client, tool.NewRegistry(), nil),
+		nil,
+		nil,
+		4096,
+		TurnDeps{
+			AppendMessage:     func(m Message) { history = append(history, m) },
+			PersistMessage:    func(context.Context, Message) {},
+			UpdateSessionMeta: func(context.Context, modelResponse) {},
+			DrainQueuedInputs: func() []string { return nil },
+			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
+			IncrementAPICalls: func() {},
+			CompletionGateContext: func() CompletionGateContext {
+				return CompletionGateContext{
+					Closure: tool.TaskClosureSnapshot{
+						Updated:                    true,
+						NeedsCodeChange:            tool.ClosureDecisionNo,
+						CodeChangeStatus:           tool.ClosureCodeNotNeeded,
+						CodeChangeReason:           "analysis only",
+						NeedsVerification:          tool.ClosureDecisionYes,
+						VerificationStatus:         tool.ClosureVerificationPassed,
+						VerificationReason:         "tests passed",
+						VerificationToolResultRefs: []string{"missing"},
+					},
+				}
+			},
+		},
+	)
+
+	events := make(chan Event, 64)
+	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "fix bug"}}}, events)
+
+	blocked := 0
+	var failed RunFailed
+	for {
+		ev := <-events
+		switch got := ev.(type) {
+		case CompletionGateEvaluated:
+			if got.Status == CompletionGateBlocked {
+				blocked++
+			}
+		case RunFailed:
+			failed = got
+			if blocked != 4 {
+				t.Fatalf("blocked attempts = %d, want 4", blocked)
+			}
+			if failed.Err == nil || !strings.Contains(failed.Err.Error(), "completion gate remained blocked without progress") {
+				t.Fatalf("RunFailed.Err = %v, want completion gate no-progress error", failed.Err)
+			}
+			if streamCalls != 4 {
+				t.Fatalf("streamCalls = %d, want 4", streamCalls)
+			}
+			return
+		}
+	}
+}
+
 func TestTurnRunnerInjectsContextNudgeBeforeModelRequest(t *testing.T) {
 	base := []Message{{Role: UserRole, Content: "work"}}
 	var streamMessages []Message

@@ -219,6 +219,10 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				} else {
 					noProgressGateFailures = 0
 				}
+				if noProgressGateFailures > maxNoProgressGateFailures {
+					events <- RunFailed{Err: fmt.Errorf("completion gate remained blocked without progress after %d attempts: %s", noProgressGateFailures, strings.Join(gateResult.Reasons, "; "))}
+					return
+				}
 				reminderText := gateResult.Reminder
 				if noProgressGateFailures >= maxNoProgressGateFailures {
 					reminderText = buildCompletionGateNoProgressReminder(gateResult.Reasons)
