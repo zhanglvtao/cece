@@ -86,6 +86,11 @@
 - 定位：问题边界在 benchmark runtime，而不是全局 Bash 工具本身；真正缺的是“cece engine 启动后，后续 Bash 调用默认处在 testbed env”。同时 benchmark 专用 `SYSTEM.md` 如果写得太弱，还会替换掉 cece 默认的强验证约束。
 - 结论：数据集特有环境问题优先在 `benchmarks/adapters/swebench.py` 这一层对齐官方 runner 的显式激活方式，不要污染全局 Bash 语义；benchmark prompt 也必须显式要求复现、跑仓库测试、如实汇报失败。
 
+## SWE-bench timeout 可能是完成事件和 completion gate 问题，不一定是模型未完成
+- 现象：rerun 失败样例时 7 个 case 全部 `timeout`，但 transcript 显示其中 4 个已经 `completion_gate_evaluated=passed` 且 `assistant_completed`，只是没有 `turn_completed`，benchmark driver 因只认 `turn_completed` 没有进入 patch 收集和 scoring。
+- 另一个现象：Django case 反复卡在 `verification_tool_result_refs`，completion gate 提醒后模型重复运行 Bash 和 `UpdateTaskClosure`，形成 70+ 次自救循环直到外层 timeout。
+- 结论：benchmark harness 必须把 agent completion、turn completion、closure evidence 三个边界分清；无人值守评测里 completion gate 要么能给出可复制的 evidence refs，要么必须有 no-progress 上限。
+
 ## 无 tool call 不等于任务闭环
 - 现象：复杂实现/bugfix 过程中，模型一旦输出普通文本且没有继续发 tool call，`TurnRunner` 就发 `AssistantCompleted`，Engine 随后发 `TurnCompleted`，UI 进入 Ready；任务可能还没验证或 Todo 仍未完成。
 - 定位：`AssistantCompleted` 只是“assistant 本次响应完成”，不是“用户任务完成”。仅靠 prompt 里的“不要半途而废”无法形成运行时约束，尤其还和短输出风格存在张力。
