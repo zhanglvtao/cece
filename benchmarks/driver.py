@@ -130,7 +130,7 @@ class CeceDriver:
                 exit_status = "run_failed"
                 break
 
-            if ptype == "event" and kind == "turn_completed":
+            if ptype == "event" and kind in ("turn_completed", "assistant_completed"):
                 exit_status = "completed"
                 break
 
