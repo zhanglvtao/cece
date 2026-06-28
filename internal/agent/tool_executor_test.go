@@ -75,6 +75,50 @@ func TestToolExecutorRecordsClosureEvidence(t *testing.T) {
 	}
 }
 
+func TestToolExecutorRecordsDjangoRunnerAsVerificationEvidence(t *testing.T) {
+	registry := tool.NewRegistry(staticTestTool{})
+	var evidence []ClosureEvidence
+	executor := NewToolExecutor(registry, nil, nil, ToolResultPolicy{}, nil, func(ev ClosureEvidence) {
+		evidence = append(evidence, ev)
+	})
+
+	blocks := executor.ExecuteBatch(context.Background(), []ApiToolUseBlock{{
+		ID:    "call-django-test",
+		Name:  "Bash",
+		Input: json.RawMessage(`{"command":"python tests/runtests.py annotations.tests.NonAggregateAnnotationTestCase.test_order_by_multiline_rawsql"}`),
+	}}, nil)
+
+	if len(evidence) != 1 {
+		t.Fatalf("evidence len = %d, want 1", len(evidence))
+	}
+	if evidence[0].Kind != ClosureEvidenceVerification || evidence[0].ToolUseID != "call-django-test" {
+		t.Fatalf("evidence = %+v", evidence[0])
+	}
+	if len(blocks) != 1 || blocks[0].ToolResult == nil {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	content := blocks[0].ToolResult.Content
+	if !strings.Contains(content, "ClosureEvidence: tool_result=call-django-test kind=verification") {
+		t.Fatalf("tool result content = %q, want closure evidence line", content)
+	}
+	if !strings.Contains(content, "verification_tool_result_refs=[\"call-django-test\"]") {
+		t.Fatalf("tool result content = %q, want copy-paste verification refs hint", content)
+	}
+}
+
+func TestIsVerificationCommandRecognizesPythonTestEntrypoints(t *testing.T) {
+	commands := []string{
+		"python -m pytest tests/test_example.py",
+		"python tests/runtests.py model_fields.test_filepathfield",
+		"./tests/runtests.py --verbosity 2 --settings=test_sqlite --parallel 1 test_utils.tests",
+	}
+	for _, cmd := range commands {
+		if !isVerificationCommand(cmd) {
+			t.Fatalf("isVerificationCommand(%q) = false, want true", cmd)
+		}
+	}
+}
+
 func TestToolExecutorPropagatesTruncatedMetadata(t *testing.T) {
 	registry := tool.NewRegistry(truncatedTestTool{})
 	executor := NewToolExecutor(registry, nil, nil, ToolResultPolicy{}, nil)

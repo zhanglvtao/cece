@@ -199,6 +199,12 @@ func closureEvidenceForToolResult(call ApiToolUseBlock, result tool.Result) (Clo
 
 func appendClosureEvidenceLine(content string, ev ClosureEvidence) string {
 	line := fmt.Sprintf("ClosureEvidence: tool_result=%s kind=%s ok=%t", ev.ToolUseID, ev.Kind, ev.OK)
+	if ev.Kind == ClosureEvidenceVerification {
+		line += fmt.Sprintf(" verification_tool_result_refs=[%q]", ev.ToolUseID)
+	}
+	if ev.Kind == ClosureEvidenceCodeChange {
+		line += fmt.Sprintf(" code_change_tool_result_refs=[%q]", ev.ToolUseID)
+	}
 	if ev.Command != "" {
 		line += fmt.Sprintf(" command=%q", ev.Command)
 	}
@@ -218,7 +224,24 @@ func bashCommandFromInput(input json.RawMessage) string {
 
 func isVerificationCommand(command string) bool {
 	cmd := strings.ToLower(strings.TrimSpace(command))
-	patterns := []string{"go test", "go build", "npm test", "npm run build", "pnpm test", "pnpm build", "pytest", "cargo test", "make test", "make build"}
+	patterns := []string{
+		"go test",
+		"go build",
+		"npm test",
+		"npm run build",
+		"pnpm test",
+		"pnpm build",
+		"pytest",
+		"python -m pytest",
+		"python3 -m pytest",
+		"tests/runtests.py",
+		"./tests/runtests.py",
+		"python tests/runtests.py",
+		"python3 tests/runtests.py",
+		"cargo test",
+		"make test",
+		"make build",
+	}
 	for _, pattern := range patterns {
 		if strings.Contains(cmd, pattern) {
 			return true
