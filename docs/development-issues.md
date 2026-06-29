@@ -166,6 +166,11 @@
 - 定位：`internal/aiden/responses_serialize.go` 会把 `tool_result` 无条件序列化成 `function_call_output`；但请求快照此前只会补“缺失的 tool_result”，不会删除“没有对应 assistant tool_use 的 tool_result”。compact boundary / 旧 session 恢复后，坏历史会把孤儿 `tool_result` 带进请求。
 - 结论：要在 provider 序列化前统一做请求历史归一化：先删孤儿 `tool_result`，再跑 `EnsureToolResultCoverage/ValidateToolResultCoverage`。这种修法比在 Aiden serializer 里特判更稳，也能修复旧 session。
 
+## Observatory 当前 Agent 和 Sub-Agent 不能混淆
+- 现象：Observatory Web UI 打开后 Agent 下拉为空，看起来没有当前 Agent 被激活。
+- 定位：Web UI 的 Agent 列表完全来自 `Store.State().Agents`，而 Store 之前只从 sub-agent 事件派生 agent；前台交互 Agent `interactive-root` 虽然在 runtime 中固定存在，却没有投影到 Observatory state。
+- 结论：Observatory 的 Agent 视图要区分 long-lived foreground agent 和动态 sub-agent；foreground agent 应作为 skeleton state 的一部分，sub-agent 继续由 orchestrator events 派生。
+
 ## Agent mailbox 语义不能直接等同于 channel
 - 现象：在把 Agent 通信模型收敛成 inbox/outbox 时，最容易偷懒的实现是“两个 channel 就完了”；但一旦遇到 progress 高频事件、pending/completed 关键事件、cancel 抢占，就会立刻暴露背压和优先级问题。
 - 定位：真正稳定的边界不是 `chan`，而是 mailbox 语义：`AgentCommand` 必须可靠入箱；`AgentEvent` 必须区分关键事件和 best-effort 事件；调度器只消费 supervision-level 事件，不应该被 tool delta / provider delta 淹没。

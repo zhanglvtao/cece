@@ -54,11 +54,11 @@ func TestStoreTracksSimpleAgentMailboxState(t *testing.T) {
 	})
 
 	state := store.State()
-	if len(state.Agents) != 1 {
-		t.Fatalf("agents len = %d, want 1", len(state.Agents))
+	agent, ok := agentByID(state, "agent-1")
+	if !ok {
+		t.Fatalf("missing agent-1: %+v", state.Agents)
 	}
-	agent := state.Agents[0]
-	if agent.ID != "agent-1" || agent.Status != "running" {
+	if agent.Status != "running" {
 		t.Fatalf("agent = %+v", agent)
 	}
 	if len(agent.Inbox) != 1 || agent.Inbox[0].MessageID != "cmd-1" {
@@ -66,6 +66,66 @@ func TestStoreTracksSimpleAgentMailboxState(t *testing.T) {
 	}
 	if len(agent.Outbox) != 1 || agent.Outbox[0].MessageID != "evt-1" {
 		t.Fatalf("outbox = %+v", agent.Outbox)
+	}
+}
+
+func TestStoreInitialStateIncludesInteractiveRootAgent(t *testing.T) {
+	store := NewStore()
+	state := store.State()
+
+	agent, ok := agentByID(state, "interactive-root")
+	if !ok {
+		t.Fatalf("missing interactive-root agent: %+v", state.Agents)
+	}
+	if agent.Description != "Current Agent" {
+		t.Fatalf("description = %q, want Current Agent", agent.Description)
+	}
+	if agent.Status != "idle" {
+		t.Fatalf("status = %q, want idle", agent.Status)
+	}
+	if len(state.Agents) == 0 || state.Agents[0].ID != "interactive-root" {
+		t.Fatalf("interactive-root should be first for default selection: %+v", state.Agents)
+	}
+}
+
+func TestStoreUpdatesInteractiveRootAgentLifecycle(t *testing.T) {
+	store := NewStore()
+
+	store.Apply(protocol.ModelRequestStarted{Reason: "user", EstimatedInputTokens: 1000})
+	state := store.State()
+	agent, ok := agentByID(state, "interactive-root")
+	if !ok {
+		t.Fatal("missing interactive-root after model request")
+	}
+	if agent.Status != "running" {
+		t.Fatalf("status after ModelRequestStarted = %q, want running", agent.Status)
+	}
+
+	store.Apply(protocol.TurnCompleted{})
+	state = store.State()
+	agent, _ = agentByID(state, "interactive-root")
+	if agent.Status != "idle" {
+		t.Fatalf("status after TurnCompleted = %q, want idle", agent.Status)
+	}
+
+	store.Apply(protocol.RunFailed{})
+	state = store.State()
+	agent, _ = agentByID(state, "interactive-root")
+	if agent.Status != "failed" {
+		t.Fatalf("status after RunFailed = %q, want failed", agent.Status)
+	}
+}
+
+func TestStoreSortsInteractiveRootBeforeSubAgents(t *testing.T) {
+	store := NewStore()
+	store.Apply(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "worker"})
+
+	state := store.State()
+	if len(state.Agents) < 2 {
+		t.Fatalf("agents = %+v, want root and sub-agent", state.Agents)
+	}
+	if state.Agents[0].ID != "interactive-root" {
+		t.Fatalf("first agent = %q, want interactive-root", state.Agents[0].ID)
 	}
 }
 
@@ -201,8 +261,8 @@ func TestServerStateIncludesAgents(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
 		t.Fatalf("decode state error = %v", err)
 	}
-	if len(state.Agents) != 1 {
-		t.Fatalf("agents len = %d, want 1", len(state.Agents))
+	if _, ok := agentByID(state, "agent-1"); !ok {
+		t.Fatalf("missing agent-1: %+v", state.Agents)
 	}
 }
 
@@ -288,6 +348,15 @@ func phaseStatus(state State, id string) string {
 		}
 	}
 	return ""
+}
+
+func agentByID(state State, id string) (AgentView, bool) {
+	for _, agent := range state.Agents {
+		if agent.ID == id {
+			return agent, true
+		}
+	}
+	return AgentView{}, false
 }
 
 func nodeStatus(state State, id string) string {

@@ -14,6 +14,11 @@ import (
 
 const maxEvidence = 80
 
+const (
+	rootAgentID          = "interactive-root"
+	rootAgentDescription = "Current Agent"
+)
+
 type ServerInfo struct {
 	URL  string `json:"url"`
 	Host string `json:"host"`
@@ -125,9 +130,11 @@ func (s *Store) Apply(ev protocol.Event) {
 			s.metrics[m.Name] = m
 		}
 	case protocol.UserMessageAdded:
+		s.setRootAgentStatusLocked("running")
 		s.setPhaseLocked("user_input", "user_input", "done")
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "user", To: "tui", Label: "message", Status: "done"})
 	case protocol.ModelRequestStarted:
+		s.setRootAgentStatusLocked("running")
 		s.setPhaseLocked("prompt_build", "prompt_build", "done")
 		s.setPhaseLocked("model_request", "model_request", "active")
 		s.setPhaseLocked("model_stream", "model_stream", "idle")
@@ -157,6 +164,7 @@ func (s *Store) Apply(ev protocol.Event) {
 			s.metrics["input_tokens"] = protocol.ObservatoryMetric{Name: "input_tokens", Value: formatTokenK(e.InputTokens)}
 		}
 	case protocol.AssistantStarted, protocol.AssistantDelta:
+		s.setRootAgentStatusLocked("running")
 		s.setPhaseLocked("model_stream", "model_stream", "active")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: "model", Label: "Model", Kind: "model", Status: "active"})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "model", To: "engine", Label: "stream", Status: "active"})
@@ -173,11 +181,13 @@ func (s *Store) Apply(ev protocol.Event) {
 			s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "engine", To: id, Label: "tool", Status: "waiting"})
 		}
 	case protocol.ToolExecStarted:
+		s.setRootAgentStatusLocked("running")
 		s.setPhaseLocked("tool_exec", "tool_exec", "active")
 		id := toolNodeID(e.Name)
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: id, Label: "Tool: " + e.Name, Kind: "tool", Status: "active"})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "engine", To: id, Label: "tool exec", Status: "active"})
 	case protocol.ToolExecCompleted:
+		s.setRootAgentStatusLocked("running")
 		status := "done"
 		if e.Result.IsError {
 			status = "failed"
@@ -227,9 +237,11 @@ func (s *Store) Apply(ev protocol.Event) {
 		item := AgentMailboxItem{Time: now, Lane: e.Lane, MessageID: e.MessageID, Kind: e.Kind, StatusTo: e.StatusTo, Payload: e.Payload}
 		s.appendAgentMailboxLocked(agent, item)
 	case protocol.TurnCompleted:
+		s.setRootAgentStatusLocked("idle")
 		s.setPhaseLocked("done", "done", "done")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: "engine", Label: "Engine", Kind: "engine", Status: "done"})
 	case protocol.RunFailed:
+		s.setRootAgentStatusLocked("failed")
 		s.setPhaseLocked("done", "done", "failed")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: "engine", Label: "Engine", Kind: "engine", Status: "failed"})
 	}
@@ -282,7 +294,15 @@ func (s *Store) stateLocked() State {
 	for _, a := range s.agents {
 		agents = append(agents, AgentView{ID: a.ID, Description: a.Description, Status: a.Status, Inbox: append([]AgentMailboxItem(nil), a.Inbox...), Outbox: append([]AgentMailboxItem(nil), a.Outbox...)})
 	}
-	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+	sort.Slice(agents, func(i, j int) bool {
+		if agents[i].ID == rootAgentID {
+			return true
+		}
+		if agents[j].ID == rootAgentID {
+			return false
+		}
+		return agents[i].ID < agents[j].ID
+	})
 	return State{
 		Server:      s.server,
 		UpdatedAt:   s.updatedAt,
@@ -326,6 +346,7 @@ func (s *Store) ensureSkeletonLocked() {
 			s.phases[p.ID] = p
 		}
 	}
+	s.ensureRootAgentLocked()
 }
 
 func (s *Store) ensureNodeLocked(n protocol.ObservatoryNode) {
@@ -415,6 +436,25 @@ func (s *Store) ensureAgentLocked(id string) *agentState {
 	a := &agentState{ID: id, Status: "idle"}
 	s.agents[id] = a
 	return a
+}
+
+func (s *Store) ensureRootAgentLocked() *agentState {
+	agent := s.ensureAgentLocked(rootAgentID)
+	if agent.Description == "" {
+		agent.Description = rootAgentDescription
+	}
+	if agent.Status == "" {
+		agent.Status = "idle"
+	}
+	return agent
+}
+
+func (s *Store) setRootAgentStatusLocked(status string) {
+	if status == "" {
+		return
+	}
+	agent := s.ensureRootAgentLocked()
+	agent.Status = status
 }
 
 func (s *Store) appendAgentMailboxLocked(agent *agentState, item AgentMailboxItem) {
