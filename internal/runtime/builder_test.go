@@ -181,6 +181,9 @@ func TestBuilderBuildsInteractiveAndWorkerRuntimes(t *testing.T) {
 	if _, ok := interactive.Registry.Get(tool.AgentToolName); !ok {
 		t.Fatal("interactive registry should contain Agent tool")
 	}
+	if _, ok := interactive.Registry.Get(tool.TaskClosureToolName); ok {
+		t.Fatal("interactive registry should hide UpdateTaskClosure")
+	}
 
 	worker, err := builder.Build(context.Background(), BuildRequest{
 		ID:                "agent-1",

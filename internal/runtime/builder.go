@@ -253,9 +253,10 @@ func (b *Builder) buildRegistry(profile AgentProfile, toolNames []string, planSt
 	}
 
 	excluded := map[string]struct{}{
-		"Compact":         {},
-		"TrimToolResults": {},
-		"Prune":           {},
+		"Compact":                {},
+		"TrimToolResults":        {},
+		"Prune":                  {},
+		tool.TaskClosureToolName: {},
 	}
 	if !profile.Tools.AllowAgentTool {
 		excluded[tool.AgentToolName] = struct{}{}

@@ -389,21 +389,9 @@ func TestTurnRunnerCompletionGateBlocksAndContinues(t *testing.T) {
 			IncrementAPICalls: func() {},
 			CompletionGateContext: func() CompletionGateContext {
 				if streamCalls >= 2 {
-					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
-						Updated:                  true,
-						NeedsCodeChange:          tool.ClosureDecisionYes,
-						CodeChangeStatus:         tool.ClosureCodeChanged,
-						CodeChangeReason:         "blocked reminder handled in test",
-						CodeChangeToolResultRefs: []string{"call_edit"},
-						NeedsVerification:        tool.ClosureDecisionNo,
-						VerificationStatus:       tool.ClosureVerificationNotNeeded,
-						VerificationReason:       "not needed in test",
-					}, Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}}}
+					return CompletionGateContext{}
 				}
-				return CompletionGateContext{
-					Closure:  tool.TaskClosureSnapshot{},
-					Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}},
-				}
+				return CompletionGateContext{TaskList: []tool.TodoItem{{Content: "finish fix", Status: tool.TodoInProgress}}}
 			},
 		},
 	)
@@ -482,17 +470,6 @@ func TestTurnRunnerDoesNotRequireClosureForReadOnlyKeywordInput(t *testing.T) {
 			HistorySnapshot:   func() []Message { return nil },
 			IncrementAPICalls: func() {},
 			CompletionGateContext: func() CompletionGateContext {
-				if streamCalls >= 2 {
-					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
-						Updated:            true,
-						NeedsCodeChange:    tool.ClosureDecisionNo,
-						CodeChangeStatus:   tool.ClosureCodeNotNeeded,
-						CodeChangeReason:   "read-only explanation",
-						NeedsVerification:  tool.ClosureDecisionNo,
-						VerificationStatus: tool.ClosureVerificationNotNeeded,
-						VerificationReason: "not needed",
-					}}
-				}
 				return CompletionGateContext{}
 			},
 		},
@@ -540,21 +517,9 @@ func TestTurnRunnerCompletionGateKeepsRetryingAfterThreeBlockedAttempts(t *testi
 			IncrementAPICalls: func() {},
 			CompletionGateContext: func() CompletionGateContext {
 				if streamCalls >= 4 {
-					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
-						Updated:                  true,
-						NeedsCodeChange:          tool.ClosureDecisionYes,
-						CodeChangeStatus:         tool.ClosureCodeChanged,
-						CodeChangeReason:         "resolved after repeated reminders",
-						CodeChangeToolResultRefs: []string{"call_edit"},
-						NeedsVerification:        tool.ClosureDecisionNo,
-						VerificationStatus:       tool.ClosureVerificationNotNeeded,
-						VerificationReason:       "not needed in test",
-					}, Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}}}
+					return CompletionGateContext{}
 				}
-				return CompletionGateContext{
-					Closure:  tool.TaskClosureSnapshot{},
-					Evidence: []ClosureEvidence{{ToolUseID: "call_edit", Kind: ClosureEvidenceCodeChange, ToolName: "Edit", OK: true}},
-				}
+				return CompletionGateContext{TaskList: []tool.TodoItem{{Content: "finish fix", Status: tool.TodoInProgress}}}
 			},
 		},
 	)
@@ -612,15 +577,7 @@ func TestTurnRunnerCompletionGateEscalatesAfterNoProgress(t *testing.T) {
 			IncrementAPICalls: func() {},
 			CompletionGateContext: func() CompletionGateContext {
 				if streamCalls >= 4 {
-					return CompletionGateContext{Closure: tool.TaskClosureSnapshot{
-						Updated:            true,
-						NeedsCodeChange:    tool.ClosureDecisionNo,
-						CodeChangeStatus:   tool.ClosureCodeNotNeeded,
-						CodeChangeReason:   "resolved after escalation",
-						NeedsVerification:  tool.ClosureDecisionNo,
-						VerificationStatus: tool.ClosureVerificationNotNeeded,
-						VerificationReason: "not needed in test",
-					}}
+					return CompletionGateContext{}
 				}
 				return CompletionGateContext{TaskList: []tool.TodoItem{{Content: "x", Status: tool.TodoInProgress}}}
 			},
@@ -673,18 +630,7 @@ func TestTurnRunnerStopsAfterRepeatedNoProgressCompletionGateFailures(t *testing
 			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
 			IncrementAPICalls: func() {},
 			CompletionGateContext: func() CompletionGateContext {
-				return CompletionGateContext{
-					Closure: tool.TaskClosureSnapshot{
-						Updated:                    true,
-						NeedsCodeChange:            tool.ClosureDecisionNo,
-						CodeChangeStatus:           tool.ClosureCodeNotNeeded,
-						CodeChangeReason:           "analysis only",
-						NeedsVerification:          tool.ClosureDecisionYes,
-						VerificationStatus:         tool.ClosureVerificationPassed,
-						VerificationReason:         "tests passed",
-						VerificationToolResultRefs: []string{"missing"},
-					},
-				}
+				return CompletionGateContext{TaskList: []tool.TodoItem{{Content: "x", Status: tool.TodoInProgress}}}
 			},
 		},
 	)

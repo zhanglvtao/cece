@@ -177,13 +177,13 @@ func TestStoreEvidenceSummariesAreReadable(t *testing.T) {
 		MaxAttempts: 3,
 		Status:      protocol.CompletionGateBlocked,
 		Next:        "continue",
-		Checks:      []protocol.CompletionGateCheck{{Name: "TaskClosureGate", Status: protocol.CompletionGateBlocked}},
+		Checks:      []protocol.CompletionGateCheck{{Name: "TodoGate", Status: protocol.CompletionGateBlocked}},
 	})
 	if got := evidenceText(state, "CompletionGateEvaluated"); got != "" {
 		t.Fatalf("test setup saw stale state evidence = %q", got)
 	}
 	state = store.State()
-	if got := evidenceText(state, "CompletionGateEvaluated"); !strings.Contains(got, "completion gate blocked") || !strings.Contains(got, "TaskClosureGate=blocked") {
+	if got := evidenceText(state, "CompletionGateEvaluated"); !strings.Contains(got, "completion gate blocked") || !strings.Contains(got, "TodoGate=blocked") {
 		t.Fatalf("CompletionGateEvaluated evidence = %q", got)
 	}
 }

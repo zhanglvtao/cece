@@ -210,8 +210,7 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 			}
 			gateCtx := r.currentCompletionGateContext()
 			gateResult := NewCompletionGate().Evaluate(gateCtx)
-			requiresClosure := completionGateRequiresClosure(gateCtx)
-			events <- CompletionGateEvaluated{Attempt: gateFailures + 1, MaxAttempts: 0, Status: completionGateStatus(gateResult), RequiresClosure: requiresClosure, Checks: gateResult.Checks, Next: completionGateNext(gateResult)}
+			events <- CompletionGateEvaluated{Attempt: gateFailures + 1, MaxAttempts: 0, Status: completionGateStatus(gateResult), RequiresClosure: false, Checks: gateResult.Checks, Next: completionGateNext(gateResult)}
 			if !gateResult.Pass {
 				gateFailures++
 				if reason == "completion_gate" && len(resp.toolCalls) == 0 {

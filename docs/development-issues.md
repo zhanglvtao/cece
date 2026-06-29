@@ -94,7 +94,12 @@
 ## 无 tool call 不等于任务闭环
 - 现象：复杂实现/bugfix 过程中，模型一旦输出普通文本且没有继续发 tool call，`TurnRunner` 就发 `AssistantCompleted`，Engine 随后发 `TurnCompleted`，UI 进入 Ready；任务可能还没验证或 Todo 仍未完成。
 - 定位：`AssistantCompleted` 只是“assistant 本次响应完成”，不是“用户任务完成”。仅靠 prompt 里的“不要半途而废”无法形成运行时约束，尤其还和短输出风格存在张力。
-- 结论：在 `AssistantCompleted` 前增加内置 `CompletionGate`：PlanModeGate、TodoGate、TaskClosureGate。实现类任务必须通过 `UpdateTaskClosure` 声明闭环状态，并引用本轮 `tool_result.ToolUseID` 作为代码变更/验证证据；runtime 校验 ref、kind、ok，而不是相信自然语言。
+- 结论：在 `AssistantCompleted` 前增加内置 `CompletionGate`：PlanModeGate、TodoGate。运行时只拦明确状态未结束的问题，例如仍在 plan mode 或任务列表还有未完成项；实现质量、验证充分性回到 prompt、测试和模型判断，不再用形式化 closure refs 证明。
+
+## UpdateTaskClosure 硬门禁会削弱模型自主性
+- 现象：实现任务结束时 runtime 强制要求模型调用 `UpdateTaskClosure`，并引用代码修改/验证 tool_result；实际使用中会打断自然收尾，且在 refs 缺失时造成 completion gate 自救循环。
+- 定位：`TaskClosureGate` 把“质量约束”从 prompt/模型判断升级成 runtime 证明义务，语义上像是不信任模型；而 PlanMode/Todo 属于明确状态机，二者不应混为一类。
+- 结论：CompletionGate 只保留明确状态门禁（PlanMode/Todo）。`UpdateTaskClosure` 从模型工具列表隐藏，避免模型被迫做形式化闭环声明。
 
 ## CompletionGate hook 不能只注入 reminder
 - 现象：`BeforeAssistantCompleted` 拦截了半途结束，但 TUI 只能看到后续 system reminder / completion_gate request，看不到 hook 何时触发、哪些 gate 通过或阻塞。
