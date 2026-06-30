@@ -161,7 +161,7 @@ class SWEBenchAdapter(BenchmarkAdapter):
         host_config = resolve_auth_tokens(host_config)
 
         self._write_file(container_name, "/testbed/.cece/settings.json", json.dumps(host_config, indent=2))
-        self._write_file(container_name, "/testbed/CLAUDE.md", swebench_prompt.TEMPLATE)
+        self._write_file(container_name, "/testbed/AGENTS.md", swebench_prompt.TEMPLATE)
         self._write_file(container_name, "/testbed/issue.md", problem_statement)
 
         exec_cmd = ["docker", "exec", "-i"]
@@ -202,11 +202,11 @@ class SWEBenchAdapter(BenchmarkAdapter):
     def collect_artifact(self, sandbox: Sandbox, inst: dict) -> dict:
         container_name = sandbox.extra["container_name"]
         self._exec(container_name, ["git", "add", "-A"], workdir="/testbed")
-        self._exec(container_name, ["git", "reset", "--", ".cece/", "CLAUDE.md", "issue.md"], workdir="/testbed")
+        self._exec(container_name, ["git", "reset", "--", ".cece/", "AGENTS.md", "issue.md"], workdir="/testbed")
         patch = self._exec(container_name,
                            [
                                "git", "--no-pager", "diff", "--cached", "--binary", "--no-ext-diff", "--",
-                               ":(exclude).cece/", ":(exclude)CLAUDE.md", ":(exclude)issue.md",
+                               ":(exclude).cece/", ":(exclude)AGENTS.md", ":(exclude)issue.md",
                                ":(exclude)build/", ":(exclude)dist/", ":(exclude)*.egg-info/",
                                ":(exclude)*.zip", ":(exclude)*.whl", ":(exclude)*.egg",
                                ":(exclude)*.tar", ":(exclude)*.tar.gz", ":(exclude)*.tgz",
