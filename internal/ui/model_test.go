@@ -108,20 +108,20 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	if !containsAll(plain, "hi", "hello there") {
 		t.Fatalf("transcript missing expected content:\n%s", view)
 	}
-	if strings.Contains(plain, "You") {
-		t.Fatalf("user label should not be rendered:\n%s", view)
+	if !strings.Contains(plain, "You>") {
+		t.Fatalf("user label missing:\n%s", view)
 	}
-	if strings.Contains(plain, "Cece") {
-		t.Fatalf("assistant label should not be rendered:\n%s", view)
+	if !strings.Contains(plain, "Cece>") {
+		t.Fatalf("assistant label missing:\n%s", view)
 	}
 	if strings.Contains(view, "[you]") || strings.Contains(view, "[cece]") {
 		t.Fatalf("transcript labels should not use brackets:\n%s", view)
 	}
-	if strings.Contains(plain, "\n  hi") {
-		t.Fatalf("user input should not be indented:\n%s", view)
+	if !strings.Contains(plain, "\n  hi") {
+		t.Fatalf("user input should be indented:\n%s", view)
 	}
-	if strings.Contains(plain, "\n  hello there") {
-		t.Fatalf("cece output should not be indented:\n%s", view)
+	if !strings.Contains(plain, "\n  hello there") {
+		t.Fatalf("cece output should be indented:\n%s", view)
 	}
 	bodyStart := strings.Index(view, "hello there")
 	if bodyStart < 0 {
@@ -130,6 +130,18 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	bodyPrefix := view[max(0, bodyStart-12):bodyStart]
 	if !strings.Contains(bodyPrefix, "\x1b[") {
 		t.Fatalf("cece output body should contain ANSI styling:\n%s", view)
+	}
+}
+
+func TestViewAddsHorizontalPadding(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.width = 80
+	m.height = 24
+	m.ApplyEventForTest(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: "hi"}})
+	full := stripAnsi(m.View().Content)
+	lines := strings.Split(full, "\n")
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "  ") {
+		t.Fatalf("view should have left padding:\n%s", full)
 	}
 }
 
@@ -648,6 +660,50 @@ func TestBusyInputQueuesAction(t *testing.T) {
 	}
 }
 
+func TestQuestionCancelSuspendsInsteadOfRejecting(t *testing.T) {
+	sender := newRecordingSender()
+	m := NewModel(sender, "sonnet", "/tmp")
+	m.ApplyEventForTest(protocol.QuestionAsked{Questions: []protocol.Question{{Question: "继续吗？"}}})
+
+	m.handleModalKey(keyMsg("esc"))
+
+	if m.modal.active() {
+		t.Fatal("modal should close after suspending question")
+	}
+	if got := m.status; got != "Question suspended" {
+		t.Fatalf("status = %q, want Question suspended", got)
+	}
+	if len(sender.actions) == 0 {
+		t.Fatal("expected suspend action")
+	}
+	if _, ok := sender.actions[len(sender.actions)-1].(protocol.SuspendQuestionAction); !ok {
+		t.Fatalf("last action = %T, want SuspendQuestionAction", sender.actions[len(sender.actions)-1])
+	}
+}
+
+func TestSuspendedQuestionSendResumesInsteadOfQueueing(t *testing.T) {
+	sender := newRecordingSender()
+	m := NewModel(sender, "sonnet", "/tmp")
+	m.busy = true
+	m.status = "Question suspended"
+	m.input.SetValue("补充说明")
+
+	m.handleSend()
+
+	if len(m.queued) != 0 {
+		t.Fatalf("queued = %v, want empty", m.queued)
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("input = %q, want empty after resume send", got)
+	}
+	if len(sender.actions) == 0 {
+		t.Fatal("expected resume action")
+	}
+	if action, ok := sender.actions[len(sender.actions)-1].(protocol.ResumeQuestionAction); !ok || action.Text != "补充说明" {
+		t.Fatalf("last action = %#v, want ResumeQuestionAction(补充说明)", sender.actions[len(sender.actions)-1])
+	}
+}
+
 func TestViewportPreservesManualScrollDuringStreaming(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 60, Height: 10})
@@ -826,7 +882,8 @@ func TestHeaderBarSeparatedFromViewport(t *testing.T) {
 			headerIdx = i
 			continue
 		}
-		if headerIdx >= 0 && sepIdx < 0 && strings.TrimSpace(line) != "" && strings.Trim(line, "─") == "" {
+		trimmed := strings.TrimSpace(line)
+		if headerIdx >= 0 && sepIdx < 0 && trimmed != "" && strings.Trim(trimmed, "─") == "" {
 			sepIdx = i
 			continue
 		}

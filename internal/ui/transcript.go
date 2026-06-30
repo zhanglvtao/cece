@@ -710,7 +710,9 @@ func (t *transcript) renderStreamingThinking(block transcriptBlock, width int, s
 }
 
 func renderAssistantBody(rendered string, sty Styles) string {
-	return sty.Chat.AssistantBody.Render(rendered)
+	label := sty.Chat.LabelAssistant.Render("Cece>")
+	body := indent(sty.Chat.AssistantBody.Render(rendered), "  ")
+	return label + "\n" + body
 }
 
 func (t *transcript) renderStreamingAssistant(block transcriptBlock, width int, sty Styles) string {
@@ -843,8 +845,10 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	}
 	text := strings.TrimRight(block.text, "\n")
 	if block.kind == blockUser {
-		text = ansi.Wrap(text, max(20, width), "")
-		return sty.Chat.UserBody.Render(text)
+		text = ansi.Wrap(text, max(20, width-2), "")
+		label := sty.Chat.LabelUser.Render("You>")
+		body := indent(sty.Chat.UserBody.Render(text), "  ")
+		return label + "\n" + body
 	}
 	lbl := labelStyleForKind(block.kind, sty)
 	// Thinking blocks: render as Markdown with subdued palette + optional footer.

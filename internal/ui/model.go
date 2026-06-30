@@ -15,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zhanglvtao/cece/internal/logger"
 	"github.com/zhanglvtao/cece/internal/protocol"
@@ -25,9 +26,10 @@ import (
 )
 
 const (
-	simpleInputMinHeight = 3
+	simpleInputMinHeight = 1
 	simpleInputMaxHeight = 8
 	modalMaxHeight       = 14
+	horizontalPadding    = 2
 )
 
 var statusSpinnerFrames = []rune{'-', '\\', '|', '/'}
@@ -687,7 +689,8 @@ func eventPinsViewportToBottom(event protocol.Event) bool {
 
 func (m *Model) View() tea.View {
 	m.resize()
-	sep := m.styles.Status.Separator.Render(strings.Repeat("─", max(m.width, 0)))
+	contentWidth := m.contentWidth()
+	sep := m.styles.Status.Separator.Render(strings.Repeat("─", max(contentWidth, 0)))
 	ls := m.measureLayout()
 	sections := []string{}
 	// Header bar at very top: stats
@@ -731,11 +734,14 @@ func (m *Model) View() tea.View {
 		sections = append(sections, ls.filePopup)
 	}
 	sections = append(sections, m.inputView())
-	statusBarView := m.statusBar.Render(m.width)
+	statusBarView := m.statusBar.Render(contentWidth)
 	if statusBarView != "" {
 		sections = append(sections, statusBarView)
 	}
 	content := strings.Join(sections, "\n")
+	if pad := m.horizontalPadding(); pad > 0 {
+		content = lipgloss.NewStyle().Padding(0, pad).Render(content)
+	}
 	view := tea.NewView(content)
 	view.MouseMode = tea.MouseModeCellMotion
 	view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
@@ -780,7 +786,7 @@ func (m *Model) View() tea.View {
 		}
 		rowsAboveInput += ls.popupH + ls.filePopupH
 		cur.Y += rowsAboveInput + m.styles.Input.Box.GetBorderTopSize() + m.styles.Input.Box.GetPaddingTop()
-		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft()
+		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft() + m.horizontalPadding()
 		view.Cursor = cur
 	}
 
@@ -795,9 +801,10 @@ func (m *Model) measureLayout() layoutState {
 	ls.titleBarH = renderedHeight(ls.titleBar)
 	ls.modal = m.modalView()
 	ls.modalH = renderedHeight(ls.modal)
-	ls.popup = m.slashPopup.View(m.width)
+	contentWidth := m.contentWidth()
+	ls.popup = m.slashPopup.View(contentWidth)
 	ls.popupH = renderedHeight(ls.popup)
-	ls.filePopup = m.filePopup.View(m.width)
+	ls.filePopup = m.filePopup.View(contentWidth)
 	ls.filePopupH = renderedHeight(ls.filePopup)
 	ls.taskBar = m.taskBarView()
 	ls.taskBarH = renderedHeight(ls.taskBar)
@@ -844,13 +851,14 @@ func (m *Model) measureLayout() layoutState {
 }
 
 func (m *Model) resize() {
-	wasAtBottom := m.viewport.AtBottom()
+	atBottom := m.viewport.AtBottom()
 	if m.width <= 0 {
 		m.width = 80
 	}
 	if m.height <= 0 {
 		m.height = 24
 	}
+	contentWidth := m.contentWidth()
 	if !m.viewport.AtBottom() {
 		m.statusBar.UpdateScroll(int(m.viewport.ScrollPercent() * 100))
 	} else {
@@ -860,25 +868,25 @@ func (m *Model) resize() {
 	viewportH := ls.viewportH
 	inputContentH := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
 	hFrame := m.styles.Input.Box.GetHorizontalFrameSize()
-	m.viewport.SetWidth(m.width)
+	m.viewport.SetWidth(contentWidth)
 	m.viewport.SetHeight(viewportH)
-	m.input.SetWidth(max(1, m.width-hFrame))
+	m.input.SetWidth(max(1, contentWidth-hFrame))
 	m.input.SetHeight(inputContentH)
-	widthChanged := m.lastViewportWidth != m.width
+	widthChanged := m.lastViewportWidth != contentWidth
 	if widthChanged || m.viewportDirty {
-		m.refreshViewport(wasAtBottom || m.viewportGotoBottom)
+		m.refreshViewport(atBottom || m.viewportGotoBottom)
 		m.viewportDirty = false
 		m.viewportGotoBottom = false
-		m.lastViewportWidth = m.width
+		m.lastViewportWidth = contentWidth
 	}
 }
 
 func (m *Model) refreshViewport(gotoBottom bool) {
 	atBottom := m.viewport.AtBottom()
-	m.viewport.SetContent(m.transcript.render(m.width, m.styles))
+	m.viewport.SetContent(m.transcript.render(m.contentWidth(), m.styles))
 	if m.scrollToPlanBlock {
 		m.scrollToPlanBlock = false
-		if offset, found := m.transcript.lastPlanOffset(m.width, m.styles); found {
+		if offset, found := m.transcript.lastPlanOffset(m.contentWidth(), m.styles); found {
 			m.viewport.SetYOffset(offset)
 			return
 		}
@@ -906,6 +914,25 @@ func (m *Model) queuedListView() string {
 	return b.String()
 }
 
+func (m *Model) horizontalPadding() int {
+	if m.width <= 0 {
+		return 0
+	}
+	pad := horizontalPadding
+	if m.width < pad*2+20 {
+		pad = max(0, (m.width-20)/2)
+	}
+	return pad
+}
+
+func (m *Model) contentWidth() int {
+	width := m.width - m.horizontalPadding()*2
+	if width < 20 {
+		return 20
+	}
+	return width
+}
+
 func (m *Model) inputView() string {
 	h := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
 	boxStyle := m.styles.Input.BoxIdle
@@ -916,7 +943,7 @@ func (m *Model) inputView() string {
 	if strings.HasPrefix(strings.TrimSpace(m.input.Value()), "!") {
 		boxStyle = m.styles.Input.BoxShell
 	}
-	return boxStyle.Width(m.width).Height(h + boxStyle.GetVerticalFrameSize()).Render(m.input.View())
+	return boxStyle.Width(m.contentWidth()).Height(h + boxStyle.GetVerticalFrameSize()).Render(m.input.View())
 }
 
 // formatDuration formats a duration as whole seconds: "38s", "1m2s", etc.
@@ -962,7 +989,7 @@ func (m *Model) headlineView() string {
 		}
 	}
 	// Truncate to fit
-	maxLen := m.width
+	maxLen := m.contentWidth()
 	if maxLen < 10 {
 		maxLen = 10
 	}
@@ -974,6 +1001,7 @@ func (m *Model) headlineView() string {
 
 func (m *Model) titleBarView() string {
 	parts := []string{}
+	contentWidth := m.contentWidth()
 	if m.currentSessionTitle != "" {
 		parts = append(parts, m.currentSessionTitle)
 	}
@@ -986,11 +1014,11 @@ func (m *Model) titleBarView() string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return m.styles.TitleBar.Render(strings.Join(parts, " · "))
+	return ansi.Truncate(m.styles.TitleBar.Render(strings.Join(parts, " · ")), contentWidth, "")
 }
 
 func (m *Model) headerBarView() string {
-	return m.headerBar.Render(m.width)
+	return m.headerBar.Render(m.contentWidth())
 }
 
 func (m *Model) statusShowsSpinner() bool {
@@ -1446,6 +1474,13 @@ func (m *Model) handleSend() tea.Cmd {
 		return m.handleSlashCommand(input)
 	}
 	if m.busy {
+		if m.status == "Question suspended" {
+			if actor, ok := m.sender.(Actor); ok {
+				actor.Do(protocol.ResumeQuestionAction{Text: input})
+			}
+			m.status = "Resuming question"
+			return nil
+		}
 		m.queueInput(input)
 		return nil
 	}
