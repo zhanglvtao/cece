@@ -75,7 +75,21 @@ func TestAgentToolPassesWaitTimeout(t *testing.T) {
 func TestAgentToolDescriptionMentionsAsyncControlPlane(t *testing.T) {
 	agentTool := NewAgent(&AgentHandler{})
 	desc := agentTool.Info().Description
-	for _, want := range []string{"asynchronously", "status", "wait", "send", "answer", "confirm", "reject", "cancel"} {
+	for _, want := range []string{
+		"independent subtasks",
+		"parallelizable",
+		"asynchronously",
+		"spawned agent",
+		"spawning agent's inbox",
+		"Do not proactively poll",
+		"status",
+		"wait",
+		"send",
+		"answer",
+		"confirm",
+		"reject",
+		"cancel",
+	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("description missing %q: %q", want, desc)
 		}

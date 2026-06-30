@@ -99,13 +99,13 @@ func (t agentTool) Info() Definition {
 	}
 	return Definition{
 		Name:        AgentToolName,
-		Description: "Start and control worker agents asynchronously. Use operation=start to launch a worker and immediately receive an agent_id, then use status/wait/send/answer/confirm/reject/cancel to drive it. Multiple Agent start calls in a single response can run in parallel. Workers have their own conversation history and tool set, share the project directory, and cannot spawn further agents.",
+		Description: "Use Agent to spawn independent subtasks as task agents for parallelizable work, long-running investigations, code changes, reviews, or execution that should continue outside the current turn. operation=start spawns an agent asynchronously and returns an agent_id. After start, the spawned agent returns pending/completed notifications to the spawning agent's inbox; Do not proactively poll status/wait just to see whether it finished. Use status/wait only when the user explicitly asks for a check, or when you need to inspect or drive a pending interaction. Use send/answer/confirm/reject/cancel/switch_model for explicit follow-up control. Multiple Agent start calls in a single response can run in parallel. Spawned agents have their own conversation history and tool set, share the project directory, and cannot spawn further agents.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"operation": map[string]any{
 					"type":        "string",
-					"description": "Operation: start (default), status, wait, send, answer, confirm, reject, switch_model, or cancel.",
+					"description": "Operation: start (default), status, wait, send, answer, confirm, reject, switch_model, or cancel. After start, the spawned agent returns notifications to the spawning agent's inbox; use status/wait only for explicit checks or pending interaction handling.",
 				},
 				"agent_id": map[string]any{
 					"type":        "string",

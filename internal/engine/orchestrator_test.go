@@ -87,6 +87,12 @@ func TestOrchestratorStartReturnsImmediately(t *testing.T) {
 	if result.Status != string(AgentStatusRunning) && result.Status != string(AgentStatusStarting) {
 		t.Fatalf("Status = %q, want starting/running", result.Status)
 	}
+	if !strings.Contains(result.Content, "spawning agent's inbox") {
+		t.Fatalf("start content = %q, want spawning inbox guidance", result.Content)
+	}
+	if strings.Contains(result.Content, "status or wait") || strings.Contains(result.Content, "check sooner") {
+		t.Fatalf("start content encourages polling: %q", result.Content)
+	}
 	close(block)
 }
 
@@ -208,7 +214,7 @@ func TestOrchestratorCompletedBackfillsArtifact(t *testing.T) {
 	last := client.messages[len(client.messages)-1]
 	found := false
 	for _, msg := range last {
-		if strings.Contains(msg.Content, "Agent notifications from background workers") && strings.Contains(msg.Content, "Result artifact:") {
+		if strings.Contains(msg.Content, "Agent notifications from spawned agents") && strings.Contains(msg.Content, "Result artifact:") {
 			found = true
 		}
 	}

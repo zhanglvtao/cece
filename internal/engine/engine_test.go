@@ -121,7 +121,9 @@ func TestEngineInjectsUnreadAgentNotificationsIntoNextRequest(t *testing.T) {
 	}
 	found := false
 	for _, msg := range client.messages[0] {
-		if strings.Contains(msg.Content, "Agent notifications from background workers") && strings.Contains(msg.Content, "/tmp/result.txt") {
+		if strings.Contains(msg.Content, "Agent notifications from spawned agents") &&
+			strings.Contains(msg.Content, "/tmp/result.txt") &&
+			strings.Contains(msg.Content, "Use Read with this path to inspect the full result") {
 			found = true
 		}
 	}
@@ -135,7 +137,7 @@ func TestEngineInjectsUnreadAgentNotificationsIntoNextRequest(t *testing.T) {
 	waitForTurnCompleted(t, eng)
 	last := client.messages[len(client.messages)-1]
 	for _, msg := range last {
-		if strings.Contains(msg.Content, "Agent notifications from background workers") {
+		if strings.Contains(msg.Content, "Agent notifications from spawned agents") {
 			t.Fatalf("notification injected twice: %+v", last)
 		}
 	}

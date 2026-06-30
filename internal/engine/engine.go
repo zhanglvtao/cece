@@ -273,7 +273,7 @@ func (e *Engine) injectAgentNotifications(snapshot []agent.Message) []agent.Mess
 		return snapshot
 	}
 	var b strings.Builder
-	b.WriteString("Agent notifications from background workers:\n")
+	b.WriteString("Agent notifications from spawned agents:\n")
 	for _, n := range notifications {
 		fmt.Fprintf(&b, "- Agent %s status: %s", n.AgentID, n.Status)
 		if n.Summary != "" {

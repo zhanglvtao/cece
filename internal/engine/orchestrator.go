@@ -144,7 +144,7 @@ func (o *Orchestrator) start(ctx context.Context, parent *Engine, cfg tool.Agent
 		AgentID:   agentID,
 		SessionID: snap.SessionID,
 		Status:    string(snap.Status),
-		Content:   fmt.Sprintf("Agent %s started asynchronously. You will be notified when it completes; use Agent status or wait if you need to check sooner.", agentID),
+		Content:   fmt.Sprintf("Agent %s started asynchronously. The spawned agent will return pending/completed notifications to the spawning agent's inbox when it needs input or completes.", agentID),
 	}, nil
 }
 

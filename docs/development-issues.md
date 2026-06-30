@@ -65,6 +65,11 @@
 - 定位：Agent 间异步通信需要模型可见通道。event stream 是观察层，不能承担 agent IPC；artifact path 写入后也必须回填 runtime result，否则后续 status/wait 拿不到完整交付物。
 - 结论：worker terminal/pending 要写 parent inbox，在 foreground 下一次 model request 前作为 synthetic notification 注入；`Agent(wait)` 是不可见等待，不通知 worker。
 
+## Agent start 后默认等待 spawner inbox，不主动轮询 status/wait
+- 现象：使用 `Agent(operation=start)` spawn 出任务 agent 后，spawning agent 容易立刻调用 `wait/status/answer` 去追结果；如果工具层只返回完成状态而没有正文，就会制造“spawned agent 完成但结果丢了”的错觉。
+- 定位：runtime 已经有正确的数据通道：spawned agent 的 terminal/pending message 会写入 spawning agent 的 `agentInbox`，并在下一次 spawning agent model request 前注入为模型可见通知。误导来自 Agent tool description 和 start 返回文案把 `status/wait` 表述成默认下一步。
+- 结论：`start` 是 spawn 投递，不是同步 RPC。默认行为应是继续当前工作并等待 spawning agent inbox 回流；`status/wait` 只用于用户明确要求检查、或处理 pending interaction 的显式控制场景。
+
 ## 真实 LLM 录制测试需要显式开关
 - 现象：`internal/evals/recording` 已有 cassette record/replay 框架，但缺少一条真实 provider 的录制入口；如果把真实 LLM 调用混进普通单测，会造成网络、鉴权和费用不稳定。
 - 定位：真实录制应复用 `RecordingClient` 包装 provider client，并通过环境变量显式启用；默认 `go test ./...` 只能验证 replay/序列化框架，不应发真实请求。
