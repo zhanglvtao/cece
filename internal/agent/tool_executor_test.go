@@ -172,7 +172,7 @@ func TestToolExecutorAllowsPlanModeMockupContentWrites(t *testing.T) {
 	planState.SetProjectDir(projectDir)
 	planState.Enter()
 
-	registry := tool.NewRegistry(tool.NewWrite())
+	registry := tool.NewRegistry(tool.NewWrite(nil))
 	executor := NewToolExecutor(registry, planState, nil, ToolResultPolicy{}, nil)
 	mockupPath := filepath.Join(projectDir, ".superpowers", "brainstorm", "session-1", "content", "mockup.html")
 	input, _ := json.Marshal(map[string]string{"path": mockupPath, "content": "<html>mockup</html>"})
@@ -204,7 +204,7 @@ func TestToolExecutorRejectsPlanModeWritesOutsideAllowlist(t *testing.T) {
 	planState.SetProjectDir(projectDir)
 	planState.Enter()
 
-	registry := tool.NewRegistry(tool.NewWrite())
+	registry := tool.NewRegistry(tool.NewWrite(nil))
 	executor := NewToolExecutor(registry, planState, nil, ToolResultPolicy{}, nil)
 	sourcePath := filepath.Join(projectDir, "internal", "x.go")
 	input, _ := json.Marshal(map[string]string{"path": sourcePath, "content": "package internal"})

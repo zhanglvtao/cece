@@ -18,9 +18,11 @@ type editParams struct {
 	ReplaceAll bool   `json:"replace_all,omitempty"`
 }
 
-type editTool struct{}
+type editTool struct {
+	tracker *ReadTracker
+}
 
-func NewEdit() Tool { return editTool{} }
+func NewEdit(tracker *ReadTracker) Tool { return editTool{tracker: tracker} }
 
 func (editTool) Effect() Effect { return EffectWrite }
 
@@ -53,7 +55,7 @@ func (editTool) Info() Definition {
 	}
 }
 
-func (editTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
+func (t editTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
 	var p editParams
 	if err := json.Unmarshal(input, &p); err != nil {
 		return Result{Content: fmt.Sprintf("invalid params: %v", err), IsError: true}
@@ -74,6 +76,9 @@ func (editTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 	}
 
 	// Read existing file
+	if !t.tracker.WasRead(p.Path) {
+		return Result{Content: fmt.Sprintf("You must Read %s before editing it.", p.Path), IsError: true}
+	}
 	oldContent, err := os.ReadFile(p.Path)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("read: %v", err), IsError: true}

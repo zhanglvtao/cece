@@ -19,9 +19,11 @@ type readParams struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
-type readTool struct{}
+type readTool struct {
+	tracker *ReadTracker
+}
 
-func NewRead() Tool { return readTool{} }
+func NewRead(tracker *ReadTracker) Tool { return readTool{tracker: tracker} }
 
 func (readTool) Effect() Effect { return EffectRead }
 
@@ -50,7 +52,7 @@ func (readTool) Info() Definition {
 	}
 }
 
-func (readTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
+func (t readTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
 	var p readParams
 	if err := json.Unmarshal(input, &p); err != nil {
 		return Result{Content: fmt.Sprintf("invalid params: %v", err), IsError: true}
@@ -67,6 +69,7 @@ func (readTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("read: %v", err), IsError: true}
 	}
+	t.tracker.MarkRead(p.Path)
 
 	content := string(data)
 	lines := strings.Split(content, "\n")

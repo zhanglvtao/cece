@@ -224,12 +224,13 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 }
 
 func (b *Builder) buildRegistry(profile AgentProfile, toolNames []string, planState *tool.PlanModeState, taskList *tool.TaskList, taskClosure *tool.TaskClosureState) *tool.Registry {
+	readTracker := tool.NewReadTracker()
 	registry := tool.NewRegistry(
 		tool.NewBash(),
-		tool.NewRead(),
-		tool.NewWrite(),
+		tool.NewRead(readTracker),
+		tool.NewWrite(readTracker),
 		tool.NewGrep(),
-		tool.NewEdit(),
+		tool.NewEdit(readTracker),
 		tool.NewGlob(),
 		tool.NewWebFetch(),
 		tool.NewEnterPlanMode(planState),

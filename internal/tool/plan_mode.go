@@ -106,9 +106,10 @@ func BuildFullPlanReminder(plansDir string, allowedWritePaths ...string) string 
 		"- Focus on things only the user can answer: requirements, preferences, tradeoffs, and edge-case priorities.\n" +
 		"\n" +
 		"### First Turn\n" +
-		"Quickly scan key files to understand the task scope. Then write a skeleton plan\n" +
-		"(headers and rough notes) and ask the user your first questions using\n" +
-		"AskUserQuestion. Don't explore exhaustively before engaging the user.\n" +
+		"Before writing the plan, use Grep, Glob, and Read to map the files involved\n" +
+		"and the existing functions, utilities, and patterns you will reuse. Once you\n" +
+		"understand the task scope, write the plan and ask the user your first questions\n" +
+		"using AskUserQuestion.\n" +
 		"\n" +
 		"### Plan File Structure\n" +
 		"- **Context**: Why this change is being made\n" +

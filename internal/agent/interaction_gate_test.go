@@ -164,7 +164,7 @@ This does not create a second ExitPlanMode tool, add a planner agent, or replace
 
 func TestPlanModeAllowedWritesDoNotRequestApproval(t *testing.T) {
 	registry := tool.NewRegistry()
-	registry.Register(tool.NewWrite())
+	registry.Register(tool.NewWrite(nil))
 
 	projectDir := t.TempDir()
 	planState := tool.NewPlanModeState()
@@ -194,7 +194,7 @@ func TestPlanModeAllowedWritesDoNotRequestApproval(t *testing.T) {
 
 func TestPlanModeDisallowedWritesSkipApprovalAndLetExecutorReject(t *testing.T) {
 	registry := tool.NewRegistry()
-	registry.Register(tool.NewWrite())
+	registry.Register(tool.NewWrite(nil))
 
 	projectDir := t.TempDir()
 	planState := tool.NewPlanModeState()

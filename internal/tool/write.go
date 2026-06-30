@@ -13,9 +13,11 @@ type writeParams struct {
 	Content string `json:"content"`
 }
 
-type writeTool struct{}
+type writeTool struct {
+	tracker *ReadTracker
+}
 
-func NewWrite() Tool { return writeTool{} }
+func NewWrite(tracker *ReadTracker) Tool { return writeTool{tracker: tracker} }
 
 func (writeTool) Effect() Effect { return EffectWrite }
 
@@ -40,13 +42,18 @@ func (writeTool) Info() Definition {
 	}
 }
 
-func (writeTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
+func (t writeTool) Run(ctx context.Context, input json.RawMessage, emitter Emitter) Result {
 	var p writeParams
 	if err := json.Unmarshal(input, &p); err != nil {
 		return Result{Content: fmt.Sprintf("invalid params: %v", err), IsError: true}
 	}
 	if p.Path == "" {
 		return Result{Content: "missing path", IsError: true}
+	}
+
+	// Overwriting an existing file requires a prior Read in this session.
+	if _, statErr := os.Stat(p.Path); statErr == nil && !t.tracker.WasRead(p.Path) {
+		return Result{Content: fmt.Sprintf("You must Read %s before overwriting it.", p.Path), IsError: true}
 	}
 
 	if emitter != nil {
