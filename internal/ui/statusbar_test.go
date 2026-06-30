@@ -17,8 +17,8 @@ func TestStatusBarModeFirstColumn(t *testing.T) {
 	if len(parts) < 2 {
 		t.Fatalf("statusbar parts = %v, want at least mode and model", parts)
 	}
-	if parts[0] != "  Plan" {
-		t.Fatalf("first column = %q, want %q", parts[0], "  Plan")
+	if parts[0] != "Plan" {
+		t.Fatalf("first column = %q, want %q", parts[0], "Plan")
 	}
 	if parts[1] != "sonnet" {
 		t.Fatalf("second column = %q, want model", parts[1])
@@ -30,11 +30,11 @@ func TestStatusBarModeSymbols(t *testing.T) {
 		mode string
 		want string
 	}{
-		{mode: "", want: "  Default"},
-		{mode: "default", want: "  Default"},
-		{mode: "auto-accept", want: "  Auto"},
-		{mode: "plan", want: "  Plan"},
-		{mode: "unknown", want: "  Unknown"},
+		{mode: "", want: "Default"},
+		{mode: "default", want: "Default"},
+		{mode: "auto-accept", want: "Auto"},
+		{mode: "plan", want: "Plan"},
+		{mode: "unknown", want: "Unknown"},
 	}
 	for _, tt := range tests {
 		sb := NewStatusBar()

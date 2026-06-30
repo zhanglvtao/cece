@@ -102,7 +102,7 @@ func statusModeLabel(mode string) string {
 	default:
 		label = strings.ToUpper(mode[:1]) + mode[1:]
 	}
-	return "  " + label
+	return label
 }
 
 func statusModeStyle(styles Styles, mode string) lipgloss.Style {
