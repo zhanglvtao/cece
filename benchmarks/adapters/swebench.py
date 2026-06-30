@@ -174,7 +174,12 @@ class SWEBenchAdapter(BenchmarkAdapter):
                 exec_cmd.extend(["-e", f"TRAECLI_TOKEN={token}"])
         elif os.environ.get("TRAECLI_TOKEN"):
             exec_cmd.extend(["-e", f"TRAECLI_TOKEN={os.environ['TRAECLI_TOKEN']}"])
-        exec_cmd.extend([container_name, "/usr/local/bin/cece", "engine", "--project-dir", "/testbed"])
+        exec_cmd.extend([
+            container_name,
+            "bash",
+            "-lc",
+            "source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && exec /usr/local/bin/cece engine --project-dir /testbed",
+        ])
 
         def cleanup():
             subprocess.run(["docker", "rm", "-f", container_name],
@@ -207,6 +212,7 @@ class SWEBenchAdapter(BenchmarkAdapter):
                                ":(exclude)*.tar", ":(exclude)*.tar.gz", ":(exclude)*.tgz",
                                ":(exclude)*.tar.bz2", ":(exclude)*.tar.xz",
                                ":(exclude)*.gz", ":(exclude)*.bz2", ":(exclude)*.xz",
+                               ":(exclude)tests/", ":(exclude)*/tests/*", ":(exclude)test_*",
                            ],
                            workdir="/testbed", capture=True)
         return {"patch": patch}

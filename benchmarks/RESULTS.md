@@ -22,6 +22,21 @@ parser; resolved = all FAIL_TO_PASS pass AND all PASS_TO_PASS still pass).
 | 9 | django__django-11001 | traecli/GPT-5.5 | TIMEOUT | 618.5 | — | — | Exceeded 600s timeout (model still working). |
 | 10 | django__django-11019 | traecli/GPT-5.5 | TIMEOUT | 617.1 | — | — | Exceeded 600s timeout (model still working). |
 
+## Infra Fix: Disallow test-file modifications in model patches (2026-06-29)
+
+**Problem**: The model modifies test files to write verification code during debugging,
+but the scoring pipeline (`score_in_place`) applies the model patch then the SWE-bench
+official test patch — if both touch test files they conflict → `model_test_patch_conflict`.
+
+**Fix (two layers)**:
+1. **Prompt (soft)**: Workflow step tells model to verify fix works and run `git diff`.
+2. **Artifact collection (hard)**: `collect_artifact` excludes `tests/`, `*/tests/*`,
+   `test_*` from the git diff with `:(exclude)` pathspecs.
+
+**Result**: The conflict is eliminated at the infra layer regardless of model behavior.
+Patch scoring now always succeeds (or genuinely fails the F2P/P2P tests, which is the
+correct signal).
+
 ### Notes
 - All finished cases received real official-methodology scoring (3–180 tests
   parsed per case). No infra-induced `run_failed` / `apply_failed` / blank-parse.
