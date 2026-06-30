@@ -38,7 +38,14 @@ Read the issue description in /testbed/issue.md, find and fix the bug.
 When you stop, report briefly what you changed and why, and state clearly which reproduction and repo tests passed, failed, were blocked, or were not run.
 
 # IMPORTANT — Signal completion
-Only after the reproduction is fixed, the relevant repo tests pass, and you have reviewed your changes with `git diff`, run:
-  touch /testbed/.cece/done
-If reproduction or tests fail, are blocked, or are not run, do not touch the done file yet.
+Do NOT run `touch /testbed/.cece/done` until ALL of the following are true:
+  1. Reproduction is fixed — the original bug no longer occurs.
+  2. Relevant repo tests pass — you ran the actual test suite, not just your reproduction.
+  3. COMPLETENESS CHECK — you used Grep to search the modified file(s) for other
+     patterns with the same root cause, and verified every entry point of every
+     modified function. State explicitly in your output which patterns you searched
+     and which entry points you verified.
+  4. You ran `git diff` and reviewed every change in the output.
+If any of the above is not done, do it now. Do not touch the done file until
+all four conditions are satisfied.
 This signals that you are finished and the benchmark can proceed to scoring."""
