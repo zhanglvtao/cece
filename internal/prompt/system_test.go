@@ -154,3 +154,51 @@ func TestFormatStableSystemPromptFallsBackToDefaultWhenNoFile(t *testing.T) {
 		t.Fatalf("expected default prompt when no override file exists\ngot:      %q\ndefault:  %q", got, defaultGot)
 	}
 }
+
+func TestFormatInteractiveSystemPromptIncludesBuiltInAgentGuidance(t *testing.T) {
+	prompt := FormatInteractiveSystemPrompt("/repo")
+	for _, want := range []string{
+		"built-in agents",
+		"research",
+		"coding",
+		"review",
+		"execution",
+		"independent subtasks",
+		"agent_type",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("interactive prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestFormatSubAgentSystemPromptIncludesProfileGuidance(t *testing.T) {
+	cases := []struct {
+		profile string
+		want    string
+	}{
+		{profile: "research", want: "collect evidence before concluding"},
+		{profile: "coding", want: "keep code changes focused"},
+		{profile: "review", want: "inspect for risks and omissions"},
+		{profile: "execution", want: "drive progress and report status"},
+	}
+
+	for _, tc := range cases {
+		prompt := FormatSubAgentSystemPrompt("/repo", tc.profile, "")
+		if !strings.Contains(strings.ToLower(prompt), strings.ToLower(tc.want)) {
+			t.Fatalf("profile %s missing %q:\n%s", tc.profile, tc.want, prompt)
+		}
+	}
+}
+
+func TestFormatSubAgentSystemPromptKeepsBaseAndExtraInstructions(t *testing.T) {
+	base := FormatStableSystemPrompt("/repo")
+	prompt := FormatSubAgentSystemPrompt("/repo", "coding", "follow repo conventions")
+
+	if !strings.Contains(prompt, strings.Split(base, "\n")[0]) {
+		t.Fatalf("sub-agent prompt should keep stable base:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "follow repo conventions") {
+		t.Fatalf("sub-agent prompt missing extra instructions:\n%s", prompt)
+	}
+}

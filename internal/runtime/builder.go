@@ -193,7 +193,7 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 		SessionStore: b.shared.Store,
 	}
 
-	if req.Profile.Name == ProfileWorker {
+	if req.Profile.Name != ProfileInteractive {
 		maxTurns := req.MaxTurns
 		if maxTurns <= 0 {
 			maxTurns = req.Profile.Execution.DefaultMaxTurns
@@ -285,10 +285,12 @@ func (b *Builder) buildRegistry(profile AgentProfile, toolNames []string, planSt
 func (b *Builder) buildAssembler(ctx context.Context, req BuildRequest, registry *tool.Registry, contextWindow int) *prompt.ContextAssembler {
 	stable := req.StablePrompt
 	if stable == "" {
+		stable = prompt.FormatStableSystemPrompt(b.shared.ProjectDir)
+		if req.Profile.Name == ProfileInteractive {
+			stable = prompt.FormatInteractiveSystemPrompt(b.shared.ProjectDir)
+		}
 		if req.Profile.Prompt.UseSubAgentPrompt {
-			stable = prompt.FormatSubAgentSystemPrompt(b.shared.ProjectDir, req.SystemPromptExtra)
-		} else {
-			stable = prompt.FormatStableSystemPrompt(b.shared.ProjectDir)
+			stable = prompt.FormatSubAgentSystemPrompt(b.shared.ProjectDir, string(req.Profile.Name), req.SystemPromptExtra)
 		}
 	}
 	collector := prompt.NewDefaultSessionCollector(b.shared.ProjectDir, registry)

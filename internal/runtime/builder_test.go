@@ -145,7 +145,7 @@ func (s *memStore) SaveInputHistory(_ context.Context, sessionID string, history
 
 var _ session.Store = (*memStore)(nil)
 
-func TestBuilderBuildsInteractiveAndWorkerRuntimes(t *testing.T) {
+func TestBuilderBuildsInteractiveAndTaskAgentProfiles(t *testing.T) {
 	llm := stubModelClient{}
 	builder := NewBuilder(SharedDeps{
 		ProjectDir: t.TempDir(),
@@ -184,35 +184,43 @@ func TestBuilderBuildsInteractiveAndWorkerRuntimes(t *testing.T) {
 	if _, ok := interactive.Registry.Get(tool.TaskClosureToolName); ok {
 		t.Fatal("interactive registry should hide UpdateTaskClosure")
 	}
+	interactivePrompt := interactive.Assembler.Assemble(prompt.TurnContext{})
+	for _, want := range []string{"built-in agents", "research", "coding", "review", "execution"} {
+		if !strings.Contains(interactivePrompt.FullText, want) {
+			t.Fatalf("interactive prompt missing %q:\n%s", want, interactivePrompt.FullText)
+		}
+	}
 
-	worker, err := builder.Build(context.Background(), BuildRequest{
+	coding, err := builder.Build(context.Background(), BuildRequest{
 		ID:                "agent-1",
 		Description:       "file analysis",
 		Model:             "worker-model",
 		ContextWindow:     16000,
 		ModelClient:       llm,
-		Profile:           MustProfile(ProfileWorker),
+		Profile:           MustProfile(ProfileCoding),
 		ParentSessionID:   "sess-parent",
 		SystemPromptExtra: "worker-only-instructions",
 	})
 	if err != nil {
-		t.Fatalf("Build(worker) error = %v", err)
+		t.Fatalf("Build(coding) error = %v", err)
 	}
-	if worker.Tracker == nil {
-		t.Fatal("worker runtime should create tracker")
+	if coding.Tracker == nil {
+		t.Fatal("coding runtime should create tracker")
 	}
-	if worker.Tracker.MaxTurns != MustProfile(ProfileWorker).Execution.DefaultMaxTurns {
-		t.Fatalf("worker MaxTurns = %d, want %d", worker.Tracker.MaxTurns, MustProfile(ProfileWorker).Execution.DefaultMaxTurns)
+	if coding.Tracker.MaxTurns != MustProfile(ProfileCoding).Execution.DefaultMaxTurns {
+		t.Fatalf("coding MaxTurns = %d, want %d", coding.Tracker.MaxTurns, MustProfile(ProfileCoding).Execution.DefaultMaxTurns)
 	}
-	if worker.Engine.Effort() != "low" {
-		t.Fatalf("worker effort = %q, want low", worker.Engine.Effort())
+	if coding.Engine.Effort() != "medium" {
+		t.Fatalf("coding effort = %q, want medium", coding.Engine.Effort())
 	}
-	if _, ok := worker.Registry.Get(tool.AgentToolName); ok {
-		t.Fatal("worker registry must not contain Agent tool")
+	if _, ok := coding.Registry.Get(tool.AgentToolName); ok {
+		t.Fatal("coding registry must not contain Agent tool")
 	}
-	assembled := worker.Assembler.Assemble(prompt.TurnContext{})
-	if !strings.Contains(assembled.FullText, "worker-only-instructions") {
-		t.Fatalf("worker prompt missing extra instructions: %q", assembled.FullText)
+	assembled := coding.Assembler.Assemble(prompt.TurnContext{})
+	for _, want := range []string{"implementation work", "focused", "worker-only-instructions"} {
+		if !strings.Contains(strings.ToLower(assembled.FullText), strings.ToLower(want)) {
+			t.Fatalf("coding prompt missing %q: %q", want, assembled.FullText)
+		}
 	}
 }
 
@@ -246,7 +254,22 @@ func TestSubAgentFactoryFallsBackToDefaultModel(t *testing.T) {
 		contextWindowFor: contextWindowFor,
 	}
 
-	rt, err := factory.NewSubAgentRuntime(context.Background(), engine.SubAgentBuildConfig{AgentID: "agent-1", Description: "A"})
+	built, err := builder.Build(context.Background(), BuildRequest{
+		ID:            "agent-1",
+		Description:   "A",
+		Model:         "default-model",
+		ContextWindow: 64000,
+		ModelClient:   llm,
+		Profile:       MustProfile(ProfileResearch),
+	})
+	if err != nil {
+		t.Fatalf("Build(research) error = %v", err)
+	}
+	if !strings.Contains(built.Assembler.Assemble(prompt.TurnContext{}).FullText, "Collect evidence before concluding") {
+		t.Fatalf("research prompt missing profile guidance")
+	}
+
+	rt, err := factory.NewSubAgentRuntime(context.Background(), engine.SubAgentBuildConfig{AgentID: "agent-1", Description: "A", Profile: string(ProfileResearch)})
 	if err != nil {
 		t.Fatalf("NewSubAgentRuntime error = %v", err)
 	}
