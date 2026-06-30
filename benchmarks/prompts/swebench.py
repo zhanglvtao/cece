@@ -12,7 +12,7 @@ Read the issue description in /testbed/issue.md, find and fix the bug.
 4. Edit the source code to fix the issue — use Edit (not Write) for existing files.
 5. Rerun the reproduction after the change and confirm the original failure is fixed.
 6. Run the repository's existing relevant tests for this issue. Do not stop at a plausible patch without running real repo tests.
-7. **COMPLETENESS CHECK — identify all affected locations:**
+7. **COMPLETENESS CHECK — create a separate Todo for this step. Do not merge it with "fix the bug".**
    a. Use Grep to search the modified file(s) for ALL patterns that share the same
       root cause. Example: if you fixed a case-sensitive comparison, search for all
       other comparisons of the same kind in that file. If you added a guard against
