@@ -67,7 +67,7 @@ A reference with all fields and comments: [`docs/settings.example.json`](docs/se
 | Field | Default | Description |
 |---|---|---|
 | `name` | required | Provider identifier |
-| `protocol` | `anthropic` | `anthropic`, `codebase`, or `aiden` |
+| `protocol` | `anthropic` | `anthropic`, `aiden`, `bytedance`, or `traecli` |
 | `apiKey` | — | Static API key |
 | `baseURL` | — | API endpoint URL |
 | `authMode` | `apikey` | `apikey` or `bearer` |
@@ -101,16 +101,16 @@ export CECE_CODEBASE_AUTO="1"                           # add dynamic coco codeb
 
 | Variable | Description |
 |---|---|
-| `CECE_CODEBASE_AUTH_HELPER` | Override codebase token helper (default: `bytedcli auth get-codebase-jwt-token`) |
-| `CECE_COCO_PLUGINS_DIR` | Override coco plugin directory |
+| `CECE_CODEBASE_AUTH_HELPER` | Legacy codebase token helper override |
 
 ### Provider Protocols
 
 | Protocol | Description |
 |---|---|
 | `anthropic` | Default. Direct Anthropic API or compatible proxy. |
-| `codebase` | Codebase TraeV2 API. Dynamically reads coco plugin `byted_trae` models and uses `configName`. |
 | `aiden` | Aiden protocol. |
+| `bytedance` | ByteDance OpenAI-compatible endpoint. |
+| `traecli` | coco/traecli LLM endpoint using `/chat/completions` directly under the configured base URL, with automatic Aime `pcLLMAK` token refresh. |
 
 ### Auth Modes
 

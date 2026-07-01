@@ -44,3 +44,7 @@ def get_scorer(name: str):
 
 def list_benchmarks() -> list[str]:
     return list(ADAPTERS.keys())
+
+
+def list_scorers() -> list[str]:
+    return list(SCORERS.keys())

@@ -47,13 +47,16 @@ bench-build: build-linux-arm64
 bench-build-images:
 	python -m benchmarks.build_images --slice :10
 
-bench-run: build-linux-arm64
-	python -m benchmarks run $(BENCH) \
+bench-run:
+	python3 -m benchmarks run $(BENCH) \
 		--model $(MODEL) \
-		--cece-bin $(CECE_BIN) \
-		--max-workers 1 \
+		--concurrency 1 \
 		--timeout 600 \
 		--slice :1
 
 bench-score:
+	@if [ "$(BENCH)" = "swebench" ]; then \
+		echo "SWE-bench is scored inline by: make bench-run BENCH=swebench"; \
+		exit 1; \
+	fi
 	python -m benchmarks score $(BENCH)

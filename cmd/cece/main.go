@@ -28,6 +28,7 @@ import (
 	"github.com/zhanglvtao/cece/internal/session"
 	"github.com/zhanglvtao/cece/internal/setup"
 	"github.com/zhanglvtao/cece/internal/skill"
+	"github.com/zhanglvtao/cece/internal/traecli"
 	"github.com/zhanglvtao/cece/internal/ui"
 	"github.com/zhanglvtao/cece/internal/update"
 	"github.com/zhanglvtao/cece/internal/version"
@@ -116,6 +117,24 @@ func createClient(pc config.ProviderConfig, model string, configName string) age
 		c := aiden.NewClient(pc.APIKey, model, pc.BaseURL)
 		if pc.AuthHelper != "" {
 			c.SetAuthHelper(pc.AuthHelper)
+		}
+		if shouldUseResponsesAPI(model) {
+			c.SetUseResponsesAPI(true)
+		}
+		return c
+	case "traecli":
+		apiModel := model
+		if configName != "" {
+			apiModel = configName
+		}
+		c := aiden.NewClient(pc.APIKey, apiModel, pc.BaseURL)
+		c.SetPathPrefix("")
+		if pc.AuthHelper != "" {
+			c.SetAuthHelper(pc.AuthHelper)
+		} else {
+			c.SetTokenProvider(func(context.Context) (string, error) {
+				return traecli.RefreshToken()
+			})
 		}
 		if shouldUseResponsesAPI(model) {
 			c.SetUseResponsesAPI(true)
@@ -535,19 +554,29 @@ func buildListAllModelsFn(cfg config.Config) runtime.ListAllModelsFn {
 				defer wg.Done()
 
 				var models []agent.ModelInfo
-				tmpClient := createClient(pc, "", "")
-				if lister, ok := tmpClient.(interface {
-					ListModels(context.Context) ([]agent.ModelInfo, error)
-				}); ok {
-					if result, err := lister.ListModels(ctx); err == nil {
+				if pc.Protocol == "traecli" {
+					if result, err := traecli.LoadDefaultLocalModels(); err == nil && len(result) > 0 {
 						models = result
-						for i := range models {
-							if models[i].MaxContextWindow <= 0 {
-								models[i].MaxContextWindow = cfg.ContextWindowFor(models[i].ID)
+					} else if err != nil {
+						slog.Warn("traecli local model load failed, trying provider/static list", "provider", pc.Name, "error", err)
+					}
+				}
+
+				if len(models) == 0 {
+					tmpClient := createClient(pc, "", "")
+					if lister, ok := tmpClient.(interface {
+						ListModels(context.Context) ([]agent.ModelInfo, error)
+					}); ok {
+						if result, err := lister.ListModels(ctx); err == nil {
+							models = result
+							for i := range models {
+								if models[i].MaxContextWindow <= 0 {
+									models[i].MaxContextWindow = cfg.ContextWindowFor(models[i].ID)
+								}
 							}
+						} else {
+							slog.Warn("provider ListModels failed, trying static list", "provider", pc.Name, "error", err)
 						}
-					} else {
-						slog.Warn("provider ListModels failed, trying static list", "provider", pc.Name, "error", err)
 					}
 				}
 

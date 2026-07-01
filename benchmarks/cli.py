@@ -197,6 +197,45 @@ def _run_one(adapter, inst, cece_bin, config, timeout, store):
         log("[setup] creating sandbox")
         sandbox = adapter.setup_sandbox(inst, cece_bin, config)
         log("[setup] sandbox ready")
+
+        if adapter.name == "swebench":
+            try:
+                from .scorers.swebench import preflight_instance
+                container_name = sandbox.extra.get("container_name", "")
+                instance_data = sandbox.extra.get("instance", inst)
+                if container_name:
+                    log("[preflight] checking SWE-bench scoring inputs")
+                    preflight_result = preflight_instance(container_name, instance_data, log=log)
+                else:
+                    preflight_result = {
+                        "status": "preflight_missing_container",
+                        "category": "framework_preflight",
+                        "resolved": False,
+                    }
+                    log("[preflight] failed because container metadata is missing")
+            except Exception as e:
+                preflight_result = {
+                    "status": "preflight_error",
+                    "category": "framework_preflight",
+                    "resolved": False,
+                    "error": str(e),
+                }
+                log(f"[preflight] failed: {e}")
+            if preflight_result.get("status") != "preflight_passed":
+                record = RunRecord(
+                    benchmark=adapter.name,
+                    instance_id=inst_id,
+                    model=config.get("model", "unknown"),
+                    exit_status="skipped",
+                    artifact={"score": preflight_result},
+                    started_at=started_at,
+                    duration_s=time.monotonic() - t0,
+                )
+                store.save_run(record)
+                log("[result] saved run record and transcript")
+                print(f"  [SKIP] {inst_id} — {preflight_result.get('status', 'preflight_failed')}", flush=True)
+                return
+
         log("[engine] starting cece engine")
         driver = CeceDriver.start(sandbox.exec_cmd, env=sandbox.env)
         # Set up early-done polling for swebench
@@ -337,7 +376,24 @@ def _print_summary(records):
     failed = sum(1 for r in records if r.exit_status not in ("completed", "skipped"))
     skipped = sum(1 for r in records if r.exit_status == "skipped")
     resolved = sum(1 for r in records if r.artifact.get("score", {}).get("resolved", False))
-    print(f"\nDone: {done} | Failed: {failed} | Skipped: {skipped} | Resolved: {resolved} | Total: {len(records)}")
+    preflight_failed = sum(
+        1 for r in records
+        if r.artifact.get("score", {}).get("category") == "framework_preflight"
+    )
+    eval_conflict = sum(
+        1 for r in records
+        if r.artifact.get("score", {}).get("category") == "evaluation_conflict"
+    )
+    score_error = sum(
+        1 for r in records
+        if r.artifact.get("score", {}).get("category") == "scoring_error"
+    )
+    print(
+        f"\nDone: {done} | Failed: {failed} | Skipped: {skipped} | "
+        f"Resolved: {resolved} | Total: {len(records)} | "
+        f"PreflightFailed: {preflight_failed} | EvalConflict: {eval_conflict} | "
+        f"ScoreError: {score_error}"
+    )
 
 
 def _load_config_for_benchmark(benchmark: str, config_path: Optional[str] = None) -> dict:
