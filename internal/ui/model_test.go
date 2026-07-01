@@ -108,10 +108,10 @@ func TestApplyEventBuildsTranscriptAndClearsBusy(t *testing.T) {
 	if !containsAll(plain, "hi", "hello there") {
 		t.Fatalf("transcript missing expected content:\n%s", view)
 	}
-	if !strings.Contains(plain, "You>") {
+	if !strings.Contains(plain, "♦ You") {
 		t.Fatalf("user label missing:\n%s", view)
 	}
-	if !strings.Contains(plain, "Cece>") {
+	if !strings.Contains(plain, "◊ Cece") {
 		t.Fatalf("assistant label missing:\n%s", view)
 	}
 	if strings.Contains(view, "[you]") || strings.Contains(view, "[cece]") {
@@ -854,6 +854,71 @@ func TestStatusRendersAboveInput(t *testing.T) {
 	}
 	if strings.Contains(view[metricsIdx:], "Ready") {
 		t.Fatalf("bottom metrics bar should not contain status")
+	}
+}
+
+func TestHeadlineStatusSweepMovesAcrossFrames(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	m.busy = true
+	m.status = "Requesting"
+	m.requestStartTime = time.Now().Add(-2 * time.Second)
+
+	m.statusFrame = 0
+	first := m.headlineView()
+	m.statusFrame = 4
+	second := m.headlineView()
+	m.statusFrame = 8
+	third := m.headlineView()
+
+	if stripAnsi(first) != stripAnsi(second) || stripAnsi(second) != stripAnsi(third) {
+		t.Fatalf("sweep should not change visible status text:\n%s\n%s\n%s", stripAnsi(first), stripAnsi(second), stripAnsi(third))
+	}
+	if first == second || second == third {
+		t.Fatalf("sweep should move ANSI highlight across frames")
+	}
+	plain := stripAnsi(first)
+	if !strings.Contains(plain, "Requesting") || !strings.Contains(plain, "2s") {
+		t.Fatalf("headline missing status or elapsed duration: %q", plain)
+	}
+}
+
+func TestInputViewUsesPaddedShadowLineWithoutBox(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 40, Height: 12})
+	m.input.SetValue("hello")
+
+	raw := m.inputView()
+	plain := stripAnsi(raw)
+	lines := strings.Split(plain, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("inputView lines = %d, want 2; view:\n%q", len(lines), plain)
+	}
+	if strings.ContainsAny(plain, "┌┐└┘│─") {
+		t.Fatalf("input view should not render a border box:\n%s", plain)
+	}
+	if !strings.HasPrefix(lines[0], " ") || !strings.Contains(lines[0], "hello") {
+		t.Fatalf("input content should be horizontally padded:\n%q", lines[0])
+	}
+	if len([]rune(lines[1])) != m.contentWidth() {
+		t.Fatalf("shadow line width = %d, want %d; line=%q", len([]rune(lines[1])), m.contentWidth(), lines[1])
+	}
+	if strings.TrimSpace(lines[1]) != "" {
+		t.Fatalf("shadow line should be rendered as styled spaces, got %q", lines[1])
+	}
+	if !strings.Contains(raw, "\x1b[") {
+		t.Fatalf("shadow/input view should contain ANSI styling for the shadow line: %q", raw)
+	}
+}
+
+func TestInputLayoutHeightIncludesShadowLine(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 18})
+
+	ls := m.measureLayout()
+	want := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight) + inputShadowHeight
+	if ls.inputH != want {
+		t.Fatalf("inputH = %d, want textarea height + shadow = %d", ls.inputH, want)
 	}
 }
 

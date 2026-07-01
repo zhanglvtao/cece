@@ -707,7 +707,7 @@ func (t *transcript) renderStreamingThinking(block transcriptBlock, width int, s
 }
 
 func renderAssistantBody(rendered string, sty Styles) string {
-	label := sty.Chat.LabelAssistant.Render("Cece>")
+	label := sty.Chat.LabelAssistant.Render("◊ Cece")
 	body := indent(sty.Chat.AssistantBody.Render(rendered), "  ")
 	return label + "\n" + body
 }
@@ -841,7 +841,7 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	text := strings.TrimRight(block.text, "\n")
 	if block.kind == blockUser {
 		text = ansi.Wrap(text, max(20, width-2), "")
-		label := sty.Chat.LabelUser.Render("You>")
+		label := sty.Chat.LabelUser.Render("♦ You")
 		body := indent(sty.Chat.UserBody.Render(text), "  ")
 		return label + "\n" + body
 	}
@@ -901,7 +901,6 @@ func renderBlock(block transcriptBlock, width int, sty Styles) string {
 	}
 	return renderLabel() + "\n" + indent(text, "  ")
 }
-
 
 func formatDryRun(e protocol.RequestDryRunEvent) string {
 	var b strings.Builder

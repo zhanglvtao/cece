@@ -21,6 +21,7 @@ import (
 	"github.com/zhanglvtao/cece/internal/protocol"
 	"github.com/zhanglvtao/cece/internal/session"
 	"github.com/zhanglvtao/cece/internal/skill"
+	"github.com/zhanglvtao/cece/internal/ui/theme"
 	"github.com/zhanglvtao/cece/internal/update"
 	"github.com/zhanglvtao/cece/internal/version"
 )
@@ -30,6 +31,8 @@ const (
 	simpleInputMaxHeight = 8
 	modalMaxHeight       = 14
 	horizontalPadding    = 2
+	inputHorizontalPad   = 1
+	inputShadowHeight    = 1
 )
 
 var statusSpinnerFrames = []rune{'-', '\\', '|', '/'}
@@ -783,8 +786,9 @@ func (m *Model) View() tea.View {
 			rowsAboveInput += ls.headlineH
 		}
 		rowsAboveInput += ls.popupH + ls.filePopupH
-		cur.Y += rowsAboveInput + m.styles.Input.Box.GetBorderTopSize() + m.styles.Input.Box.GetPaddingTop()
-		cur.X += m.styles.Input.Box.GetBorderLeftSize() + m.styles.Input.Box.GetPaddingLeft() + m.horizontalPadding()
+		metrics := inputMetrics(contentWidth, m.input.Height())
+		cur.Y += rowsAboveInput + metrics.CursorYPad
+		cur.X += metrics.CursorXPad + m.horizontalPadding()
 		view.Cursor = cur
 	}
 
@@ -812,7 +816,7 @@ func (m *Model) measureLayout() layoutState {
 	ls.queuedH = renderedHeight(ls.queued)
 	ls.headline = m.headlineView()
 	ls.headlineH = renderedHeight(ls.headline)
-	ls.inputH = clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight) + m.styles.Input.Box.GetVerticalFrameSize()
+	ls.inputH = inputMetrics(contentWidth, m.input.Height()).TotalH
 	ls.statusH = m.statusBar.Height()
 
 	chromeH := ls.inputH + ls.statusH
@@ -864,12 +868,11 @@ func (m *Model) resize() {
 	}
 	ls := m.measureLayout()
 	viewportH := ls.viewportH
-	inputContentH := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
-	hFrame := m.styles.Input.Box.GetHorizontalFrameSize()
+	metrics := inputMetrics(contentWidth, m.input.Height())
 	m.viewport.SetWidth(contentWidth)
 	m.viewport.SetHeight(viewportH)
-	m.input.SetWidth(max(1, contentWidth-hFrame))
-	m.input.SetHeight(inputContentH)
+	m.input.SetWidth(metrics.TextareaW)
+	m.input.SetHeight(metrics.TextareaH)
 	widthChanged := m.lastViewportWidth != contentWidth
 	if widthChanged || m.viewportDirty {
 		m.refreshViewport(atBottom || m.viewportGotoBottom)
@@ -931,17 +934,68 @@ func (m *Model) contentWidth() int {
 	return width
 }
 
+type inputSurfaceMetrics struct {
+	ContentWidth int
+	TextareaW    int
+	TextareaH    int
+	TotalH       int
+	CursorXPad   int
+	CursorYPad   int
+}
+
+func inputMetrics(contentWidth, textareaHeight int) inputSurfaceMetrics {
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	textareaW := contentWidth - inputHorizontalPad*2
+	if textareaW < 1 {
+		textareaW = 1
+	}
+	textareaH := clamp(textareaHeight, simpleInputMinHeight, simpleInputMaxHeight)
+	return inputSurfaceMetrics{
+		ContentWidth: contentWidth,
+		TextareaW:    textareaW,
+		TextareaH:    textareaH,
+		TotalH:       textareaH + inputShadowHeight,
+		CursorXPad:   inputHorizontalPad,
+		CursorYPad:   0,
+	}
+}
+
+func padInputView(input string, width int) string {
+	lines := strings.Split(input, "\n")
+	pad := strings.Repeat(" ", inputHorizontalPad)
+	for i, line := range lines {
+		line = pad + line
+		visible := lipgloss.Width(line)
+		if visible < width {
+			line += strings.Repeat(" ", width-visible)
+		}
+		lines[i] = line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func inputShadowLine(width int, busy bool, shell bool) string {
+	if width < 1 {
+		width = 1
+	}
+	color := theme.FgMuted
+	if busy {
+		color = theme.Primary
+	}
+	if shell {
+		color = theme.Yellow
+	}
+	return lipgloss.NewStyle().Background(color).Render(strings.Repeat(" ", width))
+}
+
 func (m *Model) inputView() string {
-	h := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
-	boxStyle := m.styles.Input.BoxIdle
-	if m.busy {
-		boxStyle = m.styles.Input.BoxBusy
-	}
-	// Shell mode: input starts with !
-	if strings.HasPrefix(strings.TrimSpace(m.input.Value()), "!") {
-		boxStyle = m.styles.Input.BoxShell
-	}
-	return boxStyle.Width(m.contentWidth()).Height(h + boxStyle.GetVerticalFrameSize()).Render(m.input.View())
+	metrics := inputMetrics(m.contentWidth(), m.input.Height())
+	shell := strings.HasPrefix(strings.TrimSpace(m.input.Value()), "!")
+	body := padInputView(m.input.View(), metrics.ContentWidth)
+	shadow := inputShadowLine(metrics.ContentWidth, m.busy, shell)
+	return body + "\n" + shadow
 }
 
 // formatDuration formats a duration as whole seconds: "38s", "1m2s", etc.
@@ -955,10 +1009,49 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm%ds", m, s)
 }
 
-// headlineView renders a one-line indicator above the input box.
+func sweepWindowStart(textLen, window, frame int) int {
+	if textLen <= 0 || window >= textLen {
+		return 0
+	}
+	maxStart := textLen - window
+	cycle := maxStart * 2
+	if cycle == 0 {
+		return 0
+	}
+	step := frame % cycle
+	if step <= maxStart {
+		return step
+	}
+	return cycle - step
+}
+
+func renderSweepingText(text string, frame int, base lipgloss.Style) string {
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return ""
+	}
+	window := 4
+	if len(runes) < window {
+		window = len(runes)
+	}
+	start := sweepWindowStart(len(runes), window, frame)
+	highlight := base.Foreground(theme.Fg).Background(theme.Primary).Bold(true)
+
+	var b strings.Builder
+	for i, r := range runes {
+		style := base
+		if i >= start && i < start+window {
+			style = highlight
+		}
+		b.WriteString(style.Render(string(r)))
+	}
+	return b.String()
+}
+
+// headlineView renders a one-line indicator above the input surface.
 // Shows "<spinner> <status>" when idle (e.g. "- Ready"),
 // and "<spinner> <status> (<elapsed>) | <streamHeadline>" when busy streaming.
-// No lipgloss styling — plain text only.
+// Active request statuses use ANSI styling for a left-right sweep highlight.
 func (m *Model) headlineView() string {
 	if m.status == "" {
 		return ""
@@ -969,8 +1062,12 @@ func (m *Model) headlineView() string {
 		frame := string(statusSpinnerFrames[m.statusFrame%len(statusSpinnerFrames)])
 		statusText = frame + " " + m.status
 	}
-	// Colorize the status portion
+	// Colorize the status portion. During active request statuses, add a
+	// left-right sweep highlight driven by the existing statusFrame ticker.
 	prefix := m.styles.Headline.Render(statusText)
+	if m.busy || m.statusShowsSpinner() {
+		prefix = renderSweepingText(statusText, m.statusFrame, m.styles.Headline)
+	}
 	// Append elapsed time if a request is in progress
 	if m.busy && !m.requestStartTime.IsZero() {
 		elapsed := time.Since(m.requestStartTime)
@@ -991,10 +1088,7 @@ func (m *Model) headlineView() string {
 	if maxLen < 10 {
 		maxLen = 10
 	}
-	if len(prefix) > maxLen {
-		prefix = prefix[:maxLen-3] + "..."
-	}
-	return prefix
+	return ansi.Truncate(prefix, maxLen, "...")
 }
 
 func (m *Model) titleBarView() string {

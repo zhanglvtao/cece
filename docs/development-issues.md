@@ -190,3 +190,8 @@
 - 现象：大工具输出会落盘到 `.cece/tool-results`，但完整输出路径主要写在 `tool_result.Content` 预览里；历史 Trim 把 Content 替换成 `[trimmed]` 后，完整输出路径随之丢失。
 - 定位：`tool.Result` 已有 `OutputPath` / `OriginalBytes` / `PreviewBytes`，但 `ToolExecutor` 回填到 `ApiToolResultBlock` 时没有透传，导致 artifact 元数据从结构化字段退化成普通文本。
 - 结论：artifact 元数据应作为 agent 内部 history 的结构化字段保存；Trim/Truncate 只能裁剪预览 Content，不能删除路径和 byte 统计。
+
+## Input surface 去 box 后必须集中几何度量
+- 现象：TUI input 从 border box 改为 padding + 阴影线时，渲染高度、viewport 预留高度、textarea 宽度和 cursor 偏移原本分别读取 `Box` 的 frame/padding；如果只改 `inputView()`，光标和 viewport 会立刻漂移。
+- 定位：`model.go` 同时负责布局测量、resize、cursor 定位和 input 渲染，所有这些路径必须共享同一套 input surface metrics。
+- 结论：去 box 这类视觉调整不能只替换 render 片段；应抽出轻量 metric helper，让 `measureLayout()`、`resize()`、`View()` cursor offset 和 `inputView()` 同源。
