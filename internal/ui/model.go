@@ -32,10 +32,7 @@ const (
 	modalMaxHeight       = 14
 	horizontalPadding    = 2
 	inputHorizontalPad   = 1
-	inputShadowHeight    = 1
 )
-
-var statusSpinnerFrames = []rune{'-', '\\', '|', '/'}
 
 type globalEventMsg struct{ events []protocol.Event }
 type inputErrorMsg struct{ err error }
@@ -119,6 +116,7 @@ type Model struct {
 	status              string
 	statusFrame         int
 	statusSpinnerActive bool
+	requestSweepActive  bool
 	busy                bool
 	width               int
 	height              int
@@ -337,7 +335,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewportDirty = true
 		return m, nil
 	case statusSpinnerTickMsg:
-		if !m.statusShowsSpinner() && !(m.busy && m.hasInProgressTask()) && len(m.runningAgents) == 0 {
+		if !m.headlineAnimates() {
 			m.statusSpinnerActive = false
 			return m, nil
 		}
@@ -491,6 +489,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.ModelRequestStarted:
 		m.busy = true
 		m.status = "Requesting"
+		m.requestSweepActive = true
 		m.requestStartTime = time.Now()
 		if e.ContextWindow > 0 && e.ContextWindow != m.contextWindow {
 			logger.Info("UI: contextWindow synced from ModelRequestStarted", "old", m.contextWindow, "new", e.ContextWindow)
@@ -499,11 +498,13 @@ func (m *Model) applyEvent(event protocol.Event) {
 	case protocol.AssistantStarted:
 		m.busy = true
 		m.status = "Streaming"
+		m.requestSweepActive = true
 		m.streamHeadline = ""
 	case protocol.AssistantDelta:
 		m.streamHeadline += e.Text
 	case protocol.RunFailed:
 		m.busy = false
+		m.requestSweepActive = false
 		m.queued = nil
 		m.requestStartTime = time.Time{}
 		m.status = errorStatus("Failed")
@@ -512,6 +513,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 		m.headerBar.IncrementAPI(false)
 	case protocol.TurnCompleted:
 		m.busy = false
+		m.requestSweepActive = false
 		m.requestStartTime = time.Time{}
 		m.status = "Ready"
 		m.streamHeadline = ""
@@ -540,18 +542,28 @@ func (m *Model) applyEvent(event protocol.Event) {
 		)
 		m.headerBar.IncrementAPI(true)
 	case protocol.ToolCallsReady:
+		m.requestSweepActive = false
+		m.requestStartTime = time.Time{}
 		m.openToolConfirm(e.Calls)
 		m.status = "Confirm tools"
 	case protocol.PlanApprovalRequested:
+		m.requestSweepActive = false
+		m.requestStartTime = time.Time{}
 		m.openPlanConfirm(e.PlanFile)
 		m.status = "Approve plan"
 		m.scrollToPlanBlock = true
 	case protocol.PlanRejected:
+		m.requestSweepActive = false
+		m.requestStartTime = time.Time{}
 		m.mode = protocol.PermissionModePlan
 		m.status = "Plan rejected"
 	case protocol.ToolCallsRejected:
+		m.requestSweepActive = false
+		m.requestStartTime = time.Time{}
 		m.status = "Tool calls rejected"
 	case protocol.QuestionAsked:
+		m.requestSweepActive = false
+		m.requestStartTime = time.Time{}
 		m.openQuestion(e.Questions)
 		m.status = "Answer question"
 	case protocol.ModelsLoadedEvent:
@@ -956,7 +968,7 @@ func inputMetrics(contentWidth, textareaHeight int) inputSurfaceMetrics {
 		ContentWidth: contentWidth,
 		TextareaW:    textareaW,
 		TextareaH:    textareaH,
-		TotalH:       textareaH + inputShadowHeight,
+		TotalH:       textareaH,
 		CursorXPad:   inputHorizontalPad,
 		CursorYPad:   0,
 	}
@@ -976,26 +988,26 @@ func padInputView(input string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func inputShadowLine(width int, busy bool, shell bool) string {
+func renderInputSurface(input string, width int) string {
 	if width < 1 {
 		width = 1
 	}
-	color := theme.FgMuted
-	if busy {
-		color = theme.Primary
+	style := lipgloss.NewStyle().Background(theme.FgMuted)
+	lines := strings.Split(input, "\n")
+	for i, line := range lines {
+		visible := lipgloss.Width(line)
+		if visible < width {
+			line += strings.Repeat(" ", width-visible)
+		}
+		lines[i] = style.Render(line)
 	}
-	if shell {
-		color = theme.Yellow
-	}
-	return lipgloss.NewStyle().Background(color).Render(strings.Repeat(" ", width))
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) inputView() string {
 	metrics := inputMetrics(m.contentWidth(), m.input.Height())
-	shell := strings.HasPrefix(strings.TrimSpace(m.input.Value()), "!")
 	body := padInputView(m.input.View(), metrics.ContentWidth)
-	shadow := inputShadowLine(metrics.ContentWidth, m.busy, shell)
-	return body + "\n" + shadow
+	return renderInputSurface(body, metrics.ContentWidth)
 }
 
 // formatDuration formats a duration as whole seconds: "38s", "1m2s", etc.
@@ -1049,23 +1061,15 @@ func renderSweepingText(text string, frame int, base lipgloss.Style) string {
 }
 
 // headlineView renders a one-line indicator above the input surface.
-// Shows "<spinner> <status>" when idle (e.g. "- Ready"),
-// and "<spinner> <status> (<elapsed>) | <streamHeadline>" when busy streaming.
-// Active request statuses use ANSI styling for a left-right sweep highlight.
+// Shows "<status>" when idle and "<status> (<elapsed>) | <streamHeadline>"
+// while a request is active. Request statuses use a left-right sweep highlight.
 func (m *Model) headlineView() string {
 	if m.status == "" {
 		return ""
 	}
-	// Build the status prefix with spinner
 	statusText := m.status
-	if m.statusShowsSpinner() {
-		frame := string(statusSpinnerFrames[m.statusFrame%len(statusSpinnerFrames)])
-		statusText = frame + " " + m.status
-	}
-	// Colorize the status portion. During active request statuses, add a
-	// left-right sweep highlight driven by the existing statusFrame ticker.
 	prefix := m.styles.Headline.Render(statusText)
-	if m.busy || m.statusShowsSpinner() {
+	if m.requestSweepActive {
 		prefix = renderSweepingText(statusText, m.statusFrame, m.styles.Headline)
 	}
 	// Append elapsed time if a request is in progress
@@ -1113,12 +1117,12 @@ func (m *Model) headerBarView() string {
 	return m.headerBar.Render(m.contentWidth())
 }
 
-func (m *Model) statusShowsSpinner() bool {
-	return strings.HasSuffix(m.status, "ing")
+func (m *Model) headlineAnimates() bool {
+	return m.requestSweepActive || (m.busy && m.hasInProgressTask()) || len(m.runningAgents) > 0
 }
 
 func (m *Model) ensureStatusSpinner() tea.Cmd {
-	if !m.statusShowsSpinner() && !(m.busy && m.hasInProgressTask()) && len(m.runningAgents) == 0 {
+	if !m.headlineAnimates() {
 		m.statusSpinnerActive = false
 		return nil
 	}

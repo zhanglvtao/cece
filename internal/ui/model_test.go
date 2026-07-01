@@ -820,15 +820,15 @@ func TestModelSyncsModeToStatusBar(t *testing.T) {
 	m.SetDefaultMode("plan")
 	got := stripAnsi(m.statusBar.Render(120))
 	parts := strings.Split(got, " | ")
-	if parts[0] != "  Plan" {
-		t.Fatalf("default mode statusbar column = %q, want %q", parts[0], "  Plan")
+	if parts[0] != "Plan" {
+		t.Fatalf("default mode statusbar column = %q, want %q", parts[0], "Plan")
 	}
 
 	m.ApplyEventForTest(protocol.ModeChangedEvent{Mode: protocol.PermissionModeAutoAccept, Message: "Auto-accept mode"})
 	got = stripAnsi(m.statusBar.Render(120))
 	parts = strings.Split(got, " | ")
-	if parts[0] != "  Auto" {
-		t.Fatalf("changed mode statusbar column = %q, want %q", parts[0], "  Auto")
+	if parts[0] != "Auto" {
+		t.Fatalf("changed mode statusbar column = %q, want %q", parts[0], "Auto")
 	}
 }
 
@@ -862,13 +862,14 @@ func TestHeadlineStatusSweepMovesAcrossFrames(t *testing.T) {
 	m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
 	m.busy = true
 	m.status = "Requesting"
+	m.requestSweepActive = true
 	m.requestStartTime = time.Now().Add(-2 * time.Second)
 
 	m.statusFrame = 0
 	first := m.headlineView()
-	m.statusFrame = 4
+	m.statusFrame = 1
 	second := m.headlineView()
-	m.statusFrame = 8
+	m.statusFrame = 2
 	third := m.headlineView()
 
 	if stripAnsi(first) != stripAnsi(second) || stripAnsi(second) != stripAnsi(third) {
@@ -878,12 +879,59 @@ func TestHeadlineStatusSweepMovesAcrossFrames(t *testing.T) {
 		t.Fatalf("sweep should move ANSI highlight across frames")
 	}
 	plain := stripAnsi(first)
+	if strings.HasPrefix(plain, "- ") || strings.HasPrefix(plain, "\\ ") || strings.HasPrefix(plain, "| ") || strings.HasPrefix(plain, "/ ") {
+		t.Fatalf("headline should not include spinner prefix: %q", plain)
+	}
 	if !strings.Contains(plain, "Requesting") || !strings.Contains(plain, "2s") {
 		t.Fatalf("headline missing status or elapsed duration: %q", plain)
 	}
 }
 
-func TestInputViewUsesPaddedShadowLineWithoutBox(t *testing.T) {
+func TestQuestionAskedStopsRequestSweepImmediately(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	m.ApplyEventForTest(protocol.ModelRequestStarted{})
+	m.requestStartTime = time.Now().Add(-2 * time.Second)
+
+	m.statusFrame = 0
+	before := m.headlineView()
+	m.ApplyEventForTest(protocol.QuestionAsked{Questions: []protocol.Question{{Question: "Pick one", Options: []protocol.QuestionOption{{Label: "A"}, {Label: "B"}}}}})
+	m.statusFrame = 4
+	after := m.headlineView()
+
+	if before == after {
+		t.Fatalf("expected headline to change after question asked")
+	}
+	if m.requestSweepActive {
+		t.Fatal("request sweep should stop after QuestionAsked")
+	}
+	if stripAnsi(after) != "Answer question" {
+		t.Fatalf("headline = %q, want Answer question", stripAnsi(after))
+	}
+}
+
+func TestPlanApprovalStopsRequestSweepImmediately(t *testing.T) {
+	m := NewModel(nil, "sonnet", "/tmp")
+	m.update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	m.ApplyEventForTest(protocol.AssistantStarted{})
+	m.statusFrame = 0
+	before := m.headlineView()
+	m.ApplyEventForTest(protocol.PlanApprovalRequested{PlanFile: "plan.md"})
+	m.statusFrame = 4
+	after := m.headlineView()
+
+	if before == after {
+		t.Fatalf("expected headline to change after plan approval request")
+	}
+	if m.requestSweepActive {
+		t.Fatal("request sweep should stop after PlanApprovalRequested")
+	}
+	if stripAnsi(after) != "Approve plan" {
+		t.Fatalf("headline = %q, want Approve plan", stripAnsi(after))
+	}
+}
+
+func TestInputViewUsesPaddedStyledSurfaceWithoutExtraShadowLine(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 40, Height: 12})
 	m.input.SetValue("hello")
@@ -891,8 +939,8 @@ func TestInputViewUsesPaddedShadowLineWithoutBox(t *testing.T) {
 	raw := m.inputView()
 	plain := stripAnsi(raw)
 	lines := strings.Split(plain, "\n")
-	if len(lines) != 2 {
-		t.Fatalf("inputView lines = %d, want 2; view:\n%q", len(lines), plain)
+	if len(lines) != 1 {
+		t.Fatalf("inputView lines = %d, want 1; view:\n%q", len(lines), plain)
 	}
 	if strings.ContainsAny(plain, "┌┐└┘│─") {
 		t.Fatalf("input view should not render a border box:\n%s", plain)
@@ -900,25 +948,22 @@ func TestInputViewUsesPaddedShadowLineWithoutBox(t *testing.T) {
 	if !strings.HasPrefix(lines[0], " ") || !strings.Contains(lines[0], "hello") {
 		t.Fatalf("input content should be horizontally padded:\n%q", lines[0])
 	}
-	if len([]rune(lines[1])) != m.contentWidth() {
-		t.Fatalf("shadow line width = %d, want %d; line=%q", len([]rune(lines[1])), m.contentWidth(), lines[1])
-	}
-	if strings.TrimSpace(lines[1]) != "" {
-		t.Fatalf("shadow line should be rendered as styled spaces, got %q", lines[1])
+	if len([]rune(lines[0])) != m.contentWidth() {
+		t.Fatalf("input line width = %d, want %d; line=%q", len([]rune(lines[0])), m.contentWidth(), lines[0])
 	}
 	if !strings.Contains(raw, "\x1b[") {
-		t.Fatalf("shadow/input view should contain ANSI styling for the shadow line: %q", raw)
+		t.Fatalf("input view should contain ANSI styling for the surface: %q", raw)
 	}
 }
 
-func TestInputLayoutHeightIncludesShadowLine(t *testing.T) {
+func TestInputLayoutHeightMatchesTextareaHeight(t *testing.T) {
 	m := NewModel(nil, "sonnet", "/tmp")
 	m.update(tea.WindowSizeMsg{Width: 80, Height: 18})
 
 	ls := m.measureLayout()
-	want := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight) + inputShadowHeight
+	want := clamp(m.input.Height(), simpleInputMinHeight, simpleInputMaxHeight)
 	if ls.inputH != want {
-		t.Fatalf("inputH = %d, want textarea height + shadow = %d", ls.inputH, want)
+		t.Fatalf("inputH = %d, want textarea height = %d", ls.inputH, want)
 	}
 }
 

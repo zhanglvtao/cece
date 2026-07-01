@@ -61,168 +61,88 @@ func invalidateMarkdownCache() {
 	mdCache = map[int]*glamour.TermRenderer{}
 }
 
-// buildGlamourStyle creates an ANSI 16-color ansi.StyleConfig.
-// Colors reference the terminal palette so switching themes
-// changes cece's markdown colors automatically.
+// buildGlamourStyle creates a neutral markdown style for cece's main output.
+// Keep markdown structure and readability, but avoid cece-specific theme colors.
 func buildGlamourStyle() ansi.StyleConfig {
 	return ansi.StyleConfig{
-		Document: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{},
-		},
+		Document: ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{}},
 		BlockQuote: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Italic: boolPtr(true),
-				Color:  strPtr(theme.MdMuted),
-			},
-			Indent:      uintPtr(1),
-			IndentToken: strPtr("│ "),
+			StylePrimitive: ansi.StylePrimitive{Italic: boolPtr(true)},
+			Indent:         uintPtr(1),
+			IndentToken:    strPtr("│ "),
 		},
 		Paragraph: ansi.StyleBlock{},
-		List: ansi.StyleList{
-			StyleBlock:   ansi.StyleBlock{},
-			LevelIndent:  4,
-		},
+		List: ansi.StyleList{StyleBlock: ansi.StyleBlock{}, LevelIndent: 4},
 		Heading: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				BlockSuffix: "\n",
-				Color:       strPtr(theme.MdHeading),
-				Bold:        boolPtr(true),
-			},
+			StylePrimitive: ansi.StylePrimitive{BlockSuffix: "\n", Bold: boolPtr(true)},
 		},
-		H1: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Prefix: " ",
-				Suffix: " ",
-				Color:  strPtr(theme.MdHeading),
-				Bold:   boolPtr(true),
-			},
-		},
-		H2: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "## ",
-				Color:  strPtr(theme.MdHeading),
-				Bold:   boolPtr(true),
-			},
-		},
-		H3: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "### ",
-				Color:  strPtr(theme.MdHeading),
-				Bold:   boolPtr(true),
-			},
-		},
-		H4: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "#### ",
-				Color:  strPtr(theme.MdHeading),
-				Bold:   boolPtr(true),
-			},
-		},
-		H5: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "##### ",
-				Color:  strPtr(theme.MdHeading),
-			},
-		},
-		H6: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "###### ",
-				Color:  strPtr(theme.MdMuted),
-			},
-		},
-		Strikethrough: ansi.StylePrimitive{
-			CrossedOut: boolPtr(true),
-		},
-		Emph: ansi.StylePrimitive{
-			Italic: boolPtr(true),
-		},
-		Strong: ansi.StylePrimitive{
-			Bold: boolPtr(true),
-		},
+		H1: ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: " ", Suffix: " ", Bold: boolPtr(true)}},
+		H2: ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "## ", Bold: boolPtr(true)}},
+		H3: ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "### ", Bold: boolPtr(true)}},
+		H4: ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "#### ", Bold: boolPtr(true)}},
+		H5: ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "##### "}},
+		H6: ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "###### "}},
+		Strikethrough: ansi.StylePrimitive{CrossedOut: boolPtr(true)},
+		Emph:          ansi.StylePrimitive{Italic: boolPtr(true)},
+		Strong:        ansi.StylePrimitive{Bold: boolPtr(true)},
 		HorizontalRule: ansi.StylePrimitive{
-			Color:  strPtr(theme.MdMuted),
 			Format: "\n--------\n",
 		},
-		Item: ansi.StylePrimitive{
-			BlockPrefix: "• ",
-		},
-		Enumeration: ansi.StylePrimitive{
-			BlockPrefix: ". ",
-		},
+		Item:        ansi.StylePrimitive{BlockPrefix: "• "},
+		Enumeration: ansi.StylePrimitive{BlockPrefix: ". "},
 		Task: ansi.StyleTask{
 			Ticked:   "[✓] ",
 			Unticked: "[ ] ",
 		},
-		Link: ansi.StylePrimitive{
-			Color:     strPtr(theme.MdLink),
-			Underline: boolPtr(true),
-		},
-		LinkText: ansi.StylePrimitive{
-			Color: strPtr(theme.MdLink),
-			Bold:  boolPtr(true),
-		},
-		Image: ansi.StylePrimitive{
-			Color:     strPtr(theme.MdLink),
-			Underline: boolPtr(true),
-		},
-		ImageText: ansi.StylePrimitive{
-			Format: "Image: {{.text}}",
-		},
+		Link:      ansi.StylePrimitive{Underline: boolPtr(true)},
+		LinkText:  ansi.StylePrimitive{Bold: boolPtr(true)},
+		Image:     ansi.StylePrimitive{Underline: boolPtr(true)},
+		ImageText: ansi.StylePrimitive{Format: "Image: {{.text}}"},
 		Code: ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color: strPtr(theme.MdCode),
-				Prefix:          "\u00a0",
-				Suffix:          "\u00a0",
-			},
+			StylePrimitive: ansi.StylePrimitive{Prefix: "\u00a0", Suffix: "\u00a0"},
 		},
 		CodeBlock: ansi.StyleCodeBlock{
-			StyleBlock: ansi.StyleBlock{
-				Margin: uintPtr(2),
-			},
+			StyleBlock: ansi.StyleBlock{Margin: uintPtr(2)},
 			Chroma: &ansi.Chroma{
 				Text:                ansi.StylePrimitive{},
-				Error:               ansi.StylePrimitive{Color: strPtr(theme.MdDeleted)},
-				Comment:             ansi.StylePrimitive{Italic: boolPtr(true), Faint: boolPtr(true), Color: strPtr(theme.MdMuted)},
-				CommentPreproc:      ansi.StylePrimitive{Bold: boolPtr(true), Color: strPtr(theme.MdKeyword)},
-				Keyword:             ansi.StylePrimitive{Bold: boolPtr(true), Color: strPtr(theme.MdKeyword)},
-				KeywordReserved:     ansi.StylePrimitive{Bold: boolPtr(true), Color: strPtr(theme.MdKeyword)},
-				KeywordNamespace:    ansi.StylePrimitive{Bold: boolPtr(true), Color: strPtr(theme.MdKeyword)},
-				KeywordType:         ansi.StylePrimitive{Italic: boolPtr(true), Color: strPtr(theme.MdKeyword)},
+				Error:               ansi.StylePrimitive{},
+				Comment:             ansi.StylePrimitive{Italic: boolPtr(true), Faint: boolPtr(true)},
+				CommentPreproc:      ansi.StylePrimitive{Bold: boolPtr(true)},
+				Keyword:             ansi.StylePrimitive{Bold: boolPtr(true)},
+				KeywordReserved:     ansi.StylePrimitive{Bold: boolPtr(true)},
+				KeywordNamespace:    ansi.StylePrimitive{Bold: boolPtr(true)},
+				KeywordType:         ansi.StylePrimitive{Italic: boolPtr(true)},
 				Operator:            ansi.StylePrimitive{},
 				Punctuation:         ansi.StylePrimitive{},
 				Name:                ansi.StylePrimitive{},
 				NameBuiltin:         ansi.StylePrimitive{},
-				NameTag:             ansi.StylePrimitive{Bold: boolPtr(true), Color: strPtr(theme.MdKeyword)},
+				NameTag:             ansi.StylePrimitive{Bold: boolPtr(true)},
 				NameAttribute:       ansi.StylePrimitive{},
-				NameClass:           ansi.StylePrimitive{Bold: boolPtr(true), Underline: boolPtr(true), Color: strPtr(theme.MdKeyword)},
+				NameClass:           ansi.StylePrimitive{Bold: boolPtr(true), Underline: boolPtr(true)},
 				NameConstant:        ansi.StylePrimitive{},
-				NameDecorator:       ansi.StylePrimitive{Bold: boolPtr(true), Color: strPtr(theme.MdKeyword)},
-				NameException:       ansi.StylePrimitive{Bold: boolPtr(true), Color: strPtr(theme.MdDeleted)},
-				NameFunction:        ansi.StylePrimitive{Bold: boolPtr(true), Color: strPtr(theme.MdKeyword)},
+				NameDecorator:       ansi.StylePrimitive{Bold: boolPtr(true)},
+				NameException:       ansi.StylePrimitive{Bold: boolPtr(true)},
+				NameFunction:        ansi.StylePrimitive{Bold: boolPtr(true)},
 				NameOther:           ansi.StylePrimitive{},
 				Literal:             ansi.StylePrimitive{},
-				LiteralNumber:       ansi.StylePrimitive{Color: strPtr(theme.MdNumber)},
+				LiteralNumber:       ansi.StylePrimitive{},
 				LiteralDate:         ansi.StylePrimitive{},
-				LiteralString:       ansi.StylePrimitive{Color: strPtr(theme.MdString)},
-				LiteralStringEscape: ansi.StylePrimitive{Color: strPtr(theme.MdInserted)},
-				GenericDeleted:      ansi.StylePrimitive{CrossedOut: boolPtr(true), Color: strPtr(theme.MdDeleted)},
+				LiteralString:       ansi.StylePrimitive{},
+				LiteralStringEscape: ansi.StylePrimitive{},
+				GenericDeleted:      ansi.StylePrimitive{CrossedOut: boolPtr(true)},
 				GenericEmph:         ansi.StylePrimitive{Italic: boolPtr(true)},
-				GenericInserted:     ansi.StylePrimitive{Bold: boolPtr(true), Color: strPtr(theme.MdInserted)},
+				GenericInserted:     ansi.StylePrimitive{Bold: boolPtr(true)},
 				GenericStrong:       ansi.StylePrimitive{Bold: boolPtr(true)},
-				GenericSubheading:   ansi.StylePrimitive{Italic: boolPtr(true), Color: strPtr(theme.MdMuted)},
-				Background: ansi.StylePrimitive{
-					BackgroundColor: strPtr(theme.MdCodeBg),
-				},
+				GenericSubheading:   ansi.StylePrimitive{Italic: boolPtr(true)},
+				Background:          ansi.StylePrimitive{},
 			},
 		},
 		Table:          ansi.StyleTable{},
 		DefinitionList: ansi.StyleBlock{},
 		DefinitionTerm: ansi.StylePrimitive{},
-		DefinitionDescription: ansi.StylePrimitive{
-			BlockPrefix: "\n🠶 ",
-		},
-		HTMLBlock: ansi.StyleBlock{},
-		HTMLSpan:  ansi.StyleBlock{},
+		DefinitionDescription: ansi.StylePrimitive{BlockPrefix: "\n🠶 "},
+		HTMLBlock:             ansi.StyleBlock{},
+		HTMLSpan:              ansi.StyleBlock{},
 	}
 }
 

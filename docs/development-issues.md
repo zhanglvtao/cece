@@ -118,6 +118,21 @@
 
 ## 默认 plan mode 需要显式告诉模型当前状态
 - 现象：会话启动默认就是 plan mode，但模型仍可能先调用 `EnterPlanMode`，随后工具返回 `Already in plan mode.`。
+
+## 输入面阴影不要用额外布局行模拟
+- 现象：把 input 的“阴影”实现成输入框下方额外一整行浅色背景后，用户会把它理解成多出来的一行 UI，而不是输入框本身的底色/阴影。
+- 定位：`internal/ui/model.go` 之前用 `body + "\n" + shadow` 渲染输入区，并把这条装饰行计入 `inputH`，导致视觉和布局一起膨胀。
+- 结论：输入面装饰应尽量附着在输入行本身；除非产品明确需要占一行，否则不要用额外布局行模拟阴影。
+
+## request 动画生命周期不能靠 status 文案猜
+- 现象：request status 的滑块动画之前通过 `status` 是否以 `ing` 结尾来续跑，遇到 `QuestionAsked`、审批、工具确认等事件切换时，旧请求动画可能继续残留。
+- 定位：动画所有权被绑在文案后缀，而不是绑定到请求生命周期事件；`Requesting`、`Retrying`、`Compacting` 这类字符串后缀相同，但语义不同。
+- 结论：动画开启/关闭应由事件显式驱动，而不是靠文案模式匹配推断。
+
+## 主回答 markdown 的主题色会破坏“正常渲染”预期
+- 现象：给 cece 主回答 markdown 套一整套 heading/link/code 品牌色后，虽然更“有设计感”，但用户会觉得正文不像普通 markdown，阅读预期被打断。
+- 定位：主回答 renderer 使用 `theme.Md*` palette；这类主题色更适合特殊面板或 thinking 区，不一定适合正文。
+- 结论：主回答应优先保持中性 markdown 渲染；如果需要区分层次，保留最小必要的结构样式即可，品牌色不要默认压到正文上。
 - 定位：tool definitions 里仍包含 `EnterPlanMode` 是为了保持工具结构稳定；模型是否知道“已在 plan 中”取决于模型可见的 plan reminder。
 - 结论：不要为了避免重复调用而动态移除工具，优先增强 full plan reminder 的当前状态表述，例如 `You are already in plan mode.`。
 
