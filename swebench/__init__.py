@@ -1,1 +1,0 @@
-"""SWE-bench evaluation driver for cece."""
