@@ -172,7 +172,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			})
 		}
 
-		if chunk.EventType == "message_start" {
+		if chunk.EventType == EventMessageStart {
 			resp.inputTokens = chunk.InputTokens
 			if s.onInputTokens != nil {
 				s.onInputTokens(resp.inputTokens)
@@ -195,7 +195,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				CacheReadTokens:     chunk.CacheReadTokens,
 			})
 		}
-		if chunk.EventType == "message_delta" {
+		if chunk.EventType == EventMessageDelta {
 			resp.outputTokens = chunk.OutputTokens
 			if chunk.StopReason != "" {
 				resp.stopReason = chunk.StopReason
@@ -222,7 +222,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		}
 
 		// Tool use assembly
-		if chunk.EventType == "content_block_start" && chunk.ToolCallID != "" {
+		if chunk.EventType == EventContentBlockStart && chunk.ToolCallID != "" {
 			if toolInputStates == nil {
 				toolInputStates = make(map[int]*toolCallState)
 			}
@@ -246,7 +246,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 				})
 			}
 		}
-		if chunk.EventType == "content_block_stop" {
+		if chunk.EventType == EventContentBlockStop {
 			if ts, ok := toolInputStates[chunk.Index]; ok {
 				delete(toolInputStates, chunk.Index)
 				inputStr := ts.input.String()
@@ -280,20 +280,20 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 		}
 
 		// Thinking block assembly
-		if chunk.EventType == "content_block_start" && chunk.IsThinking {
+		if chunk.EventType == EventContentBlockStart && chunk.IsThinking {
 			thinkingIndex = chunk.Index
 			thinkingBuf.Reset()
 			logger.Debug("thinking block started", "index", chunk.Index)
 			emitModelEvent(ch, ThinkingStarted{Index: chunk.Index})
 		}
-		if chunk.EventType == "content_block_start" && chunk.IsRedactedThinking {
+		if chunk.EventType == EventContentBlockStart && chunk.IsRedactedThinking {
 			redactedThinkingIndex = chunk.Index
 		}
 		if chunk.Detail == "thinking_delta" && chunk.ThinkingDelta != "" {
 			thinkingBuf.WriteString(chunk.ThinkingDelta)
 			emitModelEvent(ch, ThinkingDelta{Text: chunk.ThinkingDelta})
 		}
-		if chunk.EventType == "content_block_stop" && thinkingIndex >= 0 && chunk.Index == thinkingIndex {
+		if chunk.EventType == EventContentBlockStop && thinkingIndex >= 0 && chunk.Index == thinkingIndex {
 			fullThinking := thinkingBuf.String()
 			sig := chunk.ThinkingSignature
 			logger.Debug("thinking block completed", "textLen", len(fullThinking))
@@ -308,7 +308,7 @@ func (s *ModelStreamer) Stream(ctx context.Context, req ModelStreamRequest, ch c
 			})
 			emitModelEvent(ch, ThinkingCompleted{Text: fullThinking, Signature: sig})
 		}
-		if chunk.EventType == "content_block_stop" && redactedThinkingIndex >= 0 && chunk.Index == redactedThinkingIndex {
+		if chunk.EventType == EventContentBlockStop && redactedThinkingIndex >= 0 && chunk.Index == redactedThinkingIndex {
 			resp.thinkingBlocks = append(resp.thinkingBlocks, ApiContentBlock{
 				Type: ApiRedactedThinkingContentType,
 				Thinking: &ApiThinkingBlock{
