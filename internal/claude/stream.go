@@ -70,7 +70,7 @@ func decodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 			switch envelope.Type {
 			case "message_start":
 				out <- agent.ApiStreamEvent{
-					EventType:           "message_start",
+					EventType:           agent.EventMessageStart,
 					InputTokens:         envelope.Message.Usage.InputTokens,
 					CacheCreationTokens: envelope.Message.Usage.CacheCreationTokens,
 					CacheReadTokens:     envelope.Message.Usage.CacheReadTokens,
@@ -78,41 +78,41 @@ func decodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 			case "content_block_start":
 				if envelope.ContentBlock.Type == "tool_use" {
 					out <- agent.ApiStreamEvent{
-						EventType:    "content_block_start",
+						EventType:    agent.EventContentBlockStart,
 						ToolCallID:   envelope.ContentBlock.ID,
 						ToolCallName: envelope.ContentBlock.Name,
 						Index:        envelope.Index,
 					}
 				} else if envelope.ContentBlock.Type == "thinking" {
 					out <- agent.ApiStreamEvent{
-						EventType:  "content_block_start",
+						EventType:  agent.EventContentBlockStart,
 						Index:      envelope.Index,
 						IsThinking: true,
 					}
 				} else if envelope.ContentBlock.Type == "redacted_thinking" {
 					out <- agent.ApiStreamEvent{
-						EventType:          "content_block_start",
+						EventType:          agent.EventContentBlockStart,
 						Index:              envelope.Index,
 						IsRedactedThinking: true,
 					}
 				} else {
 					// text block start — no actionable data yet
 					out <- agent.ApiStreamEvent{
-						EventType: "content_block_start",
+						EventType: agent.EventContentBlockStart,
 						Index:     envelope.Index,
 					}
 				}
 			case "content_block_delta":
 				if envelope.Delta.Type == "input_json_delta" {
 					out <- agent.ApiStreamEvent{
-						EventType:     "content_block_delta",
+						EventType:     agent.EventContentBlockDelta,
 						Detail:        "input_json_delta",
 						ToolCallInput: envelope.Delta.PartialJSON,
 						Index:         envelope.Index,
 					}
 				} else if envelope.Delta.Type == "thinking_delta" {
 					out <- agent.ApiStreamEvent{
-						EventType:     "content_block_delta",
+						EventType:     agent.EventContentBlockDelta,
 						Detail:        "thinking_delta",
 						ThinkingDelta: envelope.Delta.Thinking,
 						Index:         envelope.Index,
@@ -120,20 +120,20 @@ func decodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 				} else if envelope.Delta.Text != "" {
 					out <- agent.ApiStreamEvent{
 						Delta:     envelope.Delta.Text,
-						EventType: "content_block_delta",
+						EventType: agent.EventContentBlockDelta,
 						Detail:    envelope.Delta.Type,
 						Index:     envelope.Index,
 					}
 				}
 			case "content_block_stop":
 				out <- agent.ApiStreamEvent{
-					EventType:         "content_block_stop",
+					EventType:         agent.EventContentBlockStop,
 					Index:             envelope.Index,
 					ThinkingSignature: envelope.Signature,
 				}
 			case "message_delta":
 				out <- agent.ApiStreamEvent{
-					EventType:    "message_delta",
+					EventType:    agent.EventMessageDelta,
 					Detail:       "stop_reason",
 					OutputTokens: envelope.Usage.OutputTokens,
 					StopReason:   envelope.Delta.StopReason,
