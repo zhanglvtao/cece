@@ -83,17 +83,6 @@ type AssistantCompleted struct {
 
 func (AssistantCompleted) isEvent() {}
 
-type CompletionGateEvaluated struct {
-	Attempt         int
-	MaxAttempts     int
-	Status          CompletionGateStatus
-	RequiresClosure bool
-	Checks          []CompletionGateCheck
-	Next            string
-}
-
-func (CompletionGateEvaluated) isEvent() {}
-
 type RunFailed struct{ Err error }
 
 func (RunFailed) isEvent() {}

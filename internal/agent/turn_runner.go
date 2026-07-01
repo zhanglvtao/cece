@@ -20,7 +20,6 @@ type TurnPlan struct {
 	System         SystemPrompt          // 给 API 的 system blocks
 	AssembleResult prompt.AssembleResult // 原始组装结果，供 dryrun 使用
 	Tools          []tool.Definition     // 工具定义（含 InputSchema）
-	UserInput      string                // original user input for completion-gate classification
 }
 
 // TurnDeps contains the Runtime-owned operations a turn needs while keeping
@@ -40,7 +39,6 @@ type TurnDeps struct {
 	RecordToolExecution     func(name string, isError bool)
 	UpdateCacheTokens       func(read, creation int)
 	ContextWindow           int
-	CompletionGateContext   func() CompletionGateContext
 }
 
 // TurnRunner owns the agent loop for one user turn.
@@ -64,9 +62,6 @@ func NewTurnRunner(streamer *ModelStreamer, interactionGate *InteractionGate, to
 
 func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event) {
 	// Agent loop: keep calling the model until it stops requesting tools.
-	gateFailures := 0
-	noProgressGateFailures := 0
-	const maxNoProgressGateFailures = 2
 
 	messages := plan.Messages
 	turnStart := time.Now()
@@ -208,34 +203,6 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				toolResultNames = nil
 				continue
 			}
-			gateCtx := r.currentCompletionGateContext()
-			gateResult := NewCompletionGate().Evaluate(gateCtx)
-			events <- CompletionGateEvaluated{Attempt: gateFailures + 1, MaxAttempts: 0, Status: completionGateStatus(gateResult), RequiresClosure: false, Checks: gateResult.Checks, Next: completionGateNext(gateResult)}
-			if !gateResult.Pass {
-				gateFailures++
-				if reason == "completion_gate" && len(resp.toolCalls) == 0 {
-					noProgressGateFailures++
-				} else {
-					noProgressGateFailures = 0
-				}
-				if noProgressGateFailures > maxNoProgressGateFailures {
-					events <- RunFailed{Err: fmt.Errorf("completion gate remained blocked without progress after %d attempts: %s", noProgressGateFailures, strings.Join(gateResult.Reasons, "; "))}
-					return
-				}
-				reminderText := gateResult.Reminder
-				if noProgressGateFailures >= maxNoProgressGateFailures {
-					reminderText = buildCompletionGateNoProgressReminder(gateResult.Reasons)
-				}
-				reminder := Message{Role: UserRole, Content: reminderText}
-				r.deps.AppendMessage(reminder)
-				r.deps.PersistMessage(ctx, reminder)
-				messages = r.deps.HistorySnapshot()
-				reason = "completion_gate"
-				toolResultNames = nil
-				continue
-			}
-			noProgressGateFailures = 0
-			r.tryAutoCompact(ctx)
 			events <- AssistantCompleted{Duration: time.Since(turnStart)}
 			return
 		}
@@ -412,31 +379,6 @@ func (r *TurnRunner) refreshedHistorySnapshot(current []Message) ([]Message, boo
 		return nil, false
 	}
 	return refreshed, true
-}
-
-func (r *TurnRunner) evaluateCompletionGate() CompletionGateResult {
-	return NewCompletionGate().Evaluate(r.currentCompletionGateContext())
-}
-
-func (r *TurnRunner) currentCompletionGateContext() CompletionGateContext {
-	if r.deps.CompletionGateContext == nil {
-		return CompletionGateContext{}
-	}
-	return r.deps.CompletionGateContext()
-}
-
-func completionGateStatus(result CompletionGateResult) CompletionGateStatus {
-	if result.Pass {
-		return CompletionGatePassed
-	}
-	return CompletionGateBlocked
-}
-
-func completionGateNext(result CompletionGateResult) string {
-	if result.Pass {
-		return "complete"
-	}
-	return "continue"
 }
 
 func (r *TurnRunner) maybeInjectContextNudge(messages []Message, events chan<- Event) []Message {

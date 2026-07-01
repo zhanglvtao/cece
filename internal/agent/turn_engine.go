@@ -59,6 +59,7 @@ type TurnEngine interface {
 	// Question answers
 	ResetQuestionAnswers()
 	GetQuestionAnswers() []tool.QuestionAnswer
+	MarkQuestionPending()
 
 	// Queued inputs
 	DrainQueuedInputs() []string

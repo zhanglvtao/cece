@@ -63,7 +63,6 @@ func (b *TurnBootstrap) BuildTurnPlan(input string, snapshot []Message) TurnPlan
 		System:         systemPrompt,
 		AssembleResult: assembleResult,
 		Tools:          tools,
-		UserInput:      input,
 	}
 }
 
@@ -147,6 +146,7 @@ func (b *TurnBootstrap) newInteractionGate() *InteractionGate {
 	eng := b.engine
 	return NewInteractionGate(eng.Registry(), eng.PlanState(), eng.Yolo(), b.confirmCh, b.rejectCh, func() {
 		eng.ResetQuestionAnswers()
+		eng.MarkQuestionPending()
 	})
 }
 
@@ -195,24 +195,6 @@ func (b *TurnBootstrap) turnDeps() TurnDeps {
 		RecordToolExecution:     eng.RecordToolExecution,
 		UpdateCacheTokens:       eng.UpdateCacheTokens,
 		ContextWindow:           eng.ContextWindow(),
-		CompletionGateContext: func() CompletionGateContext {
-			return CompletionGateContext{
-				PlanMode: eng.PlanState() != nil && eng.PlanState().Mode() == tool.PermissionModePlan,
-				TaskList: func() []tool.TodoItem {
-					if eng.TaskList() == nil {
-						return nil
-					}
-					return eng.TaskList().Snapshot()
-				}(),
-				Closure: func() tool.TaskClosureSnapshot {
-					if eng.TaskClosureState() == nil {
-						return tool.TaskClosureSnapshot{}
-					}
-					return eng.TaskClosureState().Snapshot()
-				}(),
-				Evidence: eng.ClosureEvidenceSnapshot(),
-			}
-		},
 	}
 }
 

@@ -46,16 +46,6 @@ func ToDTO(e Event) protocol.Event {
 	case AssistantCompleted:
 		return protocol.AssistantCompleted{Duration: v.Duration}
 
-	case CompletionGateEvaluated:
-		return protocol.CompletionGateEvaluated{
-			Attempt:         v.Attempt,
-			MaxAttempts:     v.MaxAttempts,
-			Status:          protocol.CompletionGateStatus(v.Status),
-			RequiresClosure: v.RequiresClosure,
-			Checks:          completionGateChecksToDTO(v.Checks),
-			Next:            v.Next,
-		}
-
 	case RunFailed:
 		errMsg := ""
 		if v.Err != nil {
@@ -389,19 +379,6 @@ func parseAskUserQuestions(input json.RawMessage) ([]tool.Question, error) {
 		return nil, err
 	}
 	return wrapper.Questions, nil
-}
-
-func completionGateChecksToDTO(checks []CompletionGateCheck) []protocol.CompletionGateCheck {
-	out := make([]protocol.CompletionGateCheck, len(checks))
-	for i, check := range checks {
-		out[i] = protocol.CompletionGateCheck{
-			Name:    check.Name,
-			Status:  protocol.CompletionGateStatus(check.Status),
-			Summary: check.Summary,
-			Details: append([]string(nil), check.Details...),
-		}
-	}
-	return out
 }
 
 func taskItemsToDTO(items []tool.TodoItem) []protocol.TodoItem {

@@ -60,6 +60,7 @@ func (e *dryRunEngine) ClosureEvidenceSnapshot() []ClosureEvidence {
 }
 func (e *dryRunEngine) ResetQuestionAnswers()                     {}
 func (e *dryRunEngine) GetQuestionAnswers() []tool.QuestionAnswer { return nil }
+func (e *dryRunEngine) MarkQuestionPending()                      {}
 func (e *dryRunEngine) DrainQueuedInputs() []string               { return nil }
 func (e *dryRunEngine) TryAutoCompact(ctx context.Context) bool   { return false }
 func (e *dryRunEngine) EnsureContextBudget(ctx context.Context, targetTokens int) bool {
@@ -265,9 +266,6 @@ func TestTurnRunnerExitPlanModeApprovedInjectsExecutionContext(t *testing.T) {
 			HistorySnapshot:     func() []Message { return append([]Message(nil), history...) },
 			IncrementAPICalls:   func() {},
 			RecordToolExecution: func(string, bool) {},
-			CompletionGateContext: func() CompletionGateContext {
-				return CompletionGateContext{}
-			},
 		},
 	)
 
@@ -361,93 +359,12 @@ func containsMessage(messages []Message, target Message) bool {
 	return false
 }
 
-func TestTurnRunnerCompletionGateBlocksAndContinues(t *testing.T) {
-	responses := []<-chan ApiStreamEvent{textStream("done early"), textStream("done after reminder")}
-	streamCalls := 0
-	var secondRequest []Message
-	client := &mockStreamClient{streamFn: func(_ context.Context, messages []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
-		if streamCalls == 1 {
-			secondRequest = append([]Message(nil), messages...)
-		}
-		resp := responses[streamCalls]
-		streamCalls++
-		return resp, nil
-	}}
 
-	var history []Message
-	runner := NewTurnRunner(
-		NewModelStreamer(client, tool.NewRegistry(), nil),
-		nil,
-		nil,
-		4096,
-		TurnDeps{
-			AppendMessage:     func(m Message) { history = append(history, m) },
-			PersistMessage:    func(context.Context, Message) {},
-			UpdateSessionMeta: func(context.Context, modelResponse) {},
-			DrainQueuedInputs: func() []string { return nil },
-			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
-			IncrementAPICalls: func() {},
-			CompletionGateContext: func() CompletionGateContext {
-				if streamCalls >= 2 {
-					return CompletionGateContext{}
-				}
-				return CompletionGateContext{TaskList: []tool.TodoItem{{Content: "finish fix", Status: tool.TodoInProgress}}}
-			},
-		},
-	)
 
-	events := make(chan Event, 32)
-	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "fix bug"}}}, events)
 
-	if got := waitForEventType(t, events, CompletionGateEvaluated{}); got.Status != CompletionGateBlocked || got.Next != "continue" {
-		t.Fatalf("CompletionGateEvaluated = %+v, want blocked continue", got)
-	}
-	if got := waitForEventType(t, events, ModelRequestStarted{}); got.Reason != "completion_gate" {
-		t.Fatalf("ModelRequestStarted.Reason = %q, want completion_gate", got.Reason)
-	}
-	if streamCalls != 2 {
-		t.Fatalf("streamCalls = %d, want 2", streamCalls)
-	}
-	if len(secondRequest) == 0 || !strings.Contains(secondRequest[len(secondRequest)-1].TextContent(), "Completion gate blocked") {
-		t.Fatalf("secondRequest = %+v, want completion gate reminder", secondRequest)
-	}
-}
 
-func TestTurnRunnerCompletionGatePassesWithClosure(t *testing.T) {
-	streamCalls := 0
-	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
-		streamCalls++
-		return textStream("done"), nil
-	}}
-	runner := NewTurnRunner(
-		NewModelStreamer(client, tool.NewRegistry(), nil),
-		nil,
-		nil,
-		4096,
-		TurnDeps{
-			AppendMessage:     func(Message) {},
-			PersistMessage:    func(context.Context, Message) {},
-			UpdateSessionMeta: func(context.Context, modelResponse) {},
-			DrainQueuedInputs: func() []string { return nil },
-			HistorySnapshot:   func() []Message { return nil },
-			IncrementAPICalls: func() {},
-			CompletionGateContext: func() CompletionGateContext {
-				return CompletionGateContext{}
-			},
-		},
-	)
 
-	events := make(chan Event, 32)
-	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "explain"}}}, events)
 
-	if streamCalls != 1 {
-		t.Fatalf("streamCalls = %d, want 1", streamCalls)
-	}
-	if got := waitForEventType(t, events, CompletionGateEvaluated{}); got.Status != CompletionGatePassed || got.Next != "complete" {
-		t.Fatalf("CompletionGateEvaluated = %+v, want passed complete", got)
-	}
-	waitForEventType(t, events, AssistantCompleted{})
-}
 
 func TestTurnRunnerDoesNotRequireClosureForReadOnlyKeywordInput(t *testing.T) {
 	responses := []<-chan ApiStreamEvent{textStream("这里是 bug/test/error/失败/测试 的解释"), textStream("done after reminder")}
@@ -469,199 +386,22 @@ func TestTurnRunnerDoesNotRequireClosureForReadOnlyKeywordInput(t *testing.T) {
 			DrainQueuedInputs: func() []string { return nil },
 			HistorySnapshot:   func() []Message { return nil },
 			IncrementAPICalls: func() {},
-			CompletionGateContext: func() CompletionGateContext {
-				return CompletionGateContext{}
-			},
 		},
 	)
 
 	events := make(chan Event, 64)
 	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "为什么这个 bug/test/error/失败/测试 会出现？"}}}, events)
 
-	got := waitForEventType(t, events, CompletionGateEvaluated{})
-	if got.Status != CompletionGatePassed || got.RequiresClosure || got.Next != "complete" {
-		t.Fatalf("CompletionGateEvaluated = %+v, want passed without closure", got)
-	}
+
 	if streamCalls != 1 {
 		t.Fatalf("streamCalls = %d, want 1", streamCalls)
 	}
 	waitForEventType(t, events, AssistantCompleted{})
 }
 
-func TestTurnRunnerCompletionGateKeepsRetryingAfterThreeBlockedAttempts(t *testing.T) {
-	responses := []<-chan ApiStreamEvent{
-		textStream("attempt 1"),
-		textStream("attempt 2"),
-		textStream("attempt 3"),
-		textStream("attempt 4"),
-	}
-	streamCalls := 0
-	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
-		resp := responses[streamCalls]
-		streamCalls++
-		return resp, nil
-	}}
 
-	var history []Message
-	runner := NewTurnRunner(
-		NewModelStreamer(client, tool.NewRegistry(), nil),
-		nil,
-		nil,
-		4096,
-		TurnDeps{
-			AppendMessage:     func(m Message) { history = append(history, m) },
-			PersistMessage:    func(context.Context, Message) {},
-			UpdateSessionMeta: func(context.Context, modelResponse) {},
-			DrainQueuedInputs: func() []string { return nil },
-			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
-			IncrementAPICalls: func() {},
-			CompletionGateContext: func() CompletionGateContext {
-				if streamCalls >= 4 {
-					return CompletionGateContext{}
-				}
-				return CompletionGateContext{TaskList: []tool.TodoItem{{Content: "finish fix", Status: tool.TodoInProgress}}}
-			},
-		},
-	)
 
-	events := make(chan Event, 64)
-	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "fix bug"}}}, events)
 
-	blocked := 0
-	for blocked < 3 {
-		got := waitForEventType(t, events, CompletionGateEvaluated{})
-		if got.Status != CompletionGateBlocked || got.Next != "continue" {
-			t.Fatalf("CompletionGateEvaluated = %+v, want blocked continue", got)
-		}
-		blocked++
-	}
-	if got := waitForEventType(t, events, CompletionGateEvaluated{}); got.Status != CompletionGatePassed || got.Next != "complete" {
-		t.Fatalf("CompletionGateEvaluated = %+v, want passed complete", got)
-	}
-	if streamCalls != 4 {
-		t.Fatalf("streamCalls = %d, want 4", streamCalls)
-	}
-	waitForEventType(t, events, AssistantCompleted{})
-}
-
-func TestTurnRunnerCompletionGateEscalatesAfterNoProgress(t *testing.T) {
-	responses := []<-chan ApiStreamEvent{
-		textStream("attempt 1"),
-		textStream("attempt 2"),
-		textStream("attempt 3"),
-		textStream("attempt 4"),
-	}
-	streamCalls := 0
-	var fourthRequest []Message
-	client := &mockStreamClient{streamFn: func(_ context.Context, messages []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
-		if streamCalls == 3 {
-			fourthRequest = append([]Message(nil), messages...)
-		}
-		resp := responses[streamCalls]
-		streamCalls++
-		return resp, nil
-	}}
-
-	var history []Message
-	runner := NewTurnRunner(
-		NewModelStreamer(client, tool.NewRegistry(), nil),
-		nil,
-		nil,
-		4096,
-		TurnDeps{
-			AppendMessage:     func(m Message) { history = append(history, m) },
-			PersistMessage:    func(context.Context, Message) {},
-			UpdateSessionMeta: func(context.Context, modelResponse) {},
-			DrainQueuedInputs: func() []string { return nil },
-			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
-			IncrementAPICalls: func() {},
-			CompletionGateContext: func() CompletionGateContext {
-				if streamCalls >= 4 {
-					return CompletionGateContext{}
-				}
-				return CompletionGateContext{TaskList: []tool.TodoItem{{Content: "x", Status: tool.TodoInProgress}}}
-			},
-		},
-	)
-
-	events := make(chan Event, 64)
-	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "fix bug"}}}, events)
-
-	for i := 0; i < 3; i++ {
-		got := waitForEventType(t, events, CompletionGateEvaluated{})
-		if got.Status != CompletionGateBlocked {
-			t.Fatalf("CompletionGateEvaluated = %+v, want blocked", got)
-		}
-	}
-	if len(fourthRequest) == 0 || !strings.Contains(fourthRequest[len(fourthRequest)-1].TextContent(), "Do not answer with plain text") {
-		t.Fatalf("fourthRequest = %+v, want escalated no-progress reminder", fourthRequest)
-	}
-	if got := waitForEventType(t, events, CompletionGateEvaluated{}); got.Status != CompletionGatePassed {
-		t.Fatalf("CompletionGateEvaluated = %+v, want passed", got)
-	}
-}
-
-func TestTurnRunnerStopsAfterRepeatedNoProgressCompletionGateFailures(t *testing.T) {
-	responses := []<-chan ApiStreamEvent{
-		textStream("attempt 1"),
-		textStream("attempt 2"),
-		textStream("attempt 3"),
-		textStream("attempt 4"),
-		textStream("attempt 5"),
-	}
-	streamCalls := 0
-	client := &mockStreamClient{streamFn: func(_ context.Context, _ []Message, _ SystemPrompt, _ []tool.Definition, _ int) (<-chan ApiStreamEvent, error) {
-		resp := responses[streamCalls]
-		streamCalls++
-		return resp, nil
-	}}
-
-	var history []Message
-	runner := NewTurnRunner(
-		NewModelStreamer(client, tool.NewRegistry(), nil),
-		nil,
-		nil,
-		4096,
-		TurnDeps{
-			AppendMessage:     func(m Message) { history = append(history, m) },
-			PersistMessage:    func(context.Context, Message) {},
-			UpdateSessionMeta: func(context.Context, modelResponse) {},
-			DrainQueuedInputs: func() []string { return nil },
-			HistorySnapshot:   func() []Message { return append([]Message(nil), history...) },
-			IncrementAPICalls: func() {},
-			CompletionGateContext: func() CompletionGateContext {
-				return CompletionGateContext{TaskList: []tool.TodoItem{{Content: "x", Status: tool.TodoInProgress}}}
-			},
-		},
-	)
-
-	events := make(chan Event, 64)
-	runner.Run(context.Background(), TurnPlan{Messages: []Message{{Role: UserRole, Content: "fix bug"}}}, events)
-
-	blocked := 0
-	var failed RunFailed
-	for {
-		ev := <-events
-		switch got := ev.(type) {
-		case CompletionGateEvaluated:
-			if got.Status == CompletionGateBlocked {
-				blocked++
-			}
-		case RunFailed:
-			failed = got
-			if blocked != 4 {
-				t.Fatalf("blocked attempts = %d, want 4", blocked)
-			}
-			if failed.Err == nil || !strings.Contains(failed.Err.Error(), "completion gate remained blocked without progress") {
-				t.Fatalf("RunFailed.Err = %v, want completion gate no-progress error", failed.Err)
-			}
-			if streamCalls != 4 {
-				t.Fatalf("streamCalls = %d, want 4", streamCalls)
-			}
-			return
-		}
-	}
-}
 
 func TestTurnRunnerInjectsContextNudgeBeforeModelRequest(t *testing.T) {
 	base := []Message{{Role: UserRole, Content: "work"}}
