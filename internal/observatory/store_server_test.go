@@ -64,11 +64,102 @@ func TestStoreTracksSimpleAgentMailboxState(t *testing.T) {
 	if len(agent.Inbox) != 1 || agent.Inbox[0].MessageID != "cmd-1" {
 		t.Fatalf("inbox = %+v", agent.Inbox)
 	}
-	if len(agent.Outbox) != 1 || agent.Outbox[0].MessageID != "evt-1" {
-		t.Fatalf("outbox = %+v", agent.Outbox)
+	// Progress events should not appear in the Outbox
+	if len(agent.Outbox) != 0 {
+		t.Fatalf("outbox = %+v, want empty (progress filtered)", agent.Outbox)
 	}
-	if agent.Outbox[0].Payload["activity"] != "requesting model" {
-		t.Fatalf("outbox payload = %+v", agent.Outbox[0].Payload)
+}
+
+func TestStoreRoutesSchedulerEventsToLifecycleLane(t *testing.T) {
+	store := NewStore()
+	store.Apply(protocol.AgentBusEvent{
+		MessageID: "agent-1-start",
+		AgentID:   "agent-1",
+		Kind:      "started",
+		Lane:      "scheduler",
+		StatusTo:  "starting",
+		Payload:   map[string]any{"description": "explore repo"},
+	})
+
+	agent, ok := agentByID(store.State(), "agent-1")
+	if !ok {
+		t.Fatalf("missing agent-1: %+v", store.State().Agents)
+	}
+	if len(agent.Outbox) != 0 {
+		t.Fatalf("outbox = %+v, want empty (scheduler must not pollute outbox)", agent.Outbox)
+	}
+	if len(agent.Lifecycle) != 1 || agent.Lifecycle[0].Kind != "started" {
+		t.Fatalf("lifecycle = %+v, want one started item", agent.Lifecycle)
+	}
+}
+
+func TestStoreProjectsRootOutboxSpawnEvent(t *testing.T) {
+	store := NewStore()
+	store.Apply(protocol.AgentBusEvent{
+		MessageID: "agent-1-spawn",
+		AgentID:   "interactive-root",
+		Kind:      "spawn",
+		Lane:      "outbox",
+		StatusTo:  "starting",
+		Payload:   map[string]any{"target": "agent-1", "description": "explore repo"},
+	})
+
+	root, ok := agentByID(store.State(), "interactive-root")
+	if !ok {
+		t.Fatalf("missing interactive-root: %+v", store.State().Agents)
+	}
+	if len(root.Outbox) != 1 || root.Outbox[0].Kind != "spawn" {
+		t.Fatalf("root outbox = %+v, want one spawn item", root.Outbox)
+	}
+	if root.Outbox[0].Payload["target"] != "agent-1" {
+		t.Fatalf("root outbox payload = %+v", root.Outbox[0].Payload)
+	}
+}
+
+func TestStoreBuildsRootTranscriptFromTurnFlow(t *testing.T) {
+	store := NewStore()
+	store.Apply(protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: "探索 cece 代码库"}})
+	store.Apply(protocol.AssistantStarted{})
+	store.Apply(protocol.AssistantDelta{Text: "好的，我"})
+	store.Apply(protocol.AssistantDelta{Text: "先看结构"})
+	store.Apply(protocol.StreamCompleted{OutputTokens: 10})
+	store.Apply(protocol.ToolExecStarted{ID: "1", Name: "Grep"})
+	store.Apply(protocol.ToolExecCompleted{ID: "1", Name: "Grep", Result: protocol.ToolResult{Content: "hits"}})
+
+	root, ok := agentByID(store.State(), "interactive-root")
+	if !ok {
+		t.Fatalf("missing interactive-root: %+v", store.State().Agents)
+	}
+	tr := root.Transcript
+	if len(tr) != 3 {
+		t.Fatalf("transcript = %+v, want 3 items", tr)
+	}
+	if tr[0].Role != "user" || tr[0].Text != "探索 cece 代码库" {
+		t.Fatalf("transcript[0] = %+v, want user message", tr[0])
+	}
+	if tr[1].Role != "assistant" || tr[1].Text != "好的，我先看结构" {
+		t.Fatalf("transcript[1] = %+v, want assembled assistant text", tr[1])
+	}
+	if tr[2].Role != "tool" || tr[2].Tool != "Grep" || tr[2].Status != "ok" {
+		t.Fatalf("transcript[2] = %+v, want tool item", tr[2])
+	}
+}
+
+func TestStoreBuildsSubAgentTranscriptWithDedup(t *testing.T) {
+	store := NewStore()
+	store.Apply(protocol.SubAgentStartedEvent{ID: "agent-1", Description: "worker"})
+	store.Apply(protocol.SubAgentActivityEvent{ID: "agent-1", Status: "running", ToolCall: "Grep pattern", LastAssistantMsg: "searching"})
+	// Repeat the same activity — should be de-duplicated.
+	store.Apply(protocol.SubAgentActivityEvent{ID: "agent-1", Status: "running", ToolCall: "Grep pattern", LastAssistantMsg: "searching"})
+	store.Apply(protocol.SubAgentActivityEvent{ID: "agent-1", Status: "running", ToolCall: "Read file.go", LastAssistantMsg: "reading"})
+
+	agent, ok := agentByID(store.State(), "agent-1")
+	if !ok {
+		t.Fatalf("missing agent-1: %+v", store.State().Agents)
+	}
+	// 2 unique tool calls + 2 unique assistant messages = 4 items.
+	if len(agent.Transcript) != 4 {
+		t.Fatalf("transcript = %+v, want 4 de-duplicated items", agent.Transcript)
 	}
 }
 
@@ -345,8 +436,8 @@ func TestServerStateEndpointIncludesFullObservatoryState(t *testing.T) {
 		t.Fatalf("snapshot evidence detail = %q", evidenceDetail(state, "ObservatorySnapshot"))
 	}
 	agent, ok := agentByID(state, "agent-1")
-	if !ok || len(agent.Outbox) != 1 || agent.Outbox[0].Payload["activity"] != "reading files" {
-		t.Fatalf("agent projection = %+v, ok=%v", agent, ok)
+	if !ok || len(agent.Outbox) != 0 {
+		t.Fatalf("agent projection = %+v, ok=%v (progress events filtered from outbox)", agent, ok)
 	}
 }
 

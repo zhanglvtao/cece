@@ -166,6 +166,15 @@ select {
   font-size: 12px;
 }
 
+.agent-item-desc {
+  margin-top: 4px;
+  color: #888;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .status-card {
   border: 1px solid #333;
   border-radius: 8px;
@@ -220,8 +229,19 @@ select {
 
 .mailbox-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .mailbox-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mailbox-hint {
+  color: #666;
+  font-size: 11px;
 }
 
 .mailbox-panel {
@@ -264,9 +284,9 @@ select {
 }
 
 .mailbox-id {
-  color: #555;
-  font-size: 11px;
-  max-width: 160px;
+  color: #444;
+  font-size: 10px;
+  margin-top: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -311,6 +331,99 @@ select {
   word-break: break-word;
 }
 
+/* transcript */
+.transcript-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.transcript-item {
+  border-left: 2px solid #262626;
+  padding: 4px 0 4px 10px;
+}
+
+.transcript-item.role-user {
+  border-left-color: #58a6ff;
+}
+
+.transcript-item.role-assistant {
+  border-left-color: #7ee787;
+}
+
+.transcript-item.role-tool {
+  border-left-color: #d29922;
+}
+
+.transcript-item.role-system {
+  border-left-color: #f85149;
+}
+
+.transcript-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.transcript-role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #999;
+}
+
+.transcript-role.role-user {
+  color: #58a6ff;
+}
+
+.transcript-role.role-assistant {
+  color: #7ee787;
+}
+
+.transcript-role.role-tool {
+  color: #d29922;
+}
+
+.transcript-role.role-system {
+  color: #f85149;
+}
+
+.transcript-tool {
+  font-size: 12px;
+  color: #c9c9c9;
+}
+
+.transcript-status {
+  font-size: 11px;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 0 4px;
+  color: #888;
+}
+
+.transcript-status.ok {
+  color: #7ee787;
+  border-color: #2f5f36;
+}
+
+.transcript-status.error {
+  color: #f85149;
+  border-color: #5f2f2f;
+}
+
+.transcript-text {
+  color: #c9c9c9;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* observatory sections */
 .obs-section {
   border: 1px solid #262626;
@@ -323,6 +436,29 @@ select {
 .obs-title {
   color: #bbb;
   margin-bottom: 10px;
+}
+
+.obs-title.collapsible {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: #bbb;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  margin-bottom: 0;
+}
+
+.obs-title.collapsible .caret {
+  color: #777;
+  font-size: 11px;
+}
+
+.evidence-section {
+  margin-bottom: 0;
 }
 
 .obs-subtitle {
@@ -420,36 +556,6 @@ select {
   font-size: 11px;
   margin-top: 4px;
   word-break: break-word;
-}
-
-.topo-sub {
-  margin-bottom: 8px;
-}
-
-.topo-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.topo-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.topo-id {
-  color: #aaa;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topo-label {
-  color: #777;
-  flex-shrink: 0;
 }
 
 .snap-item {

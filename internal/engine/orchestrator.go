@@ -129,6 +129,9 @@ func (o *Orchestrator) start(ctx context.Context, parent *Engine, cfg tool.Agent
 	if o.emit != nil {
 		o.emit(protocol.SubAgentStartedEvent{ID: agentID, Description: cfg.Description, ParentSessionID: parentSessionID})
 		o.emit(protocol.AgentBusEvent{MessageID: fmt.Sprintf("%s-start", agentID), TraceID: agentID, AgentID: agentID, ParentSessionID: parentSessionID, Kind: "started", Lane: "scheduler", StatusTo: string(AgentStatusStarting), Payload: map[string]any{"description": cfg.Description}})
+		// Record the spawn as an outbound action of the root agent so the
+		// interactive agent has a real outbox, not just the sub-agent's lanes.
+		o.emit(protocol.AgentBusEvent{MessageID: fmt.Sprintf("%s-spawn", agentID), TraceID: agentID, AgentID: interactiveRootAgentID, ParentSessionID: parentSessionID, Kind: "spawn", Lane: "outbox", StatusTo: string(AgentStatusStarting), Payload: map[string]any{"target": agentID, "description": cfg.Description}})
 	}
 	rt.StartMailboxLoop()
 	go o.bridgeRuntime(parent, rt, parentSessionID)
@@ -373,11 +376,15 @@ func (o *Orchestrator) recordRuntimeEvents(ctx context.Context, rt *AgentRuntime
 func (o *Orchestrator) handleRuntimeAgentEvent(parent *Engine, rt *AgentRuntime, parentSessionID string, msg AgentMessage) bool {
 	o.updatePendingState(parent, rt, msg)
 
-	if msg.Kind == AgentMessageProgress && rt.SessionID != "" {
-		updateSubAgentRelation(context.Background(), o.store, rt.SessionID, parentSessionID, rt.ID)
+	// Snapshot once under the runtime lock; the recordRuntimeEvents goroutine
+	// concurrently mutates rt fields (SessionID, TurnCount, ...) via handleEvent,
+	// so raw field reads here would race with it.
+	snap := rt.Snapshot()
+
+	if msg.Kind == AgentMessageProgress && snap.SessionID != "" {
+		updateSubAgentRelation(context.Background(), o.store, snap.SessionID, parentSessionID, rt.ID)
 	}
 
-	snap := rt.Snapshot()
 	activity := activityForAgentMessage(msg, snap)
 	o.emitAgentActivity(rt, parentSessionID, msg, snap, activity)
 	slog.Info("orchestrator: state transition",
@@ -387,7 +394,7 @@ func (o *Orchestrator) handleRuntimeAgentEvent(parent *Engine, rt *AgentRuntime,
 		"activity", activity,
 	)
 
-	if rt.MaxTurns > 0 && rt.TurnCount >= rt.MaxTurns {
+	if snap.MaxTurns > 0 && snap.TurnCount >= snap.MaxTurns {
 		o.completeMaxTurnRuntime(parent, rt, parentSessionID, snap)
 		return true
 	}
@@ -506,6 +513,24 @@ func (o *Orchestrator) emitAgentCommandEvent(rt *AgentRuntime, kind AgentCommand
 		Lane:            "inbox",
 		StatusTo:        string(snap.Status),
 		Payload:         payload,
+	})
+	// Mirror the command as an outbound action of the root agent: the
+	// interactive agent is the sender, the sub-agent's inbox is the receiver.
+	rootPayload := map[string]any{"target": rt.ID, "summary": summary}
+	for k, v := range extra {
+		rootPayload[k] = v
+	}
+	o.emit(protocol.AgentBusEvent{
+		MessageID:       fmt.Sprintf("%s-%s-root-outbox", rt.ID, kind),
+		TraceID:         rt.ID,
+		CausationID:     pending.RequestID,
+		AgentID:         interactiveRootAgentID,
+		ParentSessionID: rt.ParentSessionID,
+		SessionID:       snap.SessionID,
+		Kind:            string(kind),
+		Lane:            "outbox",
+		StatusTo:        string(snap.Status),
+		Payload:         rootPayload,
 	})
 }
 
