@@ -54,6 +54,19 @@ const (
 	ApiToolResultContentType       ApiContentBlockType = "tool_result"
 )
 
+// StreamEventType identifies the kind of a streamed SSE event as normalized
+// across providers (Anthropic-style event names). See ApiStreamEvent.EventType.
+type StreamEventType string
+
+const (
+	EventMessageStart      StreamEventType = "message_start"
+	EventMessageDelta      StreamEventType = "message_delta"
+	EventMessageStop       StreamEventType = "message_stop"
+	EventContentBlockStart StreamEventType = "content_block_start"
+	EventContentBlockDelta StreamEventType = "content_block_delta"
+	EventContentBlockStop  StreamEventType = "content_block_stop"
+)
+
 type ApiContentBlock struct {
 	Type       ApiContentBlockType `json:"type"`
 	Text       string              `json:"text,omitempty"`

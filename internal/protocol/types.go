@@ -69,6 +69,19 @@ const (
 	ToolResultContentType ContentBlockType = "tool_result"
 )
 
+// StreamEventType identifies the kind of a streamed SSE event. Mirror of
+// agent.StreamEventType for the wire-facing protocol layer.
+type StreamEventType string
+
+const (
+	EventMessageStart      StreamEventType = "message_start"
+	EventMessageDelta      StreamEventType = "message_delta"
+	EventMessageStop       StreamEventType = "message_stop"
+	EventContentBlockStart StreamEventType = "content_block_start"
+	EventContentBlockDelta StreamEventType = "content_block_delta"
+	EventContentBlockStop  StreamEventType = "content_block_stop"
+)
+
 // ContentBlock is a discriminated union of content block types.
 type ContentBlock struct {
 	Type       ContentBlockType `json:"type"`
