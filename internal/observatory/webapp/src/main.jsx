@@ -1,4 +1,4 @@
-import React, { StrictMode, useEffect, useMemo, useState } from 'react';
+import React, { StrictMode, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -71,28 +71,9 @@ function App() {
         </div>
       </header>
 
-      <section className="switcher-row panel">
-        <label htmlFor="agent-switcher">Agent</label>
-        <select
-          id="agent-switcher"
-          value={selectedAgent?.id || ''}
-          onChange={(event) => setSelectedAgentId(event.target.value)}
-        >
-          {agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.id}
-            </option>
-          ))}
-        </select>
-      </section>
-
       <main className="simple-grid">
         <section className="panel left-panel">
-          <div className="label">Orchestrator / Agents</div>
-          <div className="orchestrator-card">
-            <div className="node-title">Orchestrator</div>
-            <div className="node-subtitle">scheduler</div>
-          </div>
+          <div className="label">Agents</div>
           <div className="agent-list">
             {agents.length === 0 ? (
               <div className="empty">waiting for agents</div>
@@ -104,7 +85,10 @@ function App() {
                   onClick={() => setSelectedAgentId(agent.id)}
                   type="button"
                 >
-                  <div className="agent-item-title">{agent.id}</div>
+                  <div className="agent-item-title">{agentDisplayName(agent)}</div>
+                  {agent.description ? (
+                    <div className="agent-item-desc">{agent.description}</div>
+                  ) : null}
                   <div className={`agent-item-status ${statusClass(agent.status)}`}>{agent.status || 'idle'}</div>
                 </button>
               ))
@@ -117,21 +101,20 @@ function App() {
             {selectedAgent ? (
               <>
                 <div className="status-card">
-                  <div className="status-card-title">{selectedAgent.id}</div>
+                  <div className="status-card-title">{agentDisplayName(selectedAgent)}</div>
                   <div className="status-card-subtitle">{selectedAgent.description || 'agent'}</div>
                   <div className={`status-pill ${statusClass(selectedAgent.status)}`}>{selectedAgent.status || 'idle'}</div>
                 </div>
 
+                <TranscriptPanel transcript={selectedAgent.transcript || []} />
+
                 <div className="mailbox-grid">
-                  <MailboxPanel title="Inbox" items={selectedAgent.inbox || []} />
-                  <MailboxPanel title="Outbox" items={selectedAgent.outbox || []} />
+                  <MailboxPanel title="Inbox" hint="received" items={selectedAgent.inbox || []} />
+                  <MailboxPanel title="Outbox" hint="sent" items={selectedAgent.outbox || []} />
+                  <MailboxPanel title="Lifecycle" hint="scheduler" items={selectedAgent.lifecycle || []} />
                 </div>
 
-                <RuntimePhases phases={state?.phases || []} />
-                <MetricsPanel metrics={state?.metrics || []} />
                 <EvidencePanel evidence={state?.evidence || []} />
-                <TopologyPanel nodes={state?.nodes || []} edges={state?.edges || []} />
-                <SnapshotsPanel snapshots={state?.snapshots || {}} />
               </>
             ) : (
               <div className="empty">no agent selected</div>
@@ -143,10 +126,46 @@ function App() {
   );
 }
 
-function MailboxPanel({ title, items }) {
+function TranscriptPanel({ transcript }) {
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [transcript.length]);
+
+  return (
+    <section className="obs-section transcript-section">
+      <div className="obs-title">Transcript ({transcript.length})</div>
+      {transcript.length === 0 ? (
+        <div className="empty">no messages yet</div>
+      ) : (
+        <div className="transcript-list" ref={scrollRef}>
+          {transcript.map((item, index) => (
+            <div className={`transcript-item role-${item.role}`} key={index}>
+              <div className="transcript-head">
+                <span className={`transcript-role role-${item.role}`}>{item.role}</span>
+                {item.tool ? <span className="transcript-tool">{item.tool}</span> : null}
+                {item.status ? (
+                  <span className={`transcript-status ${item.status}`}>{item.status}</span>
+                ) : null}
+                <span className="time">{formatTime(item.time)}</span>
+              </div>
+              {item.text ? <div className="transcript-text">{item.text}</div> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MailboxPanel({ title, hint, items }) {
   return (
     <section className="mailbox-panel">
-      <div className="mailbox-title">{title} ({items.length})</div>
+      <div className="mailbox-title">
+        {title} ({items.length})
+        {hint ? <span className="mailbox-hint"> {hint}</span> : null}
+      </div>
       {items.length === 0 ? (
         <div className="empty">empty</div>
       ) : (
@@ -155,9 +174,7 @@ function MailboxPanel({ title, items }) {
             <div className="mailbox-item" key={`${item.message_id}-${index}`}>
               <div className="mailbox-head">
                 <span className="time">{formatTime(item.time)}</span>
-                <span className="mailbox-id">{item.message_id}</span>
                 <span className="mailbox-kind">{item.kind}</span>
-                {item.lane ? <span className="mailbox-lane">{item.lane}</span> : null}
                 {item.status_to ? <span className={`status-pill small ${statusClass(item.status_to)}`}>{item.status_to}</span> : null}
               </div>
               <div className="mailbox-detail">{summarizePayload(item.payload)}</div>
@@ -167,6 +184,7 @@ function MailboxPanel({ title, items }) {
               {item.payload?.error ? (
                 <div className="mailbox-error">{String(item.payload.error)}</div>
               ) : null}
+              {item.message_id ? <div className="mailbox-id">{item.message_id}</div> : null}
             </div>
           ))}
         </div>
@@ -175,118 +193,30 @@ function MailboxPanel({ title, items }) {
   );
 }
 
-function RuntimePhases({ phases }) {
-  if (!phases || phases.length === 0) return null;
-  return (
-    <section className="obs-section">
-      <div className="obs-title">Runtime Phases</div>
-      <div className="phase-list">
-        {phases.map((p) => (
-          <div className="phase-row" key={p.id}>
-            <span className="phase-id">{p.label || p.id}</span>
-            <span className={`status-pill small ${statusClass(p.status)}`}>{p.status}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function MetricsPanel({ metrics }) {
-  if (!metrics || metrics.length === 0) return null;
-  return (
-    <section className="obs-section">
-      <div className="obs-title">Metrics</div>
-      <div className="kv-list">
-        {metrics.map((m) => (
-          <div className="kv-row" key={m.name}>
-            <span className="kv-key">{m.name}</span>
-            <span className="kv-value">{m.value}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function EvidencePanel({ evidence }) {
+  const [open, setOpen] = useState(false);
   if (!evidence || evidence.length === 0) return null;
-  const recent = evidence.slice(-20).reverse();
+  const recent = evidence.slice(-40).reverse();
   return (
-    <section className="obs-section">
-      <div className="obs-title">Evidence ({evidence.length})</div>
-      <div className="evidence-list">
-        {recent.map((item, i) => (
-          <div className="evidence-item" key={i}>
-            <div className="evidence-head">
-              <span className="time">{formatTime(item.time)}</span>
-              <span className="evidence-kind">{item.kind}</span>
-            </div>
-            <div className="evidence-text">{item.text}</div>
-            {item.detail ? <div className="evidence-detail">{item.detail}</div> : null}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function TopologyPanel({ nodes, edges }) {
-  if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0)) return null;
-  return (
-    <section className="obs-section">
-      <div className="obs-title">Topology</div>
-      {nodes && nodes.length > 0 ? (
-        <div className="topo-sub">
-          <div className="obs-subtitle">Nodes ({nodes.length})</div>
-          <div className="topo-list">
-            {nodes.map((n) => (
-              <div className="topo-row" key={n.id}>
-                <span className="topo-id">{n.id}</span>
-                <span className="topo-label">{n.label || n.id}</span>
-                <span className={`status-pill small ${statusClass(n.status)}`}>{n.status}</span>
+    <section className="obs-section evidence-section">
+      <button className="obs-title collapsible" type="button" onClick={() => setOpen((v) => !v)}>
+        <span className="caret">{open ? '▾' : '▸'}</span>
+        System event log ({evidence.length})
+      </button>
+      {open ? (
+        <div className="evidence-list">
+          {recent.map((item, i) => (
+            <div className="evidence-item" key={i}>
+              <div className="evidence-head">
+                <span className="time">{formatTime(item.time)}</span>
+                <span className="evidence-kind">{item.kind}</span>
               </div>
-            ))}
-          </div>
+              <div className="evidence-text">{item.text}</div>
+              {item.detail ? <div className="evidence-detail">{item.detail}</div> : null}
+            </div>
+          ))}
         </div>
       ) : null}
-      {edges && edges.length > 0 ? (
-        <div className="topo-sub">
-          <div className="obs-subtitle">Edges ({edges.length})</div>
-          <div className="topo-list">
-            {edges.map((e, i) => (
-              <div className="topo-row" key={i}>
-                <span className="topo-id">{e.from} → {e.to}</span>
-                <span className="topo-label">{e.label}</span>
-                <span className={`status-pill small ${statusClass(e.status)}`}>{e.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function SnapshotsPanel({ snapshots }) {
-  const keys = Object.keys(snapshots || {});
-  if (keys.length === 0) return null;
-  return (
-    <section className="obs-section">
-      <div className="obs-title">Snapshots ({keys.length})</div>
-      {keys.map((scope) => {
-        const snap = snapshots[scope];
-        return (
-          <div className="snap-item" key={scope}>
-            <div className="snap-head">
-              <span className="snap-scope">{scope}</span>
-              <span className="snap-version">v{snap.version}</span>
-              <span className="time">{formatTime(snap.captured_at)}</span>
-            </div>
-            {snap.active_phase ? <div className="snap-phase">phase: {snap.active_phase}</div> : null}
-          </div>
-        );
-      })}
     </section>
   );
 }
@@ -300,8 +230,14 @@ function summarizePayload(payload) {
   return entries.map(([key, value]) => `${key}=${String(value)}`).join(' ');
 }
 
+function agentDisplayName(agent) {
+  if (!agent) return '';
+  if (agent.id === 'interactive-root') return 'Current Agent';
+  return agent.id;
+}
+
 function statusClass(status) {
-  if (status === 'running' || status === 'active') return 'active';
+  if (status === 'running' || status === 'active' || status === 'starting') return 'active';
   if (status === 'waiting_input' || status === 'waiting_confirm' || status === 'waiting_plan' || status === 'waiting') return 'waiting';
   if (status === 'completed' || status === 'done') return 'done';
   if (status === 'failed' || status === 'cancelled') return 'failed';

@@ -13,7 +13,12 @@ import (
 	"github.com/zhanglvtao/cece/internal/protocol"
 )
 
-const maxEvidence = 80
+const (
+	maxEvidence      = 80
+	maxMailboxItems  = 50
+	maxTranscript    = 200
+	transcriptTextMx = 2000
+)
 
 const (
 	rootAgentID          = "interactive-root"
@@ -42,12 +47,23 @@ type AgentMailboxItem struct {
 	Payload   map[string]any `json:"payload,omitempty"`
 }
 
+// TranscriptItem is a single step in an agent's conversation timeline.
+type TranscriptItem struct {
+	Time   time.Time `json:"time"`
+	Role   string    `json:"role"`             // user | assistant | tool | system
+	Text   string    `json:"text,omitempty"`   // assistant/user message text
+	Tool   string    `json:"tool,omitempty"`   // tool name for role=tool
+	Status string    `json:"status,omitempty"` // running | ok | error
+}
+
 type AgentView struct {
 	ID          string             `json:"id"`
 	Description string             `json:"description,omitempty"`
 	Status      string             `json:"status"`
 	Inbox       []AgentMailboxItem `json:"inbox"`
 	Outbox      []AgentMailboxItem `json:"outbox"`
+	Lifecycle   []AgentMailboxItem `json:"lifecycle"`
+	Transcript  []TranscriptItem   `json:"transcript"`
 }
 
 type agentState struct {
@@ -56,6 +72,14 @@ type agentState struct {
 	Status      string
 	Inbox       []AgentMailboxItem
 	Outbox      []AgentMailboxItem
+	Lifecycle   []AgentMailboxItem
+	Transcript  []TranscriptItem
+	// assistantBuf accumulates streaming assistant text between StreamStarted
+	// and StreamCompleted so the transcript records the final message once.
+	assistantBuf strings.Builder
+	// lastToolCall / lastAssistantText de-duplicate repeated sub-agent activity.
+	lastToolCall      string
+	lastAssistantText string
 }
 
 type State struct {
@@ -134,6 +158,10 @@ func (s *Store) Apply(ev protocol.Event) {
 		s.setRootAgentStatusLocked("running")
 		s.setPhaseLocked("user_input", "user_input", "done")
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "user", To: "tui", Label: "message", Status: "done"})
+		if text := strings.TrimSpace(messageText(e.Message)); text != "" {
+			s.appendTranscriptLocked(s.ensureRootAgentLocked(), TranscriptItem{Time: now, Role: "user", Text: text})
+		}
+		s.ensureRootAgentLocked().assistantBuf.Reset()
 	case protocol.ModelRequestStarted:
 		s.setRootAgentStatusLocked("running")
 		s.setPhaseLocked("prompt_build", "prompt_build", "done")
@@ -164,15 +192,26 @@ func (s *Store) Apply(ev protocol.Event) {
 		if e.InputTokens > 0 {
 			s.metrics["input_tokens"] = protocol.ObservatoryMetric{Name: "input_tokens", Value: formatTokenK(e.InputTokens)}
 		}
-	case protocol.AssistantStarted, protocol.AssistantDelta:
+	case protocol.AssistantStarted:
 		s.setRootAgentStatusLocked("running")
 		s.setPhaseLocked("model_stream", "model_stream", "active")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: "model", Label: "Model", Kind: "model", Status: "active"})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "model", To: "engine", Label: "stream", Status: "active"})
+		s.ensureRootAgentLocked().assistantBuf.Reset()
+	case protocol.AssistantDelta:
+		s.setRootAgentStatusLocked("running")
+		s.setPhaseLocked("model_stream", "model_stream", "active")
+		s.upsertNodeLocked(protocol.ObservatoryNode{ID: "model", Label: "Model", Kind: "model", Status: "active"})
+		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "model", To: "engine", Label: "stream", Status: "active"})
+		s.ensureRootAgentLocked().assistantBuf.WriteString(e.Text)
 	case protocol.StreamCompleted:
 		s.setPhaseLocked("model_stream", "model_stream", "done")
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "model", To: "engine", Label: "stream", Status: "done"})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "engine", To: "model", Label: "request", Status: "done"})
+		if root := s.ensureRootAgentLocked(); strings.TrimSpace(root.assistantBuf.String()) != "" {
+			s.appendTranscriptLocked(root, TranscriptItem{Time: now, Role: "assistant", Text: strings.TrimSpace(root.assistantBuf.String())})
+			root.assistantBuf.Reset()
+		}
 		if e.OutputTokens > 0 {
 			s.metrics["output_tokens"] = protocol.ObservatoryMetric{Name: "output_tokens", Value: formatTokenK(e.OutputTokens)}
 		}
@@ -197,6 +236,11 @@ func (s *Store) Apply(ev protocol.Event) {
 		id := toolNodeID(e.Name)
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: id, Label: "Tool: " + e.Name, Kind: "tool", Status: status})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "engine", To: id, Label: "tool exec", Status: status})
+		toolStatus := "ok"
+		if e.Result.IsError {
+			toolStatus = "error"
+		}
+		s.appendTranscriptLocked(s.ensureRootAgentLocked(), TranscriptItem{Time: now, Role: "tool", Tool: e.Name, Status: toolStatus})
 	case protocol.SubAgentStartedEvent:
 		s.setPhaseLocked("subagents", "subagents", "active")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: "orchestrator", Label: "Orchestrator", Kind: "orchestrator", Status: "active"})
@@ -217,7 +261,18 @@ func (s *Store) Apply(ev protocol.Event) {
 		}
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: e.ID, Label: e.ID, Kind: "agent", Status: status, Meta: meta})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "orchestrator", To: e.ID, Label: "run", Status: status})
-		s.ensureAgentLocked(e.ID).Status = e.Status
+		agent := s.ensureAgentLocked(e.ID)
+		agent.Status = e.Status
+		// Project the sub-agent's activity into its transcript at "message +
+		// tool name" granularity, de-duplicating repeated snapshots.
+		if tc := strings.TrimSpace(e.ToolCall); tc != "" && tc != agent.lastToolCall {
+			agent.lastToolCall = tc
+			s.appendTranscriptLocked(agent, TranscriptItem{Time: now, Role: "tool", Tool: tc, Status: "ok"})
+		}
+		if msg := strings.TrimSpace(e.LastAssistantMsg); msg != "" && msg != agent.lastAssistantText {
+			agent.lastAssistantText = msg
+			s.appendTranscriptLocked(agent, TranscriptItem{Time: now, Role: "assistant", Text: msg})
+		}
 	case protocol.SubAgentCompletedEvent:
 		s.setPhaseLocked("subagents", "subagents", "done")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: e.ID, Label: agentLabel(e.ID, e.Description), Kind: "agent", Status: "done"})
@@ -228,12 +283,20 @@ func (s *Store) Apply(ev protocol.Event) {
 		s.setPhaseLocked("subagents", "subagents", "failed")
 		s.upsertNodeLocked(protocol.ObservatoryNode{ID: e.ID, Label: agentLabel(e.ID, e.Description), Kind: "agent", Status: "failed"})
 		s.upsertEdgeLocked(protocol.ObservatoryEdge{From: "orchestrator", To: e.ID, Label: "run", Status: "failed"})
-		s.ensureAgentLocked(e.ID).Description = e.Description
-		s.ensureAgentLocked(e.ID).Status = "failed"
+		agent := s.ensureAgentLocked(e.ID)
+		agent.Description = e.Description
+		agent.Status = "failed"
+		if e.Error != "" {
+			s.appendTranscriptLocked(agent, TranscriptItem{Time: now, Role: "system", Text: "failed: " + e.Error, Status: "error"})
+		}
 	case protocol.AgentBusEvent:
 		agent := s.ensureAgentLocked(e.AgentID)
 		if e.StatusTo != "" {
 			agent.Status = e.StatusTo
+		}
+		// Skip noisy progress events from the Outbox
+		if e.Kind == "progress" {
+			break
 		}
 		item := AgentMailboxItem{Time: now, Lane: e.Lane, MessageID: e.MessageID, Kind: e.Kind, StatusTo: e.StatusTo, Payload: e.Payload}
 		s.appendAgentMailboxLocked(agent, item)
@@ -306,7 +369,15 @@ func (s *Store) stateLocked() State {
 	copy(evidence, s.evidence)
 	agents := make([]AgentView, 0, len(s.agents))
 	for _, a := range s.agents {
-		agents = append(agents, AgentView{ID: a.ID, Description: a.Description, Status: a.Status, Inbox: append([]AgentMailboxItem(nil), a.Inbox...), Outbox: append([]AgentMailboxItem(nil), a.Outbox...)})
+		agents = append(agents, AgentView{
+			ID:          a.ID,
+			Description: a.Description,
+			Status:      a.Status,
+			Inbox:       append([]AgentMailboxItem(nil), a.Inbox...),
+			Outbox:      append([]AgentMailboxItem(nil), a.Outbox...),
+			Lifecycle:   append([]AgentMailboxItem(nil), a.Lifecycle...),
+			Transcript:  append([]TranscriptItem(nil), a.Transcript...),
+		})
 	}
 	sort.Slice(agents, func(i, j int) bool {
 		if agents[i].ID == rootAgentID {
@@ -477,15 +548,35 @@ func (s *Store) appendAgentMailboxLocked(agent *agentState, item AgentMailboxIte
 	}
 	switch item.Lane {
 	case "inbox":
-		agent.Inbox = append(agent.Inbox, item)
-		if len(agent.Inbox) > 50 {
-			agent.Inbox = append([]AgentMailboxItem(nil), agent.Inbox[len(agent.Inbox)-50:]...)
-		}
+		agent.Inbox = appendCapped(agent.Inbox, item, maxMailboxItems)
+	case "outbox":
+		agent.Outbox = appendCapped(agent.Outbox, item, maxMailboxItems)
 	default:
-		agent.Outbox = append(agent.Outbox, item)
-		if len(agent.Outbox) > 50 {
-			agent.Outbox = append([]AgentMailboxItem(nil), agent.Outbox[len(agent.Outbox)-50:]...)
-		}
+		// scheduler / lifecycle events (started, completed, failed) live in
+		// their own lane instead of polluting the outbox.
+		agent.Lifecycle = appendCapped(agent.Lifecycle, item, maxMailboxItems)
+	}
+}
+
+func appendCapped(items []AgentMailboxItem, item AgentMailboxItem, max int) []AgentMailboxItem {
+	items = append(items, item)
+	if len(items) > max {
+		items = append([]AgentMailboxItem(nil), items[len(items)-max:]...)
+	}
+	return items
+}
+
+func (s *Store) appendTranscriptLocked(agent *agentState, item TranscriptItem) {
+	if agent == nil {
+		return
+	}
+	if item.Time.IsZero() {
+		item.Time = time.Now()
+	}
+	item.Text = truncate(item.Text, transcriptTextMx)
+	agent.Transcript = append(agent.Transcript, item)
+	if len(agent.Transcript) > maxTranscript {
+		agent.Transcript = append([]TranscriptItem(nil), agent.Transcript[len(agent.Transcript)-maxTranscript:]...)
 	}
 }
 
@@ -814,10 +905,35 @@ func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	if max <= 1 {
-		return s[:max]
+	// Trim on a rune boundary so multi-byte characters (e.g. Chinese) are
+	// never cut in half.
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
 	}
-	return s[:max-1] + "…"
+	if max <= 1 {
+		return string(runes[:max])
+	}
+	return string(runes[:max-1]) + "…"
+}
+
+// messageText extracts the human-readable text from a protocol.Message,
+// preferring the flat Content field and falling back to concatenated text
+// content blocks.
+func messageText(m protocol.Message) string {
+	if strings.TrimSpace(m.Content) != "" {
+		return m.Content
+	}
+	var b strings.Builder
+	for _, block := range m.ContentBlocks {
+		if block.Type == protocol.TextContentType && block.Text != "" {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(block.Text)
+		}
+	}
+	return b.String()
 }
 
 func cloneNode(n protocol.ObservatoryNode) protocol.ObservatoryNode {

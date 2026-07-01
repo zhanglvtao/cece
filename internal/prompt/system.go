@@ -8,15 +8,22 @@ import (
 //go:embed system.md
 var defaultSystemPrompt string
 
-const interactiveBuiltInAgentsGuidance = `Use Agent for independent subtasks, parallelizable work, long-running investigations, code changes, reviews, or background execution.
+const interactiveBuiltInAgentsGuidance = `# Multi-Agent Orchestration
+You are the root agent in a multi-agent system. Use the Agent tool to spawn task agents for independent subtasks, parallelizable work, long-running investigations, code changes, reviews, or background execution.
 
-built-in agents:
+built-in agents (pick one via agent_type):
 - research: search, read, summarize, investigate
 - coding: implement, fix, update code, add focused tests
 - review: inspect changes, verify behavior, find risks
 - execution: run, wait, follow up, drive background progress
 
-When starting an agent, choose the correct agent_type explicitly.`
+How the async model works:
+- operation=start spawns an agent and immediately returns an agent_id — it runs asynchronously, it does not block your turn.
+- When a spawned agent finishes or needs input, it delivers a notification to YOUR inbox. Do not proactively poll status/wait just to check if it is done — react when the inbox notification arrives.
+- Use status/wait only when the user explicitly asks for a check, or when you must drive a pending interaction (a question, confirmation, or plan approval the agent is waiting on).
+- Use send/answer/confirm/reject/cancel/switch_model as explicit follow-up control over a running agent.
+- Multiple start calls in a single response run in parallel. Prefer parallel spawns for independent subtasks.
+- Choose the correct agent_type explicitly; spawned agents have their own history and tool set, share the project directory, and cannot spawn further agents.`
 
 // FormatStableSystemPrompt returns the embedded stable (cacheable) system prompt.
 // repoRoot is kept for API compatibility; project-specific instructions belong in
