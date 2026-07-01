@@ -560,7 +560,7 @@ func eventSummary(ev protocol.Event) string {
 		}
 		return strings.Join(parts, " ")
 	case protocol.StreamEventDetail:
-		if e.EventType == "content_block_delta" || (e.EventType == "message_delta" && e.Detail != "stop_reason") {
+		if e.EventType == protocol.EventContentBlockDelta || (e.EventType == protocol.EventMessageDelta && e.Detail != "stop_reason") {
 			return ""
 		}
 		if e.Text != "" {

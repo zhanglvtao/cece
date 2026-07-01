@@ -41,10 +41,10 @@ func (c *RecordingClient) Stream(ctx context.Context, messages []agent.Message, 
 		turn := CassetteTurn{}
 		for ev := range ch {
 			turn.Events = append(turn.Events, fromApiEvent(ev))
-			if ev.EventType == "message_start" && ev.InputTokens > 0 {
+			if ev.EventType == agent.EventMessageStart && ev.InputTokens > 0 {
 				turn.InputTokens = ev.InputTokens
 			}
-			if ev.EventType == "message_delta" && ev.OutputTokens > 0 {
+			if ev.EventType == agent.EventMessageDelta && ev.OutputTokens > 0 {
 				turn.OutputTokens = ev.OutputTokens
 			}
 			out <- ev
