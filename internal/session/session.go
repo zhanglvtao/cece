@@ -10,7 +10,6 @@ type StatusBarSnapshot struct {
 	CacheReadTokens     int            `json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int            `json:"cache_creation_tokens,omitempty"`
 	TurnCount           int            `json:"turn_count,omitempty"`
-	CompletionHookCalls int            `json:"completion_hook_calls,omitempty"`
 }
 
 // Session holds metadata about a conversation session.

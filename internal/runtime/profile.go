@@ -6,7 +6,10 @@ type ProfileName string
 
 const (
 	ProfileInteractive ProfileName = "interactive"
-	ProfileWorker      ProfileName = "worker"
+	ProfileResearch    ProfileName = "research"
+	ProfileCoding      ProfileName = "coding"
+	ProfileReview      ProfileName = "review"
+	ProfileExecution   ProfileName = "execution"
 )
 
 type PromptPolicy struct {
@@ -71,32 +74,39 @@ func defaultProfiles() map[ProfileName]AgentProfile {
 			},
 			Spawn: SpawnPolicy{
 				AllowChildAgents: true,
-				AllowedProfiles:  []ProfileName{ProfileWorker},
+				AllowedProfiles:  []ProfileName{ProfileResearch, ProfileCoding, ProfileReview, ProfileExecution},
 			},
 		},
-		ProfileWorker: {
-			Name: ProfileWorker,
-			Prompt: PromptPolicy{
-				UseSubAgentPrompt: true,
-			},
-			Tools: ToolPolicy{
-				AllowAgentTool: false,
-			},
-			Interaction: InteractionPolicy{
-				UserFacing:      false,
-				PendingToParent: true,
-			},
-			Result: ResultPolicy{
-				ArtifactFirst:   true,
-				PreviewMaxChars: 16000,
-			},
-			Execution: ExecutionPolicy{
-				DefaultEffort:   "low",
-				DefaultMaxTurns: 8,
-			},
-			Spawn: SpawnPolicy{
-				AllowChildAgents: false,
-			},
+		ProfileResearch: taskProfile(ProfileResearch, "high"),
+		ProfileCoding:   taskProfile(ProfileCoding, "medium"),
+		ProfileReview:   taskProfile(ProfileReview, "high"),
+		ProfileExecution: taskProfile(ProfileExecution, "medium"),
+	}
+}
+
+func taskProfile(name ProfileName, effort string) AgentProfile {
+	return AgentProfile{
+		Name: name,
+		Prompt: PromptPolicy{
+			UseSubAgentPrompt: true,
+		},
+		Tools: ToolPolicy{
+			AllowAgentTool: false,
+		},
+		Interaction: InteractionPolicy{
+			UserFacing:      false,
+			PendingToParent: true,
+		},
+		Result: ResultPolicy{
+			ArtifactFirst:   true,
+			PreviewMaxChars: 16000,
+		},
+		Execution: ExecutionPolicy{
+			DefaultEffort:   effort,
+			DefaultMaxTurns: 200,
+		},
+		Spawn: SpawnPolicy{
+			AllowChildAgents: false,
 		},
 	}
 }

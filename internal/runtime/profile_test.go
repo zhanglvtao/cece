@@ -17,39 +17,59 @@ func TestProfileByName_Defaults(t *testing.T) {
 		t.Fatal("interactive profile should be user-facing")
 	}
 	if !interactive.Spawn.AllowChildAgents {
-		t.Fatal("interactive profile should allow spawning worker agents")
+		t.Fatal("interactive profile should allow spawning task agents")
 	}
 	if interactive.Execution.DefaultMaxTurns != 0 {
 		t.Fatalf("interactive DefaultMaxTurns = %d, want 0", interactive.Execution.DefaultMaxTurns)
 	}
+	wantAllowed := []ProfileName{ProfileResearch, ProfileCoding, ProfileReview, ProfileExecution}
+	if len(interactive.Spawn.AllowedProfiles) != len(wantAllowed) {
+		t.Fatalf("interactive AllowedProfiles = %#v", interactive.Spawn.AllowedProfiles)
+	}
+	for i, want := range wantAllowed {
+		if interactive.Spawn.AllowedProfiles[i] != want {
+			t.Fatalf("interactive AllowedProfiles[%d] = %q, want %q", i, interactive.Spawn.AllowedProfiles[i], want)
+		}
+	}
 
-	worker, err := ProfileByName(ProfileWorker)
-	if err != nil {
-		t.Fatalf("ProfileByName(worker) error = %v", err)
+	cases := []struct {
+		name   ProfileName
+		effort string
+	}{
+		{ProfileResearch, "high"},
+		{ProfileCoding, "medium"},
+		{ProfileReview, "high"},
+		{ProfileExecution, "medium"},
 	}
-	if worker.Name != ProfileWorker {
-		t.Fatalf("worker.Name = %q", worker.Name)
-	}
-	if worker.Tools.AllowAgentTool {
-		t.Fatal("worker profile must not allow Agent tool")
-	}
-	if worker.Interaction.UserFacing {
-		t.Fatal("worker profile must not be user-facing")
-	}
-	if !worker.Interaction.PendingToParent {
-		t.Fatal("worker profile should route question/confirm/plan to parent")
-	}
-	if !worker.Result.ArtifactFirst {
-		t.Fatal("worker profile should prefer artifact-first results")
-	}
-	if worker.Execution.DefaultEffort != "low" {
-		t.Fatalf("worker DefaultEffort = %q, want low", worker.Execution.DefaultEffort)
-	}
-	if worker.Execution.DefaultMaxTurns != 8 {
-		t.Fatalf("worker DefaultMaxTurns = %d, want 8", worker.Execution.DefaultMaxTurns)
-	}
-	if worker.Spawn.AllowChildAgents {
-		t.Fatal("worker profile must not allow spawning child agents in v1")
+	for _, tc := range cases {
+		profile, err := ProfileByName(tc.name)
+		if err != nil {
+			t.Fatalf("ProfileByName(%s) error = %v", tc.name, err)
+		}
+		if profile.Name != tc.name {
+			t.Fatalf("profile.Name = %q, want %q", profile.Name, tc.name)
+		}
+		if profile.Tools.AllowAgentTool {
+			t.Fatalf("%s profile must not allow Agent tool", tc.name)
+		}
+		if profile.Interaction.UserFacing {
+			t.Fatalf("%s profile must not be user-facing", tc.name)
+		}
+		if !profile.Interaction.PendingToParent {
+			t.Fatalf("%s profile should route question/confirm/plan to parent", tc.name)
+		}
+		if !profile.Result.ArtifactFirst {
+			t.Fatalf("%s profile should prefer artifact-first results", tc.name)
+		}
+		if profile.Execution.DefaultEffort != tc.effort {
+			t.Fatalf("%s DefaultEffort = %q, want %q", tc.name, profile.Execution.DefaultEffort, tc.effort)
+		}
+		if profile.Execution.DefaultMaxTurns != 200 {
+			t.Fatalf("%s DefaultMaxTurns = %d, want 200", tc.name, profile.Execution.DefaultMaxTurns)
+		}
+		if profile.Spawn.AllowChildAgents {
+			t.Fatalf("%s profile must not allow spawning child agents", tc.name)
+		}
 	}
 }
 

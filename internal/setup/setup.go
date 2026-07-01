@@ -80,6 +80,7 @@ var protocols = []protocolOption{
 	{id: "anthropic"},
 	{id: "aiden"},
 	{id: "bytedance"},
+	{id: "traecli"},
 }
 
 var modes = []modeOption{

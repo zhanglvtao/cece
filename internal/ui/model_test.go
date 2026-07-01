@@ -473,7 +473,6 @@ func TestToolChainBlocksStayTightAcrossInfoAndGate(t *testing.T) {
 	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t1", Name: "Grep"})
 	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t1", Name: "Grep", Input: json.RawMessage(`{"pattern":"TODO"}`)})
 	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t1", Name: "Grep", Result: protocol.ToolResult{Content: "match"}})
-	m.ApplyEventForTest(protocol.CompletionGateEvaluated{Attempt: 1, MaxAttempts: 3, Status: protocol.CompletionGateBlocked, Next: "continue"})
 	m.ApplyEventForTest(protocol.ToolCallStarted{ID: "t2", Name: "Read"})
 	m.ApplyEventForTest(protocol.ToolCallCompleted{ID: "t2", Name: "Read", Input: json.RawMessage(`{"path":"/tmp/a.go"}`)})
 	m.ApplyEventForTest(protocol.ToolExecCompleted{ID: "t2", Name: "Read", Result: protocol.ToolResult{Content: "content"}})
@@ -496,18 +495,8 @@ func TestToolChainBlocksStayTightAcrossInfoAndGate(t *testing.T) {
 	if strings.Contains(rendered, "estimated input: 42 | tool results: MissingTool\n\nBash command: pwd") {
 		t.Fatalf("expected tool_result info and following tool blocks to stay tight:\n%s", rendered)
 	}
-}
 
-func TestCompletionHookCountAppearsInTopStatusBar(t *testing.T) {
-	m := NewModel(nil, "sonnet", "/tmp")
-	m.ApplyEventForTest(protocol.CompletionGateEvaluated{Attempt: 1, MaxAttempts: 3, Status: protocol.CompletionGateBlocked, Next: "continue"})
-	m.ApplyEventForTest(protocol.CompletionGateEvaluated{Attempt: 2, MaxAttempts: 3, Status: protocol.CompletionGatePassed, Next: "complete"})
-
-	rendered := stripAnsi(m.headerBar.Render(200))
-	if !strings.Contains(rendered, "Hook 2") {
-		t.Fatalf("header bar missing completion hook count: %q", rendered)
 	}
-}
 
 func TestSessionLoadedRebuildsTranscript(t *testing.T) {
 	m := NewModel(nil, "old", "/tmp")

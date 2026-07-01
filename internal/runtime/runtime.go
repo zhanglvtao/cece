@@ -172,6 +172,21 @@ type subAgentFactory struct {
 	contextWindowFor ContextWindowFn
 }
 
+func profileForAgentType(agentType string) (AgentProfile, error) {
+	switch strings.TrimSpace(agentType) {
+	case string(ProfileResearch):
+		return MustProfile(ProfileResearch), nil
+	case string(ProfileCoding):
+		return MustProfile(ProfileCoding), nil
+	case string(ProfileReview):
+		return MustProfile(ProfileReview), nil
+	case string(ProfileExecution):
+		return MustProfile(ProfileExecution), nil
+	default:
+		return AgentProfile{}, fmt.Errorf("unknown agent_type: %s", agentType)
+	}
+}
+
 func (f *subAgentFactory) NewSubAgentRuntime(ctx context.Context, cfg engine.SubAgentBuildConfig) (*engine.AgentRuntime, error) {
 	subModel := strings.TrimSpace(cfg.Model)
 	if subModel == "" && f.parentEng != nil {
@@ -196,13 +211,17 @@ func (f *subAgentFactory) NewSubAgentRuntime(ctx context.Context, cfg engine.Sub
 	if client == nil {
 		client = f.parentEng.Client()
 	}
+	profile, err := profileForAgentType(cfg.Profile)
+	if err != nil {
+		return nil, err
+	}
 	built, err := f.builder.Build(ctx, BuildRequest{
 		ID:                cfg.AgentID,
 		Description:       cfg.Description,
 		Model:             subModel,
 		ContextWindow:     contextWindow,
 		ModelClient:       client,
-		Profile:           MustProfile(ProfileWorker),
+		Profile:           profile,
 		ParentSessionID:   cfg.ParentSessionID,
 		SystemPromptExtra: cfg.SystemPromptExtra,
 		ToolNames:         cfg.Tools,
