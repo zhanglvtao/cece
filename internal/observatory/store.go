@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -259,6 +260,19 @@ func (s *Store) SetSubscriberCount(n int) {
 	s.subscribers = n
 }
 
+func (s *Store) RecordSubscriberDrop(reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	s.updatedAt = now
+	metric := s.metrics["subscriber_drops"]
+	metric.Name = "subscriber_drops"
+	metric.Value = fmt.Sprintf("%d", parseMetricInt(metric.Value)+1)
+	s.metrics[metric.Name] = metric
+	s.addEvidenceLocked(now, "SubscriberDrop", "subscriber dropped due to "+reason, "")
+}
+
 func (s *Store) stateLocked() State {
 	nodes := make([]protocol.ObservatoryNode, 0, len(s.nodes))
 	for _, n := range s.nodes {
@@ -475,6 +489,17 @@ func (s *Store) appendAgentMailboxLocked(agent *agentState, item AgentMailboxIte
 	}
 }
 
+func parseMetricInt(v string) int {
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 func eventKind(ev protocol.Event) string {
 	t := reflect.TypeOf(ev)
 	if t == nil {
@@ -548,15 +573,6 @@ func eventSummary(ev protocol.Event) string {
 		return ""
 	case protocol.AssistantCompleted:
 		return "assistant completed " + e.Duration.String()
-	case protocol.CompletionGateEvaluated:
-		parts := []string{"completion gate", string(e.Status)}
-		for _, check := range e.Checks {
-			parts = append(parts, check.Name+"="+string(check.Status))
-		}
-		if e.Next != "" {
-			parts = append(parts, "next="+e.Next)
-		}
-		return strings.Join(parts, " ")
 	case protocol.StreamCompleted:
 		parts := []string{"stream completed"}
 		if e.StopReason != "" {

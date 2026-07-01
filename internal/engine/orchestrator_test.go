@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -20,9 +21,67 @@ type fakeRuntimeFactory struct {
 }
 
 type artifactStore struct {
-	session.Store
-	path    string
-	content []byte
+	path     string
+	content  []byte
+	sessions map[string]session.Session
+}
+
+func (s *artifactStore) Create(_ context.Context, title string) (*session.Session, error) {
+	if s.sessions == nil {
+		s.sessions = make(map[string]session.Session)
+	}
+	id := "session-1"
+	sess := session.Session{ID: id, Title: title, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	s.sessions[id] = sess
+	return &sess, nil
+}
+
+func (s *artifactStore) AppendMessage(_ context.Context, _ string, _ json.RawMessage) error {
+	return nil
+}
+
+func (s *artifactStore) LoadMessages(_ context.Context, _ string) ([]json.RawMessage, error) {
+	return nil, nil
+}
+
+func (s *artifactStore) List(_ context.Context) ([]session.Session, error) {
+	out := make([]session.Session, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		out = append(out, sess)
+	}
+	return out, nil
+}
+
+func (s *artifactStore) Get(_ context.Context, id string) (*session.Session, error) {
+	if sess, ok := s.sessions[id]; ok {
+		return &sess, nil
+	}
+	return nil, nil
+}
+
+func (s *artifactStore) Rename(_ context.Context, id, title string) error {
+	if s.sessions == nil {
+		s.sessions = make(map[string]session.Session)
+	}
+	sess := s.sessions[id]
+	sess.ID = id
+	sess.Title = title
+	sess.UpdatedAt = time.Now()
+	s.sessions[id] = sess
+	return nil
+}
+
+func (s *artifactStore) Delete(_ context.Context, id string) error {
+	delete(s.sessions, id)
+	return nil
+}
+
+func (s *artifactStore) UpdateMeta(_ context.Context, _ string, _ session.SessionMeta) error {
+	return nil
+}
+
+func (s *artifactStore) SaveInputHistory(_ context.Context, _ string, _ []string) error {
+	return nil
 }
 
 func (s *artifactStore) WriteArtifact(_ context.Context, sessionID, name string, content []byte) (string, error) {
@@ -204,22 +263,31 @@ func TestOrchestratorCompletedBackfillsArtifact(t *testing.T) {
 	client := &recordingClient{}
 	parent = NewEngine(client, tool.NewRegistry(), true, 1024, nil, t.TempDir())
 	parent.appendAgentNotification(agentNotification{AgentID: "agent-1", Status: AgentStatusCompleted, Summary: "assistant response", ResultPath: store.path})
-	if err := parent.Input(context.Background(), "next step"); err != nil {
-		t.Fatalf("parent input error = %v", err)
-	}
 	waitForTurnCompleted(t, parent)
 	if len(client.messages) == 0 {
 		t.Fatal("no model request captured")
 	}
-	last := client.messages[len(client.messages)-1]
 	found := false
-	for _, msg := range last {
-		if strings.Contains(msg.Content, "Agent notifications from spawned agents") && strings.Contains(msg.Content, "Result artifact:") {
-			found = true
+	for _, request := range client.messages {
+		for _, msg := range request {
+			if strings.Contains(msg.Content, "Agent notifications from spawned agents") && strings.Contains(msg.Content, "Result artifact:") {
+				found = true
+			}
 		}
 	}
 	if !found {
-		t.Fatalf("request messages missing agent notification: %+v", last)
+		t.Fatalf("request messages missing agent notification: %+v", client.messages)
+	}
+
+	if err := parent.Input(context.Background(), "next step"); err != nil {
+		t.Fatalf("parent input error = %v", err)
+	}
+	waitForTurnCompleted(t, parent)
+	last := client.messages[len(client.messages)-1]
+	for _, msg := range last {
+		if strings.Contains(msg.Content, "Agent notifications from spawned agents") {
+			t.Fatalf("notification injected twice: %+v", last)
+		}
 	}
 }
 
@@ -229,7 +297,8 @@ func TestOrchestratorCompletedWritesParentInbox(t *testing.T) {
 	rt.SessionID = "session-1"
 	rt.Result = tool.AgentSubAgentResult{AgentID: "agent-1", SessionID: "session-1", Status: string(AgentStatusCompleted), Content: "done", ResultPath: "/tmp/result.txt"}
 	rt.finalResult = "done"
-	orch := NewOrchestrator(&fakeRuntimeFactory{rt: rt}, nil, func(protocol.Event) {})
+	var events []protocol.Event
+	orch := NewOrchestrator(&fakeRuntimeFactory{rt: rt}, nil, func(ev protocol.Event) { events = append(events, ev) })
 
 	orch.handleTerminalMessage(parent, rt, "parent-session", AgentMessage{AgentID: "agent-1", Kind: AgentMessageResult, Status: AgentStatusCompleted, Payload: rt.Result})
 	notifications := parent.drainAgentNotifications()
@@ -239,6 +308,96 @@ func TestOrchestratorCompletedWritesParentInbox(t *testing.T) {
 	if notifications[0].AgentID != "agent-1" || notifications[0].Status != AgentStatusCompleted {
 		t.Fatalf("notification = %+v", notifications[0])
 	}
+	bus, ok := findAgentBusEvent(events, "interactive-root", "inbox", "result")
+	if !ok {
+		t.Fatalf("missing root inbox result AgentBusEvent: %+v", events)
+	}
+	if bus.TraceID != "agent-1" || bus.ParentSessionID != "parent-session" || bus.SessionID != "session-1" {
+		t.Fatalf("root inbox event = %+v", bus)
+	}
+	if bus.Payload["result_path"] != "/tmp/result.txt" || bus.Payload["summary"] != "done" || bus.Payload["status"] != string(AgentStatusCompleted) {
+		t.Fatalf("root inbox payload = %+v", bus.Payload)
+	}
+}
+
+func TestOrchestratorBridgeConsumesBestEffortProgress(t *testing.T) {
+	parent := NewEngine(&recordingClient{}, tool.NewRegistry(), true, 1024, nil, t.TempDir())
+	rt := NewAgentRuntime("agent-1", "A", "worker-model", "parent-session", NewEngine(&recordingClient{}, tool.NewRegistry(), false, 1024, nil, t.TempDir()), nil, context.Background(), func() {}, 8)
+	rt.SessionID = "session-1"
+	rt.Model = "worker-model"
+	rt.InputTokens = 11
+	rt.OutputTokens = 7
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rt.Context = ctx
+	var events []protocol.Event
+	orch := NewOrchestrator(&fakeRuntimeFactory{rt: rt}, nil, func(ev protocol.Event) { events = append(events, ev) })
+
+	go orch.bridgeRuntime(parent, rt, "parent-session")
+	rt.record(AgentMessage{AgentID: "agent-1", Kind: AgentMessageProgress, Status: AgentStatusRunning, Payload: map[string]any{"activity": "reading files"}})
+
+	deadline := time.After(time.Second)
+	for {
+		if bus, ok := findAgentBusEvent(events, "agent-1", "outbox", "progress"); ok {
+			if bus.Payload["activity"] != "reading files" {
+				t.Fatalf("progress payload = %+v", bus.Payload)
+			}
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("missing best-effort progress AgentBusEvent: %+v", events)
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if !hasSubAgentActivity(events, "agent-1", "reading files") {
+		t.Fatalf("missing SubAgentActivityEvent: %+v", events)
+	}
+}
+
+func TestOrchestratorPendingResponseUsesCausationID(t *testing.T) {
+	parent := NewEngine(&recordingClient{}, tool.NewRegistry(), true, 1024, nil, t.TempDir())
+	rt := NewAgentRuntime("agent-1", "A", "worker-model", "parent-session", NewEngine(&recordingClient{}, tool.NewRegistry(), false, 1024, nil, t.TempDir()), nil, context.Background(), func() {}, 8)
+	rt.SessionID = "session-1"
+	var events []protocol.Event
+	orch := NewOrchestrator(&fakeRuntimeFactory{rt: rt}, nil, func(ev protocol.Event) { events = append(events, ev) })
+	orch.mu.Lock()
+	orch.agents[rt.ID] = rt
+	orch.mu.Unlock()
+
+	orch.handleRuntimeAgentEvent(parent, rt, "parent-session", AgentMessage{ID: "pending-1", AgentID: "agent-1", Kind: AgentMessageQuestion, Status: AgentStatusWaitingInput})
+	if _, err := orch.answer(tool.AgentSubAgentConfig{AgentID: "agent-1", Answers: []tool.QuestionAnswer{{Question: "Proceed?", Selected: []string{"Yes"}}}}); err != nil {
+		t.Fatalf("answer error = %v", err)
+	}
+
+	bus, ok := findAgentBusEvent(events, "agent-1", "inbox", string(AgentCommandAnswerQuestion))
+	if !ok {
+		t.Fatalf("missing answer inbox AgentBusEvent: %+v", events)
+	}
+	if bus.CausationID != "pending-1" {
+		t.Fatalf("CausationID = %q, want pending-1", bus.CausationID)
+	}
+}
+
+func findAgentBusEvent(events []protocol.Event, agentID, lane, kind string) (protocol.AgentBusEvent, bool) {
+	for _, ev := range events {
+		bus, ok := ev.(protocol.AgentBusEvent)
+		if ok && bus.AgentID == agentID && bus.Lane == lane && bus.Kind == kind {
+			return bus, true
+		}
+	}
+	return protocol.AgentBusEvent{}, false
+}
+
+func hasSubAgentActivity(events []protocol.Event, agentID, activity string) bool {
+	for _, ev := range events {
+		activityEvent, ok := ev.(protocol.SubAgentActivityEvent)
+		if ok && activityEvent.ID == agentID && activityEvent.Activity == activity {
+			return true
+		}
+	}
+	return false
 }
 
 func TestOrchestratorLogsWorkerLifecycle(t *testing.T) {

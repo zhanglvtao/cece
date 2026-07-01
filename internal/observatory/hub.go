@@ -91,15 +91,20 @@ func (h *Hub) broadcast(ev protocol.Event) {
 		h.mu.Unlock()
 		return
 	}
+	dropped := 0
 	for id, ch := range h.subscribers {
 		select {
 		case ch <- ev:
 		default:
 			close(ch)
 			delete(h.subscribers, id)
+			dropped++
 		}
 	}
 	subscriberCount := len(h.subscribers)
 	h.mu.Unlock()
 	h.store.SetSubscriberCount(subscriberCount)
+	for range dropped {
+		h.store.RecordSubscriberDrop("backpressure")
+	}
 }

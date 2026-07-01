@@ -107,29 +107,16 @@ func TestEngineQueueInputStartsTurnImmediatelyWhenIdle(t *testing.T) {
 	}
 }
 
-func TestEngineInjectsUnreadAgentNotificationsIntoNextRequest(t *testing.T) {
+func TestEngineAutoReadsUnreadAgentNotificationsWhenIdle(t *testing.T) {
 	client := &recordingClient{}
 	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
 	eng.appendAgentNotification(agentNotification{AgentID: "agent-1", Status: AgentStatusCompleted, Summary: "done", ResultPath: "/tmp/result.txt"})
 
-	if err := eng.Input(context.Background(), "continue"); err != nil {
-		t.Fatalf("Input error = %v", err)
-	}
 	waitForTurnCompleted(t, eng)
 	if len(client.messages) != 1 {
 		t.Fatalf("client calls = %d, want 1", len(client.messages))
 	}
-	found := false
-	for _, msg := range client.messages[0] {
-		if strings.Contains(msg.Content, "Agent notifications from spawned agents") &&
-			strings.Contains(msg.Content, "/tmp/result.txt") &&
-			strings.Contains(msg.Content, "Use Read with this path to inspect the full result") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("request messages missing notification: %+v", client.messages[0])
-	}
+	assertRequestIncludesAgentNotification(t, client.messages[0], "/tmp/result.txt")
 
 	if err := eng.Input(context.Background(), "continue again"); err != nil {
 		t.Fatalf("second Input error = %v", err)
@@ -141,6 +128,45 @@ func TestEngineInjectsUnreadAgentNotificationsIntoNextRequest(t *testing.T) {
 			t.Fatalf("notification injected twice: %+v", last)
 		}
 	}
+}
+
+func TestEngineDefersAgentNotificationPumpWhileBusy(t *testing.T) {
+	client := &blockingRecordingClient{unblock: make(chan struct{}), calls: make(chan []agent.Message, 2)}
+	eng := NewEngine(client, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	if err := eng.Input(context.Background(), "busy"); err != nil {
+		t.Fatalf("Input error = %v", err)
+	}
+	<-client.calls
+
+	eng.appendAgentNotification(agentNotification{AgentID: "agent-1", Status: AgentStatusCompleted, Summary: "done", ResultPath: "/tmp/result.txt"})
+	select {
+	case messages := <-client.calls:
+		t.Fatalf("notification pump started while engine was busy: %+v", messages)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(client.unblock)
+	waitForTurnCompleted(t, eng)
+	var pumped []agent.Message
+	select {
+	case pumped = <-client.calls:
+	case <-time.After(time.Second):
+		t.Fatal("expected notification pump after busy turn completed")
+	}
+	assertRequestIncludesAgentNotification(t, pumped, "/tmp/result.txt")
+	waitForTurnCompleted(t, eng)
+}
+
+func assertRequestIncludesAgentNotification(t *testing.T, messages []agent.Message, resultPath string) {
+	t.Helper()
+	for _, msg := range messages {
+		if strings.Contains(msg.Content, "Agent notifications from spawned agents") &&
+			strings.Contains(msg.Content, resultPath) &&
+			strings.Contains(msg.Content, "Use Read with this path to inspect the full result") {
+			return
+		}
+	}
+	t.Fatalf("request messages missing notification: %+v", messages)
 }
 
 func TestEngineInputValidation(t *testing.T) {
@@ -428,23 +454,6 @@ func TestEnsureContextBudgetRunsFallbackChain(t *testing.T) {
 	}
 }
 
-func TestStatusBarSnapshotPersistsCompletionHookCalls(t *testing.T) {
-	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
-	eng.IncrementCompletionHookCalls()
-	eng.IncrementCompletionHookCalls()
-
-	snapshot := eng.StatusBarSnapshot()
-	if snapshot.CompletionHookCalls != 2 {
-		t.Fatalf("snapshot completion hook calls = %d, want 2", snapshot.CompletionHookCalls)
-	}
-
-	restored := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
-	restored.SetStatusBarState(snapshot)
-	if got := restored.StatusBarSnapshot().CompletionHookCalls; got != 2 {
-		t.Fatalf("restored completion hook calls = %d, want 2", got)
-	}
-}
-
 func TestTurnAutoCompactRunsAfterFailedCompactToolResult(t *testing.T) {
 	client := &compactToolFailureClient{}
 	eng := NewEngine(client, tool.NewRegistry(failingCompactTool{}), false, 16384, nil, "/tmp")
@@ -537,6 +546,44 @@ func TestEngineDoAnswerQuestion(t *testing.T) {
 	}
 	// Should not panic
 	eng.Do(protocol.AnswerQuestionAction{Answers: answers})
+}
+
+func TestEngineSuspendAndResumeQuestion(t *testing.T) {
+	eng := NewEngine(&fakeClient{}, tool.NewRegistry(), false, 16384, nil, "/tmp")
+	confirmCh := make(chan struct{}, 1)
+	eng.confirmCh = confirmCh
+	eng.questionAnswers = []tool.QuestionAnswer{{Question: "old", Custom: "stale"}}
+	eng.questionPending = true
+
+	eng.Do(protocol.SuspendQuestionAction{})
+	select {
+	case <-confirmCh:
+		t.Fatal("suspend should not confirm question")
+	default:
+	}
+	if !eng.questionSuspended {
+		t.Fatal("question should be suspended")
+	}
+	if got := eng.GetQuestionAnswers(); len(got) != 0 {
+		t.Fatalf("answers after suspend = %+v, want cleared", got)
+	}
+
+	eng.Do(protocol.ResumeQuestionAction{Text: "补充说明"})
+	select {
+	case <-confirmCh:
+	default:
+		t.Fatal("resume should confirm question")
+	}
+	if eng.questionPending {
+		t.Fatal("question should no longer be pending after resume")
+	}
+	if eng.questionSuspended {
+		t.Fatal("question should no longer be suspended after resume")
+	}
+	answers := eng.GetQuestionAnswers()
+	if len(answers) != 1 || answers[0].Custom != "补充说明" {
+		t.Fatalf("answers = %+v, want one custom answer", answers)
+	}
 }
 
 // Ensure chat types available
@@ -637,6 +684,29 @@ func (r *recordingClient) Stream(_ context.Context, messages []agent.Message, _ 
 }
 
 func (r *recordingClient) SetReasoningEffort(_ string) {}
+
+type blockingRecordingClient struct {
+	unblock chan struct{}
+	calls   chan []agent.Message
+}
+
+func (b *blockingRecordingClient) Stream(ctx context.Context, messages []agent.Message, _ agent.SystemPrompt, _ []tool.Definition, _ int) (<-chan agent.ApiStreamEvent, error) {
+	cp := make([]agent.Message, len(messages))
+	copy(cp, messages)
+	b.calls <- cp
+
+	out := make(chan agent.ApiStreamEvent)
+	go func() {
+		defer close(out)
+		select {
+		case <-ctx.Done():
+		case <-b.unblock:
+		}
+	}()
+	return out, nil
+}
+
+func (b *blockingRecordingClient) SetReasoningEffort(_ string) {}
 
 func waitForTurnCompleted(t *testing.T, eng *Engine) {
 	t.Helper()

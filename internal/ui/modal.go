@@ -263,11 +263,7 @@ func (m *Model) questionView() string {
 func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 	if len(m.modal.questions) == 0 {
 		if msg.String() == "esc" {
-			m.modal = modalState{}
-			if actor, ok := m.sender.(Actor); ok {
-				actor.Do(protocol.RejectQuestionAction{})
-			}
-			m.status = "Question cancelled"
+			m.suspendQuestion()
 		}
 		return nil
 	}
@@ -356,13 +352,17 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.modal.qIndex = len(m.modal.questions) - 1
 		return m.advanceQuestion()
 	case "esc", "ctrl+c":
-		m.modal = modalState{}
-		if actor, ok := m.sender.(Actor); ok {
-			actor.Do(protocol.RejectQuestionAction{})
-		}
-		m.status = "Question cancelled"
+		m.suspendQuestion()
 	}
 	return nil
+}
+
+func (m *Model) suspendQuestion() {
+	m.modal = modalState{}
+	if actor, ok := m.sender.(Actor); ok {
+		actor.Do(protocol.SuspendQuestionAction{})
+	}
+	m.status = "Question suspended"
 }
 
 // saveQuestionText persists the current textInput into custom map if in textMode.

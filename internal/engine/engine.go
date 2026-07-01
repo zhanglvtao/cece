@@ -42,6 +42,7 @@ type SubAgentBuildConfig struct {
 	ParentSessionID   string
 	SystemPromptExtra string
 	Tools             []string // explicit tool names; empty = all except Agent
+	Profile           string
 }
 
 type AgentController interface {
@@ -91,7 +92,6 @@ type Engine struct {
 	toolCounts                 map[string]int                       // cumulative tool execution counts (success + failure)
 	failedToolCounts           map[string]int                       // cumulative tool failure counts
 	turnCount                  int                                  // cumulative conversation turn count
-	completionHookCalls        int                                  // cumulative completion hook invocation count
 	cacheReadTokens            int                                  // cumulative cache read tokens
 	cacheCreationTokens        int                                  // cumulative cache creation tokens
 	lastCompactTurn            int                                  // turn count at last compact/prune
@@ -100,7 +100,10 @@ type Engine struct {
 	lastContextNudgeTokens     int                                  // visible tokens at last nudge or successful context management
 	inputQueue                 *userInputQueue                      // queued user inputs while agent is busy
 	questionAnswers            []tool.QuestionAnswer
+	questionPending            bool
+	questionSuspended          bool
 	agentInbox                 []agentNotification
+	agentInboxPumpScheduled    bool
 	agentController            AgentController
 	eventCh                    chan protocol.Event // global event channel for async responses
 }
@@ -227,14 +230,73 @@ func (e *Engine) appendAgentNotification(n agentNotification) {
 		return
 	}
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	changed := false
 	for i := range e.agentInbox {
 		if e.agentInbox[i].AgentID == n.AgentID && e.agentInbox[i].Status == n.Status && e.agentInbox[i].Pending == n.Pending {
 			e.agentInbox[i] = n
-			return
+			changed = true
+			break
 		}
 	}
-	e.agentInbox = append(e.agentInbox, n)
+	if !changed {
+		e.agentInbox = append(e.agentInbox, n)
+		changed = true
+	}
+	e.mu.Unlock()
+
+	if changed {
+		e.scheduleAgentInboxPump()
+	}
+}
+
+func (e *Engine) hasUnreadAgentNotificationsLocked() bool {
+	for _, n := range e.agentInbox {
+		if !n.Read {
+			return true
+		}
+	}
+	return false
+}
+
+const agentInboxContinuationInput = "Continue by reading unread spawned-agent notifications from your inbox."
+
+func (e *Engine) scheduleAgentInboxPump() {
+	e.mu.Lock()
+	if e.agentInboxPumpScheduled || !e.hasUnreadAgentNotificationsLocked() {
+		e.mu.Unlock()
+		return
+	}
+	e.agentInboxPumpScheduled = true
+	e.mu.Unlock()
+
+	go e.runAgentInboxPump()
+}
+
+func (e *Engine) runAgentInboxPump() {
+	e.mu.Lock()
+	if e.cancel != nil || !e.hasUnreadAgentNotificationsLocked() {
+		e.agentInboxPumpScheduled = false
+		e.mu.Unlock()
+		return
+	}
+	e.mu.Unlock()
+
+	if err := e.Input(context.Background(), agentInboxContinuationInput); err != nil {
+		e.mu.Lock()
+		e.agentInboxPumpScheduled = false
+		e.mu.Unlock()
+	}
+}
+
+func (e *Engine) finishAgentInboxPumpTurn() {
+	e.mu.Lock()
+	e.agentInboxPumpScheduled = false
+	hasUnread := e.hasUnreadAgentNotificationsLocked()
+	e.mu.Unlock()
+
+	if hasUnread {
+		e.scheduleAgentInboxPump()
+	}
 }
 
 func (e *Engine) markAgentNotificationRead(agentID string) {
@@ -676,6 +738,13 @@ func (e *Engine) GetQuestionAnswers() []tool.QuestionAnswer {
 	return append([]tool.QuestionAnswer(nil), e.questionAnswers...)
 }
 
+func (e *Engine) MarkQuestionPending() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.questionPending = true
+	e.questionSuspended = false
+}
+
 func (e *Engine) DrainQueuedInputs() []string {
 	return e.inputQueue.Drain()
 }
@@ -1099,13 +1168,6 @@ func (e *Engine) UpdateCacheTokens(read, creation int) {
 	e.cacheCreationTokens += creation
 }
 
-// IncrementCompletionHookCalls increments the completion hook counter.
-func (e *Engine) IncrementCompletionHookCalls() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.completionHookCalls++
-}
-
 // StatusBarSnapshot returns the current status bar data for persistence.
 func (e *Engine) StatusBarSnapshot() session.StatusBarSnapshot {
 	e.mu.Lock()
@@ -1130,7 +1192,6 @@ func (e *Engine) statusBarSnapshotLocked() session.StatusBarSnapshot {
 		CacheReadTokens:     e.cacheReadTokens,
 		CacheCreationTokens: e.cacheCreationTokens,
 		TurnCount:           e.turnCount,
-		CompletionHookCalls: e.completionHookCalls,
 	}
 }
 
@@ -1150,7 +1211,6 @@ func (e *Engine) SetStatusBarState(sb session.StatusBarSnapshot) {
 	e.cacheReadTokens = sb.CacheReadTokens
 	e.cacheCreationTokens = sb.CacheCreationTokens
 	e.turnCount = sb.TurnCount
-	e.completionHookCalls = sb.CompletionHookCalls
 	if sb.ToolFailedCounts != nil {
 		e.failedToolCounts = make(map[string]int, len(sb.ToolFailedCounts))
 		for k, v := range sb.ToolFailedCounts {
@@ -1422,6 +1482,10 @@ func (e *Engine) Do(action protocol.Action) {
 		e.RejectQuestion()
 	case protocol.AnswerQuestionAction:
 		e.AnswerQuestion(a.Answers)
+	case protocol.SuspendQuestionAction:
+		e.SuspendQuestion()
+	case protocol.ResumeQuestionAction:
+		e.ResumeQuestion(a.Text)
 	case protocol.QueueInputAction:
 		e.QueueInput(a.Text)
 	case protocol.ClearHistoryAction:
@@ -1488,8 +1552,21 @@ func (e *Engine) emitModeChanged(mode tool.PermissionMode) {
 func (e *Engine) AnswerQuestion(answers []protocol.QuestionAnswer) {
 	e.mu.Lock()
 	e.questionAnswers = agent.DtoAnswersToInternal(answers)
+	e.questionPending = false
+	e.questionSuspended = false
 	e.mu.Unlock()
 	e.Confirm()
+}
+
+func (e *Engine) SuspendQuestion() {
+	e.mu.Lock()
+	e.questionAnswers = nil
+	e.questionSuspended = true
+	e.mu.Unlock()
+}
+
+func (e *Engine) ResumeQuestion(text string) {
+	e.AnswerQuestion([]protocol.QuestionAnswer{{Custom: text}})
 }
 
 func (e *Engine) Input(ctx context.Context, input string) error {
@@ -1572,8 +1649,6 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 				v.APICalls = e.apiCalls
 				v.ContextWindow = e.contextWindow
 				d = v
-			case protocol.CompletionGateEvaluated:
-				e.IncrementCompletionHookCalls()
 			case protocol.ToolExecCompleted:
 				v.ToolCounts = e.toolCountsSnapshot()
 				d = v
@@ -1593,6 +1668,7 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 			ContextWindow:       e.contextWindow,
 			TurnCount:           e.turnCount,
 		})
+		e.finishAgentInboxPumpTurn()
 	}()
 
 	return nil

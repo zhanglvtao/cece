@@ -54,6 +54,19 @@ type AnswerQuestionAction struct {
 
 func (AnswerQuestionAction) isAction() {}
 
+// SuspendQuestionAction dismisses the current AskUserQuestion UI without
+// rejecting it, so the runtime can wait for a later resume input.
+type SuspendQuestionAction struct{}
+
+func (SuspendQuestionAction) isAction() {}
+
+// ResumeQuestionAction resumes a suspended AskUserQuestion with free-text input.
+type ResumeQuestionAction struct {
+	Text string
+}
+
+func (ResumeQuestionAction) isAction() {}
+
 // SwitchModelAction requests a model switch.
 type SwitchModelAction struct {
 	Model            string

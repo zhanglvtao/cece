@@ -49,7 +49,7 @@ func TestStoreTracksSimpleAgentMailboxState(t *testing.T) {
 		Lane:      "outbox",
 		StatusTo:  "running",
 		Payload: map[string]any{
-			"summary": "requesting model",
+			"activity": "requesting model",
 		},
 	})
 
@@ -66,6 +66,9 @@ func TestStoreTracksSimpleAgentMailboxState(t *testing.T) {
 	}
 	if len(agent.Outbox) != 1 || agent.Outbox[0].MessageID != "evt-1" {
 		t.Fatalf("outbox = %+v", agent.Outbox)
+	}
+	if agent.Outbox[0].Payload["activity"] != "requesting model" {
+		t.Fatalf("outbox payload = %+v", agent.Outbox[0].Payload)
 	}
 }
 
@@ -129,6 +132,45 @@ func TestStoreSortsInteractiveRootBeforeSubAgents(t *testing.T) {
 	}
 }
 
+func TestStoreProjectsRootInboxAgentBusEvent(t *testing.T) {
+	store := NewStore()
+	store.Apply(protocol.AgentBusEvent{
+		MessageID: "agent-1-result-root-inbox",
+		TraceID:   "agent-1",
+		AgentID:   "interactive-root",
+		Kind:      "result",
+		Lane:      "inbox",
+		StatusTo:  "completed",
+		Payload: map[string]any{
+			"agent_id":    "agent-1",
+			"summary":     "done",
+			"result_path": "/tmp/result.txt",
+		},
+	})
+
+	state := store.State()
+	if len(state.Agents) == 0 || state.Agents[0].ID != "interactive-root" {
+		t.Fatalf("interactive-root should stay first: %+v", state.Agents)
+	}
+	root, ok := agentByID(state, "interactive-root")
+	if !ok {
+		t.Fatalf("missing interactive-root: %+v", state.Agents)
+	}
+	if root.Status != "completed" {
+		t.Fatalf("root status = %q, want completed", root.Status)
+	}
+	if len(root.Inbox) != 1 {
+		t.Fatalf("root inbox = %+v, want one item", root.Inbox)
+	}
+	item := root.Inbox[0]
+	if item.MessageID != "agent-1-result-root-inbox" || item.Kind != "result" || item.Lane != "inbox" || item.StatusTo != "completed" {
+		t.Fatalf("root inbox item = %+v", item)
+	}
+	if item.Payload["agent_id"] != "agent-1" || item.Payload["result_path"] != "/tmp/result.txt" || item.Payload["summary"] != "done" {
+		t.Fatalf("root inbox payload = %+v", item.Payload)
+	}
+}
+
 func TestStoreSkeletonSeparatesControlPathFromTelemetry(t *testing.T) {
 	store := NewStore()
 	state := store.State()
@@ -171,20 +213,6 @@ func TestStoreEvidenceSummariesAreReadable(t *testing.T) {
 	}
 	if got := evidenceDetail(state, "ToolExecCompleted"); got != "patched main.go" {
 		t.Fatalf("ToolExecCompleted detail = %q", got)
-	}
-	store.Apply(protocol.CompletionGateEvaluated{
-		Attempt:     1,
-		MaxAttempts: 3,
-		Status:      protocol.CompletionGateBlocked,
-		Next:        "continue",
-		Checks:      []protocol.CompletionGateCheck{{Name: "TodoGate", Status: protocol.CompletionGateBlocked}},
-	})
-	if got := evidenceText(state, "CompletionGateEvaluated"); got != "" {
-		t.Fatalf("test setup saw stale state evidence = %q", got)
-	}
-	state = store.State()
-	if got := evidenceText(state, "CompletionGateEvaluated"); !strings.Contains(got, "completion gate blocked") || !strings.Contains(got, "TodoGate=blocked") {
-		t.Fatalf("CompletionGateEvaluated evidence = %q", got)
 	}
 }
 
@@ -263,6 +291,83 @@ func TestServerStateIncludesAgents(t *testing.T) {
 	}
 	if _, ok := agentByID(state, "agent-1"); !ok {
 		t.Fatalf("missing agent-1: %+v", state.Agents)
+	}
+}
+
+func TestServerStateEndpointIncludesFullObservatoryState(t *testing.T) {
+	hub := NewHub()
+	hub.Observe(protocol.ObservatorySnapshotEvent{
+		Scope:       "tui:test",
+		Version:     3,
+		CapturedAt:  time.Now(),
+		ActivePhase: "model_stream",
+		Nodes:       []protocol.ObservatoryNode{{ID: "custom-node", Label: "Custom Node", Kind: "test", Status: "active"}},
+		Edges:       []protocol.ObservatoryEdge{{From: "custom-node", To: "engine", Label: "observes", Status: "active"}},
+		Phases:      []protocol.ObservatoryPhase{{ID: "custom_phase", Label: "custom_phase", Status: "active"}},
+		Metrics:     []protocol.ObservatoryMetric{{Name: "custom_metric", Value: "42"}},
+		Evidence:    []string{"snapshot evidence"},
+	})
+	hub.Observe(protocol.AgentBusEvent{MessageID: "progress-1", AgentID: "agent-1", Kind: "progress", Lane: "outbox", StatusTo: "running", Payload: map[string]any{"activity": "reading files"}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server, err := StartServer(ctx, hub, "127.0.0.1", 0)
+	if err != nil {
+		t.Fatalf("StartServer error = %v", err)
+	}
+	defer server.Close(context.Background())
+
+	resp, err := http.Get(server.Info().URL + "/api/state")
+	if err != nil {
+		t.Fatalf("GET /api/state error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	var state State
+	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+		t.Fatalf("decode state error = %v", err)
+	}
+	if state.Snapshots["tui:test"].Version != 3 {
+		t.Fatalf("snapshots = %+v", state.Snapshots)
+	}
+	if nodeStatus(state, "custom-node") != "active" {
+		t.Fatalf("custom node status = %q", nodeStatus(state, "custom-node"))
+	}
+	if !hasEdge(state, "custom-node", "engine", "observes") {
+		t.Fatalf("missing custom edge: %+v", state.Edges)
+	}
+	if phaseStatus(state, "custom_phase") != "active" {
+		t.Fatalf("custom phase = %q", phaseStatus(state, "custom_phase"))
+	}
+	if metricValue(state, "custom_metric") != "42" {
+		t.Fatalf("custom metric = %q", metricValue(state, "custom_metric"))
+	}
+	if !strings.Contains(evidenceDetail(state, "ObservatorySnapshot"), "snapshot evidence") {
+		t.Fatalf("snapshot evidence detail = %q", evidenceDetail(state, "ObservatorySnapshot"))
+	}
+	agent, ok := agentByID(state, "agent-1")
+	if !ok || len(agent.Outbox) != 1 || agent.Outbox[0].Payload["activity"] != "reading files" {
+		t.Fatalf("agent projection = %+v, ok=%v", agent, ok)
+	}
+}
+
+func TestHubRecordsBackpressureSubscriberDrop(t *testing.T) {
+	hub := NewHub()
+	_, cancel := hub.Subscribe()
+	defer cancel()
+
+	for i := 0; i < subscriberBuffer+1; i++ {
+		hub.Observe(protocol.ModelRequestStarted{Reason: "test"})
+	}
+
+	state := hub.State()
+	if state.Subscribers != 0 {
+		t.Fatalf("subscribers = %d, want 0 after drop", state.Subscribers)
+	}
+	if metricValue(state, "subscriber_drops") != "1" {
+		t.Fatalf("subscriber_drops metric = %q", metricValue(state, "subscriber_drops"))
+	}
+	if got := evidenceText(state, "SubscriberDrop"); !strings.Contains(got, "backpressure") {
+		t.Fatalf("SubscriberDrop evidence = %q", got)
 	}
 }
 
@@ -375,6 +480,15 @@ func hasEdge(state State, from, to, label string) bool {
 		}
 	}
 	return false
+}
+
+func metricValue(state State, name string) string {
+	for _, metric := range state.Metrics {
+		if metric.Name == name {
+			return metric.Value
+		}
+	}
+	return ""
 }
 
 func evidenceText(state State, kind string) string {

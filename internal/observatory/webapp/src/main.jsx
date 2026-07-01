@@ -65,6 +65,8 @@ function App() {
           <span>·</span>
           <span className={`live ${connection}`}>{connection} ●</span>
           <span>·</span>
+          <span>subs {state?.subscribers ?? 0}</span>
+          <span>·</span>
           <span>{state?.updated_at ? `last ${formatTime(state.updated_at)}` : 'waiting'}</span>
         </div>
       </header>
@@ -111,23 +113,30 @@ function App() {
         </section>
 
         <section className="panel right-panel">
-          <div className="label">Selected Agent</div>
-          {selectedAgent ? (
-            <>
-              <div className="status-card">
-                <div className="status-card-title">{selectedAgent.id}</div>
-                <div className="status-card-subtitle">{selectedAgent.description || 'agent'}</div>
-                <div className={`status-pill ${statusClass(selectedAgent.status)}`}>{selectedAgent.status || 'idle'}</div>
-              </div>
+          <div className="right-scroll">
+            {selectedAgent ? (
+              <>
+                <div className="status-card">
+                  <div className="status-card-title">{selectedAgent.id}</div>
+                  <div className="status-card-subtitle">{selectedAgent.description || 'agent'}</div>
+                  <div className={`status-pill ${statusClass(selectedAgent.status)}`}>{selectedAgent.status || 'idle'}</div>
+                </div>
 
-              <div className="mailbox-grid">
-                <MailboxPanel title="Inbox" items={selectedAgent.inbox || []} />
-                <MailboxPanel title="Outbox" items={selectedAgent.outbox || []} />
-              </div>
-            </>
-          ) : (
-            <div className="empty">no agent selected</div>
-          )}
+                <div className="mailbox-grid">
+                  <MailboxPanel title="Inbox" items={selectedAgent.inbox || []} />
+                  <MailboxPanel title="Outbox" items={selectedAgent.outbox || []} />
+                </div>
+
+                <RuntimePhases phases={state?.phases || []} />
+                <MetricsPanel metrics={state?.metrics || []} />
+                <EvidencePanel evidence={state?.evidence || []} />
+                <TopologyPanel nodes={state?.nodes || []} edges={state?.edges || []} />
+                <SnapshotsPanel snapshots={state?.snapshots || {}} />
+              </>
+            ) : (
+              <div className="empty">no agent selected</div>
+            )}
+          </div>
         </section>
       </main>
     </div>
@@ -137,7 +146,7 @@ function App() {
 function MailboxPanel({ title, items }) {
   return (
     <section className="mailbox-panel">
-      <div className="mailbox-title">{title}</div>
+      <div className="mailbox-title">{title} ({items.length})</div>
       {items.length === 0 ? (
         <div className="empty">empty</div>
       ) : (
@@ -146,10 +155,18 @@ function MailboxPanel({ title, items }) {
             <div className="mailbox-item" key={`${item.message_id}-${index}`}>
               <div className="mailbox-head">
                 <span className="time">{formatTime(item.time)}</span>
+                <span className="mailbox-id">{item.message_id}</span>
                 <span className="mailbox-kind">{item.kind}</span>
+                {item.lane ? <span className="mailbox-lane">{item.lane}</span> : null}
                 {item.status_to ? <span className={`status-pill small ${statusClass(item.status_to)}`}>{item.status_to}</span> : null}
               </div>
               <div className="mailbox-detail">{summarizePayload(item.payload)}</div>
+              {item.payload?.result_path ? (
+                <div className="mailbox-result-path">{String(item.payload.result_path)}</div>
+              ) : null}
+              {item.payload?.error ? (
+                <div className="mailbox-error">{String(item.payload.error)}</div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -158,11 +175,128 @@ function MailboxPanel({ title, items }) {
   );
 }
 
+function RuntimePhases({ phases }) {
+  if (!phases || phases.length === 0) return null;
+  return (
+    <section className="obs-section">
+      <div className="obs-title">Runtime Phases</div>
+      <div className="phase-list">
+        {phases.map((p) => (
+          <div className="phase-row" key={p.id}>
+            <span className="phase-id">{p.label || p.id}</span>
+            <span className={`status-pill small ${statusClass(p.status)}`}>{p.status}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MetricsPanel({ metrics }) {
+  if (!metrics || metrics.length === 0) return null;
+  return (
+    <section className="obs-section">
+      <div className="obs-title">Metrics</div>
+      <div className="kv-list">
+        {metrics.map((m) => (
+          <div className="kv-row" key={m.name}>
+            <span className="kv-key">{m.name}</span>
+            <span className="kv-value">{m.value}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EvidencePanel({ evidence }) {
+  if (!evidence || evidence.length === 0) return null;
+  const recent = evidence.slice(-20).reverse();
+  return (
+    <section className="obs-section">
+      <div className="obs-title">Evidence ({evidence.length})</div>
+      <div className="evidence-list">
+        {recent.map((item, i) => (
+          <div className="evidence-item" key={i}>
+            <div className="evidence-head">
+              <span className="time">{formatTime(item.time)}</span>
+              <span className="evidence-kind">{item.kind}</span>
+            </div>
+            <div className="evidence-text">{item.text}</div>
+            {item.detail ? <div className="evidence-detail">{item.detail}</div> : null}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TopologyPanel({ nodes, edges }) {
+  if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0)) return null;
+  return (
+    <section className="obs-section">
+      <div className="obs-title">Topology</div>
+      {nodes && nodes.length > 0 ? (
+        <div className="topo-sub">
+          <div className="obs-subtitle">Nodes ({nodes.length})</div>
+          <div className="topo-list">
+            {nodes.map((n) => (
+              <div className="topo-row" key={n.id}>
+                <span className="topo-id">{n.id}</span>
+                <span className="topo-label">{n.label || n.id}</span>
+                <span className={`status-pill small ${statusClass(n.status)}`}>{n.status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {edges && edges.length > 0 ? (
+        <div className="topo-sub">
+          <div className="obs-subtitle">Edges ({edges.length})</div>
+          <div className="topo-list">
+            {edges.map((e, i) => (
+              <div className="topo-row" key={i}>
+                <span className="topo-id">{e.from} → {e.to}</span>
+                <span className="topo-label">{e.label}</span>
+                <span className={`status-pill small ${statusClass(e.status)}`}>{e.status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function SnapshotsPanel({ snapshots }) {
+  const keys = Object.keys(snapshots || {});
+  if (keys.length === 0) return null;
+  return (
+    <section className="obs-section">
+      <div className="obs-title">Snapshots ({keys.length})</div>
+      {keys.map((scope) => {
+        const snap = snapshots[scope];
+        return (
+          <div className="snap-item" key={scope}>
+            <div className="snap-head">
+              <span className="snap-scope">{scope}</span>
+              <span className="snap-version">v{snap.version}</span>
+              <span className="time">{formatTime(snap.captured_at)}</span>
+            </div>
+            {snap.active_phase ? <div className="snap-phase">phase: {snap.active_phase}</div> : null}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 function summarizePayload(payload) {
   if (!payload) return '';
   if (payload.summary) return String(payload.summary);
   if (payload.activity) return String(payload.activity);
-  const entries = Object.entries(payload).slice(0, 3);
+  const entries = Object.entries(payload).filter(([k]) => k !== 'result_path' && k !== 'error');
+  if (entries.length === 0) return '';
   return entries.map(([key, value]) => `${key}=${String(value)}`).join(' ');
 }
 

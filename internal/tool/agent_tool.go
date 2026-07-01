@@ -23,7 +23,7 @@ type AgentSubAgentConfig struct {
 	Input             string
 	Answers           []QuestionAnswer
 	Description       string
-	SubAgentType      string
+	AgentType         string
 	Model             string
 	Tools             []string
 	SystemPromptExtra string
@@ -129,15 +129,16 @@ func (t agentTool) Info() Definition {
 				},
 				"prompt": map[string]any{
 					"type":        "string",
-					"description": "The task for the sub-agent to perform.",
+					"description": "The full task for the agent to perform.",
 				},
 				"description": map[string]any{
 					"type":        "string",
-					"description": "3-5 word summary for UI display.",
+					"description": "3-5 word summary shown in the UI.",
 				},
-				"subagent_type": map[string]any{
+				"agent_type": map[string]any{
 					"type":        "string",
-					"description": "Predefined agent type.",
+					"enum":        []string{"research", "coding", "review", "execution"},
+					"description": "Required for operation=start. Choose the task-specific profile: research (search/read/summarize), coding (implement/fix/test), review (inspect/verify/risk-check), or execution (run/follow up/wait).",
 				},
 				"model": modelSchema,
 				"tools": map[string]any{
@@ -169,7 +170,7 @@ type agentParams struct {
 	Input        string           `json:"input,omitempty"`
 	Answers      []QuestionAnswer `json:"answers,omitempty"`
 	Description  string           `json:"description,omitempty"`
-	SubAgentType string           `json:"subagent_type,omitempty"`
+	AgentType    string           `json:"agent_type,omitempty"`
 	Model        string           `json:"model,omitempty"`
 	Tools        []string         `json:"tools,omitempty"`
 	SystemPrompt string           `json:"system_prompt,omitempty"`
@@ -204,6 +205,9 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 	if operation == "start" && p.Prompt == "" {
 		return Result{Content: "prompt is required for start operation", IsError: true}
 	}
+	if operation == "start" && strings.TrimSpace(p.AgentType) == "" {
+		return Result{Content: "agent_type is required for start operation", IsError: true}
+	}
 	if operation != "start" && p.AgentID == "" {
 		return Result{Content: "agent_id is required for non-start operations", IsError: true}
 	}
@@ -226,7 +230,7 @@ func (t agentTool) Run(ctx context.Context, input json.RawMessage, emitter Emitt
 		Input:             p.Input,
 		Answers:           p.Answers,
 		Description:       description,
-		SubAgentType:      p.SubAgentType,
+		AgentType:         p.AgentType,
 		Model:             p.Model,
 		Tools:             p.Tools,
 		SystemPromptExtra: p.SystemPrompt,

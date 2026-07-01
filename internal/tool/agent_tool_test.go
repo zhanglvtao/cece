@@ -13,7 +13,7 @@ func TestAgentToolStartReturnsRunningStatusWithoutError(t *testing.T) {
 			return AgentSubAgentResult{AgentID: "agent-1", SessionID: "session-1", Status: "running", Content: "Agent agent-1 started asynchronously."}, nil
 		},
 	})
-	input, _ := json.Marshal(map[string]any{"operation": "start", "prompt": "inspect code", "description": "inspect code"})
+	input, _ := json.Marshal(map[string]any{"operation": "start", "prompt": "inspect code", "description": "inspect code", "agent_type": "research"})
 	result := agentTool.Run(context.Background(), input, nil)
 	if result.IsError {
 		t.Fatalf("IsError = true, content = %q", result.Content)
@@ -51,6 +51,33 @@ func TestAgentToolModelSchemaUsesProvider(t *testing.T) {
 	enum := model["enum"].([]string)
 	if len(enum) != 1 || enum[0] != "deepseek-v4-pro" {
 		t.Fatalf("model enum = %#v", enum)
+	}
+	agentType := props["agent_type"].(map[string]any)
+	types := agentType["enum"].([]string)
+	want := []string{"research", "coding", "review", "execution"}
+	if len(types) != len(want) {
+		t.Fatalf("agent_type enum = %#v", types)
+	}
+	for i, v := range want {
+		if types[i] != v {
+			t.Fatalf("agent_type enum[%d] = %q, want %q", i, types[i], v)
+		}
+	}
+}
+
+func TestAgentToolRequiresAgentTypeForStart(t *testing.T) {
+	agentTool := NewAgent(&AgentHandler{
+		RunSubAgent: func(ctx context.Context, config AgentSubAgentConfig, emitter Emitter) (AgentSubAgentResult, error) {
+			return AgentSubAgentResult{}, nil
+		},
+	})
+	input, _ := json.Marshal(map[string]any{"operation": "start", "prompt": "inspect code"})
+	result := agentTool.Run(context.Background(), input, nil)
+	if !result.IsError {
+		t.Fatalf("IsError = false, content = %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "agent_type is required") {
+		t.Fatalf("content = %q, want agent_type required error", result.Content)
 	}
 }
 

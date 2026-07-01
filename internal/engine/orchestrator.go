@@ -15,6 +15,8 @@ import (
 
 type PendingKind string
 
+const interactiveRootAgentID = "interactive-root"
+
 const (
 	PendingNone     PendingKind = ""
 	PendingQuestion PendingKind = "question"
@@ -107,6 +109,7 @@ func (o *Orchestrator) start(ctx context.Context, parent *Engine, cfg tool.Agent
 		SystemPromptExtra: cfg.SystemPromptExtra,
 		Tools:             cfg.Tools,
 		MaxTurns:          cfg.MaxTurns,
+		Profile:           cfg.AgentType,
 	})
 	if err != nil {
 		slog.Error("orchestrator: worker build failed", "agent_id", agentID, "error", err)
@@ -115,7 +118,9 @@ func (o *Orchestrator) start(ctx context.Context, parent *Engine, cfg tool.Agent
 		}
 		return tool.AgentSubAgentResult{AgentID: agentID, Status: string(AgentStatusFailed), Content: fmt.Sprintf("worker build failed: %v", err), Err: err.Error()}, err
 	}
-	rt.Engine.SetEffort("low")
+	if rt.Engine.Effort() == "" {
+		rt.Engine.SetEffort("low")
+	}
 
 	o.mu.Lock()
 	o.agents[agentID] = rt
@@ -231,6 +236,7 @@ func (o *Orchestrator) send(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentRes
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to queue input for agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
 	}
 	snap := rt.Snapshot()
+	o.emitAgentCommandEvent(rt, AgentCommandSendInput, "input queued", nil)
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("input queued for agent %s", rt.ID)}, nil
 }
 
@@ -250,6 +256,7 @@ func (o *Orchestrator) answer(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentR
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to submit answers to agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
 	}
 	snap := rt.Snapshot()
+	o.emitAgentCommandEvent(rt, AgentCommandAnswerQuestion, "answers submitted", map[string]any{"answer_count": len(answers)})
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("answers submitted to agent %s", rt.ID)}, nil
 }
 
@@ -265,6 +272,7 @@ func (o *Orchestrator) confirm(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgent
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to confirm agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
 	}
 	snap := rt.Snapshot()
+	o.emitAgentCommandEvent(rt, AgentCommandConfirmPending, "confirmation sent", nil)
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("confirmation sent to agent %s", rt.ID)}, nil
 }
 
@@ -280,6 +288,7 @@ func (o *Orchestrator) reject(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentR
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to reject pending request for agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
 	}
 	snap := rt.Snapshot()
+	o.emitAgentCommandEvent(rt, AgentCommandRejectPending, "rejection sent", nil)
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("rejection sent to agent %s", rt.ID)}, nil
 }
 
@@ -295,6 +304,7 @@ func (o *Orchestrator) cancel(cfg tool.AgentSubAgentConfig) (tool.AgentSubAgentR
 		return tool.AgentSubAgentResult{Content: fmt.Sprintf("failed to cancel agent %s: %v", rt.ID, err), Err: "agent_inbox_error"}, nil
 	}
 	snap := rt.Snapshot()
+	o.emitAgentCommandEvent(rt, AgentCommandCancel, "cancel requested", nil)
 	return tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(snap.Status), Content: fmt.Sprintf("agent %s cancelled", rt.ID), Cancelled: true}, nil
 }
 
@@ -320,14 +330,34 @@ func (o *Orchestrator) switchModel(cfg tool.AgentSubAgentConfig) (tool.AgentSubA
 }
 
 func (o *Orchestrator) bridgeRuntime(parent *Engine, rt *AgentRuntime, parentSessionID string) {
+	ctx, cancel := context.WithCancel(rt.Context)
+	defer cancel()
+	go o.recordRuntimeEvents(ctx, rt)
+
+	for {
+		agentEv, ok := rt.NextEvent(ctx)
+		if !ok {
+			if !isTerminalAgentStatus(rt.Snapshot().Status) {
+				msg := AgentMessage{AgentID: rt.ID, Kind: AgentMessageError, Status: AgentStatusCancelled, Payload: map[string]any{"cancelled": true}}
+				o.handleTerminalMessage(parent, rt, parentSessionID, msg)
+			}
+			return
+		}
+		if o.handleRuntimeAgentEvent(parent, rt, parentSessionID, agentEv.Message) {
+			return
+		}
+	}
+}
+
+func (o *Orchestrator) recordRuntimeEvents(ctx context.Context, rt *AgentRuntime) {
 	for {
 		select {
-		case <-rt.Context.Done():
-			msg := AgentMessage{AgentID: rt.ID, Kind: AgentMessageError, Status: AgentStatusCancelled, Payload: map[string]any{"cancelled": true}}
-			rt.record(msg)
-			o.handleTerminalMessage(parent, rt, parentSessionID, msg)
+		case <-ctx.Done():
 			return
-		case ev := <-rt.Engine.Events():
+		case ev, ok := <-rt.Engine.Events():
+			if !ok {
+				return
+			}
 			if ev == nil {
 				continue
 			}
@@ -336,110 +366,174 @@ func (o *Orchestrator) bridgeRuntime(parent *Engine, rt *AgentRuntime, parentSes
 				continue
 			}
 			rt.record(msg)
-		case agentEv := <-rt.outboxCritical:
-			msg := agentEv.Message
-
-			pending := PendingState{}
-			switch msg.Status {
-			case AgentStatusWaitingInput:
-				pending.Kind = PendingQuestion
-				pending.Summary = "waiting for answer"
-			case AgentStatusWaitingConfirm:
-				pending.Kind = PendingConfirm
-				pending.Summary = "waiting for confirmation"
-			case AgentStatusWaitingPlan:
-				pending.Kind = PendingPlan
-				pending.Summary = "waiting for plan approval"
-			}
-			o.mu.Lock()
-			if pending.Kind == PendingNone {
-				delete(o.pending, rt.ID)
-			} else {
-				o.pending[rt.ID] = pending
-			}
-			o.mu.Unlock()
-
-			if pending.Kind != PendingNone {
-				parent.appendAgentNotification(agentNotification{AgentID: rt.ID, Status: msg.Status, Summary: pending.Summary, Pending: pending.Kind})
-			}
-
-			if msg.Kind == AgentMessageProgress && rt.SessionID != "" {
-				updateSubAgentRelation(context.Background(), o.store, rt.SessionID, parentSessionID, rt.ID)
-			}
-
-			snap := rt.Snapshot()
-			activity := snap.LastActivity
-			if activity == "" {
-				switch msg.Status {
-				case AgentStatusWaitingInput:
-					activity = "waiting for answer"
-				case AgentStatusWaitingConfirm:
-					activity = "waiting for confirmation"
-				case AgentStatusWaitingPlan:
-					activity = "waiting for plan approval"
-				case AgentStatusCompleted:
-					activity = "completed"
-				case AgentStatusCancelled:
-					activity = "cancelled"
-				case AgentStatusFailed:
-					activity = "failed"
-				default:
-					activity = "running"
-				}
-			}
-			if o.emit != nil {
-				o.emit(protocol.AgentBusEvent{MessageID: msg.ID, TraceID: rt.ID, AgentID: rt.ID, ParentSessionID: parentSessionID, SessionID: snap.SessionID, Kind: string(msg.Kind), Lane: "outbox", StatusTo: string(msg.Status), Payload: map[string]any{"activity": activity}})
-				o.emit(protocol.SubAgentActivityEvent{
-					ID:               rt.ID,
-					SessionID:        snap.SessionID,
-					ParentSessionID:  parentSessionID,
-					Activity:         activity,
-					Status:           string(snap.Status),
-					Model:            snap.Model,
-					InputTokens:      snap.InputTokens,
-					OutputTokens:     snap.OutputTokens,
-					CacheReadTokens:  snap.CacheReadTokens,
-					TurnCount:        snap.TurnCount,
-					ToolCall:         snap.LastTool,
-					LastAssistantMsg: snap.LastMessage,
-				})
-			}
-			slog.Info("orchestrator: state transition",
-				"agent_id", rt.ID,
-				"parent_session_id", parentSessionID,
-				"status", snap.Status,
-				"activity", activity,
-			)
-
-			if rt.MaxTurns > 0 && rt.TurnCount >= rt.MaxTurns {
-				rt.mu.Lock()
-				rt.finalResult = strings.TrimSpace(rt.msgBuf.String())
-				rt.mu.Unlock()
-				rt.Result = tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(AgentStatusCompleted), Content: snap.LastMessage, InputTokens: snap.InputTokens, OutputTokens: snap.OutputTokens, TurnsUsed: snap.TurnCount, HitMaxTurns: true}
-				result := parent.writeSubAgentArtifact(rt.Result, rt)
-				rt.mu.Lock()
-				rt.Result = result
-				rt.mu.Unlock()
-				if o.emit != nil {
-					o.emit(protocol.SubAgentCompletedEvent{ID: rt.ID, Description: rt.Description, SessionID: snap.SessionID, ParentSessionID: parentSessionID, InputTokens: snap.InputTokens, OutputTokens: snap.OutputTokens, TurnsUsed: snap.TurnCount, HitMaxTurns: true})
-				}
-				parent.accumulateSubAgentTokens(result)
-				parent.appendAgentNotification(agentNotification{AgentID: rt.ID, Status: AgentStatusCompleted, Summary: result.Content, ResultPath: result.ResultPath})
-				o.finish(rt.ID)
-				rt.Engine.Cancel()
-				return
-			}
-
-			switch msg.Status {
-			case AgentStatusCompleted:
-				o.handleTerminalMessage(parent, rt, parentSessionID, msg)
-				return
-			case AgentStatusFailed, AgentStatusCancelled:
-				o.handleTerminalMessage(parent, rt, parentSessionID, msg)
-				return
-			}
 		}
 	}
+}
+
+func (o *Orchestrator) handleRuntimeAgentEvent(parent *Engine, rt *AgentRuntime, parentSessionID string, msg AgentMessage) bool {
+	o.updatePendingState(parent, rt, msg)
+
+	if msg.Kind == AgentMessageProgress && rt.SessionID != "" {
+		updateSubAgentRelation(context.Background(), o.store, rt.SessionID, parentSessionID, rt.ID)
+	}
+
+	snap := rt.Snapshot()
+	activity := activityForAgentMessage(msg, snap)
+	o.emitAgentActivity(rt, parentSessionID, msg, snap, activity)
+	slog.Info("orchestrator: state transition",
+		"agent_id", rt.ID,
+		"parent_session_id", parentSessionID,
+		"status", snap.Status,
+		"activity", activity,
+	)
+
+	if rt.MaxTurns > 0 && rt.TurnCount >= rt.MaxTurns {
+		o.completeMaxTurnRuntime(parent, rt, parentSessionID, snap)
+		return true
+	}
+
+	switch msg.Status {
+	case AgentStatusCompleted, AgentStatusFailed, AgentStatusCancelled:
+		o.handleTerminalMessage(parent, rt, parentSessionID, msg)
+		return true
+	default:
+		return false
+	}
+}
+
+func (o *Orchestrator) updatePendingState(parent *Engine, rt *AgentRuntime, msg AgentMessage) {
+	pending := PendingState{}
+	switch msg.Status {
+	case AgentStatusWaitingInput:
+		pending.Kind = PendingQuestion
+		pending.Summary = "waiting for answer"
+	case AgentStatusWaitingConfirm:
+		pending.Kind = PendingConfirm
+		pending.Summary = "waiting for confirmation"
+	case AgentStatusWaitingPlan:
+		pending.Kind = PendingPlan
+		pending.Summary = "waiting for plan approval"
+	}
+	o.mu.Lock()
+	if pending.Kind == PendingNone {
+		delete(o.pending, rt.ID)
+	} else {
+		existing := o.pending[rt.ID]
+		if existing.Kind == pending.Kind && existing.RequestID != "" {
+			pending.RequestID = existing.RequestID
+		} else if msg.ID != "" {
+			pending.RequestID = msg.ID
+		} else {
+			pending.RequestID = fmt.Sprintf("%s-%s", rt.ID, pending.Kind)
+		}
+		o.pending[rt.ID] = pending
+	}
+	o.mu.Unlock()
+
+	if pending.Kind != PendingNone {
+		parent.appendAgentNotification(agentNotification{AgentID: rt.ID, Status: msg.Status, Summary: pending.Summary, Pending: pending.Kind})
+	}
+}
+
+func activityForAgentMessage(msg AgentMessage, snap AgentRuntimeSnapshot) string {
+	if p, ok := msg.Payload.(map[string]any); ok {
+		if activity, ok := p["activity"].(string); ok && activity != "" {
+			return activity
+		}
+	}
+	if snap.LastActivity != "" {
+		return snap.LastActivity
+	}
+	switch msg.Status {
+	case AgentStatusWaitingInput:
+		return "waiting for answer"
+	case AgentStatusWaitingConfirm:
+		return "waiting for confirmation"
+	case AgentStatusWaitingPlan:
+		return "waiting for plan approval"
+	case AgentStatusCompleted:
+		return "completed"
+	case AgentStatusCancelled:
+		return "cancelled"
+	case AgentStatusFailed:
+		return "failed"
+	default:
+		return "running"
+	}
+}
+
+func (o *Orchestrator) emitAgentActivity(rt *AgentRuntime, parentSessionID string, msg AgentMessage, snap AgentRuntimeSnapshot, activity string) {
+	if o.emit == nil {
+		return
+	}
+	o.emit(protocol.AgentBusEvent{MessageID: msg.ID, TraceID: rt.ID, AgentID: rt.ID, ParentSessionID: parentSessionID, SessionID: snap.SessionID, Kind: string(msg.Kind), Lane: "outbox", StatusTo: string(msg.Status), Payload: map[string]any{"activity": activity}})
+	o.emit(protocol.SubAgentActivityEvent{
+		ID:               rt.ID,
+		SessionID:        snap.SessionID,
+		ParentSessionID:  parentSessionID,
+		Activity:         activity,
+		Status:           string(snap.Status),
+		Model:            snap.Model,
+		InputTokens:      snap.InputTokens,
+		OutputTokens:     snap.OutputTokens,
+		CacheReadTokens:  snap.CacheReadTokens,
+		TurnCount:        snap.TurnCount,
+		ToolCall:         snap.LastTool,
+		LastAssistantMsg: snap.LastMessage,
+	})
+}
+
+func (o *Orchestrator) emitAgentCommandEvent(rt *AgentRuntime, kind AgentCommandKind, summary string, extra map[string]any) {
+	if o.emit == nil {
+		return
+	}
+	snap := rt.Snapshot()
+	pending := o.pendingState(rt.ID)
+	payload := map[string]any{
+		"summary": summary,
+	}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	o.emit(protocol.AgentBusEvent{
+		MessageID:       fmt.Sprintf("%s-%s", rt.ID, kind),
+		TraceID:         rt.ID,
+		CausationID:     pending.RequestID,
+		AgentID:         rt.ID,
+		ParentSessionID: rt.ParentSessionID,
+		SessionID:       snap.SessionID,
+		Kind:            string(kind),
+		Lane:            "inbox",
+		StatusTo:        string(snap.Status),
+		Payload:         payload,
+	})
+}
+
+func (o *Orchestrator) pendingState(agentID string) PendingState {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.pending[agentID]
+}
+
+func (o *Orchestrator) completeMaxTurnRuntime(parent *Engine, rt *AgentRuntime, parentSessionID string, snap AgentRuntimeSnapshot) {
+	rt.mu.Lock()
+	rt.finalResult = strings.TrimSpace(rt.msgBuf.String())
+	rt.Status = AgentStatusCompleted
+	rt.FinishedAt = time.Now()
+	rt.mu.Unlock()
+	rt.Result = tool.AgentSubAgentResult{AgentID: rt.ID, SessionID: snap.SessionID, Status: string(AgentStatusCompleted), Content: snap.LastMessage, InputTokens: snap.InputTokens, OutputTokens: snap.OutputTokens, TurnsUsed: snap.TurnCount, HitMaxTurns: true}
+	result := parent.writeSubAgentArtifact(rt.Result, rt)
+	rt.mu.Lock()
+	rt.Result = result
+	rt.mu.Unlock()
+	parent.accumulateSubAgentTokens(result)
+	parent.appendAgentNotification(agentNotification{AgentID: rt.ID, Status: AgentStatusCompleted, Summary: result.Content, ResultPath: result.ResultPath})
+	o.emitRootInboxEvent(rt, parentSessionID, AgentMessage{AgentID: rt.ID, Kind: AgentMessageResult, Status: AgentStatusCompleted}, result.Content, result.ResultPath, "")
+	if o.emit != nil {
+		o.emit(protocol.SubAgentCompletedEvent{ID: rt.ID, Description: rt.Description, SessionID: snap.SessionID, ParentSessionID: parentSessionID, InputTokens: snap.InputTokens, OutputTokens: snap.OutputTokens, TurnsUsed: snap.TurnCount, HitMaxTurns: true})
+	}
+	o.finish(rt.ID)
+	rt.Engine.Cancel()
 }
 
 func (o *Orchestrator) handleTerminalMessage(parent *Engine, rt *AgentRuntime, parentSessionID string, msg AgentMessage) {
@@ -453,6 +547,7 @@ func (o *Orchestrator) handleTerminalMessage(parent *Engine, rt *AgentRuntime, p
 		rt.mu.Unlock()
 		parent.accumulateSubAgentTokens(result)
 		parent.appendAgentNotification(agentNotification{AgentID: rt.ID, Status: AgentStatusCompleted, Summary: result.Content, ResultPath: result.ResultPath})
+		o.emitRootInboxEvent(rt, parentSessionID, msg, result.Content, result.ResultPath, "")
 		if o.emit != nil {
 			o.emit(protocol.SubAgentCompletedEvent{ID: rt.ID, Description: rt.Description, SessionID: snap.SessionID, ParentSessionID: parentSessionID, InputTokens: snap.InputTokens, OutputTokens: snap.OutputTokens, TurnsUsed: snap.TurnCount, HitMaxTurns: result.HitMaxTurns})
 		}
@@ -465,11 +560,39 @@ func (o *Orchestrator) handleTerminalMessage(parent *Engine, rt *AgentRuntime, p
 				errText = s
 			}
 		}
-		parent.appendAgentNotification(agentNotification{AgentID: rt.ID, Status: msg.Status, Summary: formatAgentMessage(msg), Error: errText})
+		summary := formatAgentMessage(msg)
+		parent.appendAgentNotification(agentNotification{AgentID: rt.ID, Status: msg.Status, Summary: summary, Error: errText})
+		o.emitRootInboxEvent(rt, parentSessionID, msg, summary, "", errText)
 		if o.emit != nil {
 			o.emit(protocol.SubAgentFailedEvent{ID: rt.ID, Description: rt.Description, SessionID: snap.SessionID, ParentSessionID: parentSessionID, Error: errText})
 		}
 	}
+}
+
+func (o *Orchestrator) emitRootInboxEvent(rt *AgentRuntime, parentSessionID string, msg AgentMessage, summary, resultPath, errText string) {
+	if o.emit == nil {
+		return
+	}
+	snap := rt.Snapshot()
+	messageID := msg.ID
+	if messageID == "" {
+		messageID = fmt.Sprintf("%s-%s", rt.ID, AgentMessageResult)
+	}
+	payload := map[string]any{
+		"agent_id":    rt.ID,
+		"description": rt.Description,
+		"status":      string(msg.Status),
+	}
+	if summary != "" {
+		payload["summary"] = summary
+	}
+	if resultPath != "" {
+		payload["result_path"] = resultPath
+	}
+	if errText != "" {
+		payload["error"] = errText
+	}
+	o.emit(protocol.AgentBusEvent{MessageID: messageID + "-root-inbox", TraceID: rt.ID, AgentID: interactiveRootAgentID, ParentSessionID: parentSessionID, SessionID: snap.SessionID, Kind: string(AgentMessageResult), Lane: "inbox", StatusTo: string(msg.Status), Payload: payload})
 }
 
 func (o *Orchestrator) get(agentID string) *AgentRuntime {

@@ -120,32 +120,6 @@ type AssistantCompleted struct {
 
 func (AssistantCompleted) isEvent() {}
 
-type CompletionGateStatus string
-
-const (
-	CompletionGatePassed  CompletionGateStatus = "passed"
-	CompletionGateBlocked CompletionGateStatus = "blocked"
-	CompletionGateSkipped CompletionGateStatus = "skipped"
-)
-
-type CompletionGateCheck struct {
-	Name    string
-	Status  CompletionGateStatus
-	Summary string
-	Details []string
-}
-
-type CompletionGateEvaluated struct {
-	Attempt         int
-	MaxAttempts     int
-	Status          CompletionGateStatus
-	RequiresClosure bool
-	Checks          []CompletionGateCheck
-	Next            string
-}
-
-func (CompletionGateEvaluated) isEvent() {}
-
 // RunFailed is emitted when the agent loop encounters an error.
 type RunFailed struct{ Err string }
 
@@ -435,7 +409,6 @@ type SessionLoadedEvent struct {
 	CacheReadTokens     int
 	CacheCreationTokens int
 	TurnCount           int
-	CompletionHookCalls int
 	InputHistory        []string
 	Err                 string
 }

@@ -85,6 +85,8 @@ const (
 	AgentEventPriorityCritical   AgentEventPriority = "critical"
 )
 
+const assistantActivityInterval = 500 * time.Millisecond
+
 type AgentCommand struct {
 	Kind    AgentCommandKind
 	Input   string
@@ -107,46 +109,47 @@ type AgentRuntime struct {
 	ParentSessionID string
 	MaxTurns        int // 0 = unlimited
 
-	mu                sync.Mutex
-	Status            AgentStatus
-	SessionID         string
-	Model             string
-	InputTokens       int
-	OutputTokens      int
-	CacheReadTokens   int
-	CacheCreateTokens int
-	APICalls          int
-	TurnCount         int
-	LastActivity      string
-	LastTool          string
-	LastMessage       string
-	lastMessage       AgentMessage
-	msgBuf            strings.Builder
-	finalResult       string // full final assistant text, captured at TurnCompleted
-	StartedAt         time.Time
-	UpdatedAt         time.Time
-	FinishedAt        time.Time
-	Result            tool.AgentSubAgentResult
-	updates           chan AgentMessage
-	inbox             chan AgentCommand
-	outboxCritical    chan AgentEvent
-	outboxBestEffort  chan AgentEvent
-	cancelOnce        sync.Once
+	mu                      sync.Mutex
+	Status                  AgentStatus
+	SessionID               string
+	Model                   string
+	InputTokens             int
+	OutputTokens            int
+	CacheReadTokens         int
+	CacheCreateTokens       int
+	APICalls                int
+	TurnCount               int
+	LastActivity            string
+	LastTool                string
+	LastMessage             string
+	lastMessage             AgentMessage
+	msgBuf                  strings.Builder
+	lastAssistantActivityAt time.Time
+	finalResult             string // full final assistant text, captured at TurnCompleted
+	StartedAt               time.Time
+	UpdatedAt               time.Time
+	FinishedAt              time.Time
+	Result                  tool.AgentSubAgentResult
+	updates                 chan AgentMessage
+	inbox                   chan AgentCommand
+	outboxCritical          chan AgentEvent
+	outboxBestEffort        chan AgentEvent
+	cancelOnce              sync.Once
 }
 
 func NewAgentRuntime(id, description, model, parentSessionID string, eng *Engine, mediator *EngineMediator, ctx context.Context, cancel context.CancelFunc, maxTurns int) *AgentRuntime {
 	now := time.Now()
 	return &AgentRuntime{
-		ID:              id,
-		Description:     description,
-		Engine:          eng,
-		Mediator:        mediator,
-		Context:         ctx,
-		CancelFunc:      cancel,
-		ParentSessionID: parentSessionID,
-		MaxTurns:        maxTurns,
-		Status:          AgentStatusStarting,
-		Model:           model,
+		ID:               id,
+		Description:      description,
+		Engine:           eng,
+		Mediator:         mediator,
+		Context:          ctx,
+		CancelFunc:       cancel,
+		ParentSessionID:  parentSessionID,
+		MaxTurns:         maxTurns,
+		Status:           AgentStatusStarting,
+		Model:            model,
 		StartedAt:        now,
 		UpdatedAt:        now,
 		updates:          make(chan AgentMessage, 32),
@@ -423,6 +426,7 @@ func (rt *AgentRuntime) handleEvent(ev protocol.Event) (AgentMessage, bool) {
 		rt.mu.Unlock()
 		return AgentMessage{Kind: AgentMessageProgress, Status: AgentStatusRunning, Payload: rt.Snapshot()}, true
 	case protocol.AssistantDelta:
+		now := time.Now()
 		rt.mu.Lock()
 		rt.msgBuf.WriteString(v.Text)
 		text := strings.TrimSpace(rt.msgBuf.String())
@@ -433,13 +437,16 @@ func (rt *AgentRuntime) handleEvent(ev protocol.Event) (AgentMessage, bool) {
 			text = text[:117] + "..."
 		}
 		rt.LastMessage = text
-		rt.UpdatedAt = time.Now()
+		rt.UpdatedAt = now
+		shouldEmit := rt.lastAssistantActivityAt.IsZero() || now.Sub(rt.lastAssistantActivityAt) >= assistantActivityInterval
+		if shouldEmit {
+			rt.lastAssistantActivityAt = now
+		}
 		rt.mu.Unlock()
-			// Update internal snapshot only — do NOT return a message.
-			// AssistantDelta fires per token; emitting SubAgentActivityEvent
-			// for each one floods the channel. UI gets enough signal from
-			// ModelRequestStarted / StreamCompleted / ToolExec* events.
+		if !shouldEmit {
 			return AgentMessage{}, false
+		}
+		return AgentMessage{Kind: AgentMessageProgress, Status: AgentStatusRunning, Payload: rt.Snapshot()}, true
 	case protocol.ToolCallStarted:
 		rt.mu.Lock()
 		rt.LastTool = "preparing " + v.Name

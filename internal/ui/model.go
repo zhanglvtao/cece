@@ -527,8 +527,6 @@ func (m *Model) applyEvent(event protocol.Event) {
 		// tool count is set from ToolExecCompleted
 	case protocol.ToolExecCompleted:
 		m.headerBar.IncrementTool(e.Name, !e.Result.IsError)
-	case protocol.CompletionGateEvaluated:
-		m.headerBar.IncrementCompletionHook()
 	case protocol.StreamCompleted:
 		logger.Info("model stream completed",
 			"input_tokens", e.InputTokens,
@@ -591,7 +589,7 @@ func (m *Model) applyEvent(event protocol.Event) {
 				logger.Info("UI: contextWindow changed by SessionLoadedEvent", "old", m.contextWindow, "new", e.ContextWindow)
 				m.contextWindow = e.ContextWindow
 			}
-			m.headerBar.Restore(e.APICalls, e.ToolCounts, e.CacheReadTokens, e.TurnCount, e.CompletionHookCalls)
+			m.headerBar.Restore(e.APICalls, e.ToolCounts, e.CacheReadTokens, e.TurnCount)
 			if len(e.InputHistory) > 0 {
 				m.history = e.InputHistory
 				m.historyIndex = -1

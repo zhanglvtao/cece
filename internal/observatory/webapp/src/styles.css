@@ -101,9 +101,20 @@ select {
   gap: 18px;
 }
 
-.left-panel,
+.left-panel {
+  min-height: 520px;
+}
+
 .right-panel {
   min-height: 520px;
+  max-height: calc(100vh - 160px);
+  overflow: hidden;
+}
+
+.right-scroll {
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .orchestrator-card {
@@ -218,7 +229,7 @@ select {
   border-radius: 8px;
   background: #101010;
   padding: 12px;
-  min-height: 360px;
+  min-height: 200px;
 }
 
 .mailbox-title {
@@ -230,7 +241,7 @@ select {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 420px;
+  max-height: 320px;
   overflow-y: auto;
 }
 
@@ -252,6 +263,23 @@ select {
   flex-wrap: wrap;
 }
 
+.mailbox-id {
+  color: #555;
+  font-size: 11px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailbox-lane {
+  color: #777;
+  font-size: 11px;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
 .time {
   color: #666;
   font-size: 12px;
@@ -267,6 +295,195 @@ select {
   font-size: 12px;
   line-height: 1.45;
   word-break: break-word;
+}
+
+.mailbox-result-path {
+  color: #7ee787;
+  font-size: 11px;
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+.mailbox-error {
+  color: #f85149;
+  font-size: 11px;
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+/* observatory sections */
+.obs-section {
+  border: 1px solid #262626;
+  border-radius: 8px;
+  background: #101010;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.obs-title {
+  color: #bbb;
+  margin-bottom: 10px;
+}
+
+.obs-subtitle {
+  color: #777;
+  font-size: 12px;
+  margin-bottom: 6px;
+  margin-top: 10px;
+}
+
+.phase-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.phase-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #111;
+  border: 1px solid #262626;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.phase-id {
+  color: #aaa;
+  font-size: 12px;
+}
+
+.kv-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kv-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #111;
+  border: 1px solid #262626;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.kv-key {
+  color: #888;
+  font-size: 12px;
+}
+
+.kv-value {
+  color: #c9c9c9;
+  font-size: 12px;
+}
+
+.evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.evidence-item {
+  border-top: 1px solid #1f1f1f;
+  padding-top: 8px;
+}
+
+.evidence-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.evidence-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.evidence-kind {
+  color: #aaa;
+  font-size: 12px;
+}
+
+.evidence-text {
+  color: #888;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.evidence-detail {
+  color: #666;
+  font-size: 11px;
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+.topo-sub {
+  margin-bottom: 8px;
+}
+
+.topo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.topo-id {
+  color: #aaa;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topo-label {
+  color: #777;
+  flex-shrink: 0;
+}
+
+.snap-item {
+  border-top: 1px solid #1f1f1f;
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.snap-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.snap-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.snap-scope {
+  color: #c9c9c9;
+  font-size: 12px;
+}
+
+.snap-version {
+  color: #888;
+  font-size: 11px;
+}
+
+.snap-phase {
+  color: #777;
+  font-size: 12px;
 }
 
 .empty {
