@@ -564,9 +564,9 @@ func eventSummary(ev protocol.Event) string {
 			return ""
 		}
 		if e.Text != "" {
-			return "stream " + compactJoin(e.EventType, e.Detail, firstLine(e.Text))
+			return "stream " + compactJoin(string(e.EventType), e.Detail, firstLine(e.Text))
 		}
-		return "stream " + compactJoin(e.EventType, e.Detail)
+		return "stream " + compactJoin(string(e.EventType), e.Detail)
 	case protocol.AssistantStarted:
 		return "assistant started"
 	case protocol.AssistantDelta:

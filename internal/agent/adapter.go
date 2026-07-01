@@ -64,7 +64,7 @@ func ToDTO(e Event) protocol.Event {
 
 	case StreamEventDetail:
 		return protocol.StreamEventDetail{
-			EventType: v.EventType,
+			EventType: protocol.StreamEventType(v.EventType),
 			Detail:    v.Detail,
 			Text:      v.Text,
 		}

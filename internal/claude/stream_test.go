@@ -71,7 +71,7 @@ func TestParseStreamMessageStartCarriesInputTokens(t *testing.T) {
 	for chunk := range chunks {
 		if chunk.EventType == "message_start" {
 			gotInputTokens = chunk.InputTokens
-			gotEventType = chunk.EventType
+			gotEventType = string(chunk.EventType)
 		}
 		if chunk.Err != nil {
 			t.Fatalf("unexpected error: %v", chunk.Err)
@@ -133,7 +133,7 @@ func TestParseStreamContentBlockDeltaCarriesEventTypeAndDetail(t *testing.T) {
 	var gotDetail string
 	for chunk := range chunks {
 		if chunk.Delta == "Hel" {
-			gotEventType = chunk.EventType
+			gotEventType = string(chunk.EventType)
 			gotDetail = chunk.Detail
 		}
 		if chunk.Err != nil {

@@ -100,9 +100,9 @@ func (StreamStarted) isEvent() {}
 
 // StreamEventDetail is emitted for each raw SSE event (for UI debug display).
 type StreamEventDetail struct {
-	EventType string // "content_block_delta", "message_delta", etc.
-	Detail    string // "text_delta", "stop_reason", etc.
-	Text      string // delta text, truncated to 60 chars
+	EventType StreamEventType // "content_block_delta", "message_delta", etc.
+	Detail    string          // "text_delta", "stop_reason", etc.
+	Text      string          // delta text, truncated to 60 chars
 }
 
 func (StreamEventDetail) isEvent() {}

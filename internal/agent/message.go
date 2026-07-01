@@ -112,7 +112,7 @@ type ApiStreamEvent struct {
 	Err   error
 
 	// SSE raw event details
-	EventType           string // "message_start", "content_block_delta", etc.
+	EventType           StreamEventType // "message_start", "content_block_delta", etc.
 	Detail              string // sub-type: "text_delta", "input_json_delta", "stop_reason", etc.
 	InputTokens         int    // from message_start
 	OutputTokens        int    // from message_delta

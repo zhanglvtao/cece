@@ -45,7 +45,7 @@ func fromApiEvent(e agent.ApiStreamEvent) CassetteEvent {
 	ce := CassetteEvent{
 		Delta:              e.Delta,
 		Done:               e.Done,
-		EventType:          e.EventType,
+		EventType:          string(e.EventType),
 		Detail:             e.Detail,
 		InputTokens:        e.InputTokens,
 		OutputTokens:       e.OutputTokens,
@@ -76,7 +76,7 @@ func (ce CassetteEvent) ToApiEvent() agent.ApiStreamEvent {
 		Delta:              ce.Delta,
 		Done:               ce.Done,
 		Err:                err,
-		EventType:          ce.EventType,
+		EventType:          agent.StreamEventType(ce.EventType),
 		Detail:             ce.Detail,
 		InputTokens:        ce.InputTokens,
 		OutputTokens:       ce.OutputTokens,
