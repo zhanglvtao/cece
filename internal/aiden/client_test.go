@@ -74,6 +74,58 @@ func TestStreamSendsCorrectPayload(t *testing.T) {
 	}
 }
 
+func TestStreamUsesCustomPathPrefix(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("content-type", "text/event-stream")
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "model_config", server.URL)
+	client.SetPathPrefix("")
+	ch, err := client.Stream(context.Background(),
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
+		nil,
+		1024,
+	)
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for range ch {
+	}
+
+	if gotPath != "/chat/completions" {
+		t.Fatalf("expected path /chat/completions, got %q", gotPath)
+	}
+}
+
+func TestListModelsUsesCustomPathPrefix(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("content-type", "application/json")
+		fmt.Fprintf(w, `{"data":[{"id":"model_config","display_name":"TraeCLI Model","context_length":200000}]}`)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "model_config", server.URL)
+	client.SetPathPrefix("")
+	models, err := client.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+
+	if gotPath != "/models" {
+		t.Fatalf("expected path /models, got %q", gotPath)
+	}
+	if len(models) != 1 || models[0].ID != "model_config" {
+		t.Fatalf("unexpected models: %#v", models)
+	}
+}
+
 func TestStreamSetsBearerAuth(t *testing.T) {
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,6 +149,36 @@ func TestStreamSetsBearerAuth(t *testing.T) {
 
 	if gotAuth != "Bearer sk-test-token" {
 		t.Errorf("expected 'Bearer sk-test-token', got %q", gotAuth)
+	}
+}
+
+func TestStreamUsesTokenProvider(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("content-type", "text/event-stream")
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	client := NewClient("", "glm-5.1", server.URL)
+	client.SetTokenProvider(func(context.Context) (string, error) {
+		return "dynamic-token", nil
+	})
+
+	ch, err := client.Stream(context.Background(),
+		[]agent.Message{{Role: agent.UserRole, Content: "hi"}},
+		agent.SystemPrompt{},
+		nil, 100,
+	)
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for range ch {
+	}
+
+	if gotAuth != "Bearer dynamic-token" {
+		t.Errorf("expected 'Bearer dynamic-token', got %q", gotAuth)
 	}
 }
 

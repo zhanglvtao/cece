@@ -25,7 +25,7 @@ const settingsRelPath = ".cece/settings.json"
 // ProviderConfig describes a single API provider's credentials.
 type ProviderConfig struct {
 	Name       string        `json:"name"`
-	Protocol   string        `json:"protocol"` // "anthropic" (default), "aiden", or "codebase"
+	Protocol   string        `json:"protocol"` // "anthropic" (default), "aiden", "bytedance", or "traecli"
 	APIKey     string        `json:"apiKey"`
 	BaseURL    string        `json:"baseURL"`
 	AuthMode   string        `json:"authMode"`   // "apikey" (default) or "bearer"

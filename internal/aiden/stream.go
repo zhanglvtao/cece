@@ -246,6 +246,10 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 
 	if choice.FinishReason != "" {
 		state.terminalChunkSeen = true
+		stopReason := mapStopReason(choice.FinishReason)
+		if choice.FinishReason == "stop" && len(state.activeToolIndices) > 0 {
+			stopReason = "tool_use"
+		}
 
 		if state.thinkingOpen {
 			out <- agent.ApiStreamEvent{
@@ -262,7 +266,7 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 
 		out <- agent.ApiStreamEvent{
 			EventType:       "message_delta",
-			StopReason:      mapStopReason(choice.FinishReason),
+			StopReason:      stopReason,
 			InputTokens:     chunk.Usage.PromptTokens,
 			OutputTokens:    chunk.Usage.CompletionTokens,
 			CacheReadTokens: chunk.Usage.PromptTokensDetails.CachedTokens,

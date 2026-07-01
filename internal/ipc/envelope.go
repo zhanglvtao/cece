@@ -72,7 +72,6 @@ var eventKinds = map[string]func() protocol.Event{
 	"assistant_started":          func() protocol.Event { return &protocol.AssistantStarted{} },
 	"assistant_delta":            func() protocol.Event { return &protocol.AssistantDelta{} },
 	"assistant_completed":        func() protocol.Event { return &protocol.AssistantCompleted{} },
-	"completion_gate_evaluated":  func() protocol.Event { return &protocol.CompletionGateEvaluated{} },
 	"run_failed":                 func() protocol.Event { return &protocol.RunFailed{} },
 	"stream_started":             func() protocol.Event { return &protocol.StreamStarted{} },
 	"stream_event_detail":        func() protocol.Event { return &protocol.StreamEventDetail{} },
@@ -299,8 +298,6 @@ func derefEvent(ev protocol.Event) protocol.Event {
 	case *protocol.AssistantDelta:
 		return *v
 	case *protocol.AssistantCompleted:
-		return *v
-	case *protocol.CompletionGateEvaluated:
 		return *v
 	case *protocol.RunFailed:
 		return *v

@@ -511,6 +511,73 @@ func TestDecodeEmptyFinishReasonWithToolCalls(t *testing.T) {
 	}
 }
 
+// TestDecodeStopFinishReasonWithActiveToolCalls verifies a proxy-compatible
+// stream shape: some OpenAI-compatible backends emit tool call deltas but still
+// finish with finish_reason="stop". A tool call already seen in the stream must
+// take precedence so the runner executes it instead of ending the turn.
+func TestDecodeStopFinishReasonWithActiveToolCalls(t *testing.T) {
+	body := sseBody(
+		`data: {"id":"fc_1","object":"response.output_item.added","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function_call","function":{"name":"Skill"}}]},"finish_reason":""}]}`,
+		``,
+		`data: {"id":"fc_1","object":"response.function_call_arguments.delta","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"type":"","function":{"arguments":"{\"name\":\"brainstorming\"}"}}]},"finish_reason":""}]}`,
+		``,
+		`data: {"id":"","object":"response.output_item.done","choices":[],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}`,
+		``,
+		`data: {"id":"resp_1","object":"response.completed","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":126,"completion_tokens":18,"total_tokens":144}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var stopReason string
+	var toolName string
+	for _, e := range events {
+		if e.EventType == "content_block_start" && e.ToolCallID != "" {
+			toolName = e.ToolCallName
+		}
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+	}
+	if toolName != "Skill" {
+		t.Fatalf("toolName = %q, want Skill", toolName)
+	}
+	if stopReason != "tool_use" {
+		t.Fatalf("stopReason = %q, want tool_use", stopReason)
+	}
+}
+
+func TestDecodeLengthFinishReasonWithToolCallsPreservesMaxTokens(t *testing.T) {
+	body := sseBody(
+		`data: {"id":"1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"Bash"}}]},"finish_reason":""}]}`,
+		``,
+		`data: {"id":"2","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"cmd\":\"ls\"}"}}]},"finish_reason":""}]}`,
+		``,
+		`data: {"id":"3","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`,
+		``,
+		`data: [DONE]`,
+		``,
+	)
+	events, err := collectEvents(DecodeStreamEvent(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var stopReason string
+	for _, e := range events {
+		if e.EventType == "message_delta" {
+			stopReason = e.StopReason
+		}
+	}
+	if stopReason != "max_tokens" {
+		t.Fatalf("stopReason = %q, want max_tokens", stopReason)
+	}
+}
+
 // TestDecodeDoneClosesThinkingBlock verifies that [DONE] closes an open
 // thinking block and synthesizes message_delta.
 func TestDecodeDoneClosesThinkingBlock(t *testing.T) {

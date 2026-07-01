@@ -48,7 +48,6 @@ func TestEventRoundTrip(t *testing.T) {
 		protocol.UserMessageAdded{Message: protocol.Message{Role: "user", Content: "hi"}},
 		protocol.ModelRequestStarted{Reason: "user", EstimatedInputTokens: 12, APICalls: 1},
 		protocol.AssistantStarted{}, protocol.AssistantDelta{Text: "hello"}, protocol.AssistantCompleted{},
-		protocol.CompletionGateEvaluated{Attempt: 1, MaxAttempts: 3, Status: protocol.CompletionGateBlocked, Checks: []protocol.CompletionGateCheck{{Name: "TodoGate", Status: protocol.CompletionGateBlocked}}, Next: "continue"},
 		protocol.RunFailed{Err: "boom"},
 		protocol.CompactedEvent{MessagesBefore: 3, MessagesAfter: 3, Err: "compact boom"},
 		protocol.ToolCallsReady{Calls: []protocol.ToolUseBlock{{ID: "t1", Name: "Read", Input: json.RawMessage(`{"path":"x"}`)}}},

@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/zhanglvtao/cece/internal/auth"
 	"github.com/zhanglvtao/cece/internal/agent"
+	"github.com/zhanglvtao/cece/internal/auth"
 	"github.com/zhanglvtao/cece/internal/httpretry"
 	"github.com/zhanglvtao/cece/internal/logger"
 	"github.com/zhanglvtao/cece/internal/tool"
@@ -23,7 +23,9 @@ type Client struct {
 	apiKey          string
 	model           string
 	baseURL         string
+	pathPrefix      string
 	tokenCache      *auth.TokenCache
+	tokenProvider   func(context.Context) (string, error)
 	httpClient      *http.Client
 	reasoningEffort string
 	useResponsesAPI bool
@@ -34,12 +36,17 @@ func NewClient(apiKey, model, baseURL string) *Client {
 		apiKey:     apiKey,
 		model:      model,
 		baseURL:    baseURL,
+		pathPrefix: "/v1",
 		httpClient: &http.Client{},
 	}
 }
 
 func (c *Client) SetAuthHelper(helper string) {
 	c.tokenCache = auth.NewTokenCache(helper, 0)
+}
+
+func (c *Client) SetTokenProvider(provider func(context.Context) (string, error)) {
+	c.tokenProvider = provider
 }
 
 func (c *Client) SetModel(model string) { c.model = model }
@@ -50,6 +57,12 @@ func (c *Client) Model() string         { return c.model }
 // g() conversion function which incorrectly marks assistant text as "input_text"
 // instead of "output_text", causing 400 errors from OpenAI.
 func (c *Client) SetUseResponsesAPI(v bool) { c.useResponsesAPI = v }
+
+// SetPathPrefix configures the API path prefix inserted between baseURL and
+// endpoint names. The default is "/v1" for OpenAI-compatible providers. Some
+// traecli plugin base URLs point at an app root and expose /chat/completions
+// directly under that root.
+func (c *Client) SetPathPrefix(prefix string) { c.pathPrefix = strings.TrimRight(prefix, "/") }
 
 // SetReasoningEffort sets the reasoning effort for future requests.
 func (c *Client) SetReasoningEffort(effort string) { c.reasoningEffort = effort }
@@ -69,6 +82,9 @@ func (c *Client) SetProvider(apiKey, baseURL string, _ int) {
 }
 
 func (c *Client) resolveAPIKey(ctx context.Context) (string, error) {
+	if c.tokenProvider != nil {
+		return c.tokenProvider(ctx)
+	}
 	if c.tokenCache != nil {
 		return c.tokenCache.GetToken(ctx)
 	}
@@ -195,7 +211,7 @@ func (c *Client) streamResponses(ctx context.Context, messages []agent.Message, 
 		return nil, err
 	}
 
-	url := strings.TrimRight(c.baseURL, "/") + "/v1/responses"
+	url := c.endpointURL("responses")
 
 	resp, err := c.doRequestWithRetry(ctx, http.MethodPost, url, body, nil)
 	if err != nil {
@@ -228,7 +244,7 @@ func (c *Client) streamChatCompletions(ctx context.Context, messages []agent.Mes
 		return nil, err
 	}
 
-	url := strings.TrimRight(c.baseURL, "/") + "/v1/chat/completions"
+	url := c.endpointURL("chat/completions")
 
 	resp, err := c.doRequestWithRetry(ctx, http.MethodPost, url, body, nil)
 	if err != nil {
@@ -270,7 +286,7 @@ func (m aidenModel) toChat() agent.ModelInfo {
 }
 
 func (c *Client) ListModels(ctx context.Context) ([]agent.ModelInfo, error) {
-	url := strings.TrimRight(c.baseURL, "/") + "/v1/models"
+	url := c.endpointURL("models")
 
 	resp, err := c.doRequestWithRetry(ctx, http.MethodGet, url, nil, nil)
 	if err != nil {
@@ -291,6 +307,16 @@ func (c *Client) ListModels(ctx context.Context) ([]agent.ModelInfo, error) {
 	}
 	slog.Info("aiden models listed", "count", len(result))
 	return result, nil
+}
+
+func (c *Client) endpointURL(endpoint string) string {
+	base := strings.TrimRight(c.baseURL, "/")
+	prefix := strings.Trim(c.pathPrefix, "/")
+	endpoint = strings.TrimLeft(endpoint, "/")
+	if prefix == "" {
+		return base + "/" + endpoint
+	}
+	return base + "/" + prefix + "/" + endpoint
 }
 
 func (c *Client) GetModelInfo(ctx context.Context) (agent.ModelInfo, error) {
