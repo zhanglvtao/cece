@@ -156,7 +156,7 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 		if !state.messageStarted {
 			state.messageStarted = true
 			out <- agent.ApiStreamEvent{
-				EventType: "message_start",
+				EventType: agent.EventMessageStart,
 			}
 		}
 
@@ -179,7 +179,7 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 				name: evt.Item.Name,
 			}
 			out <- agent.ApiStreamEvent{
-				EventType:    "content_block_start",
+				EventType:    agent.EventContentBlockStart,
 				ToolCallID:   evt.Item.CallID,
 				ToolCallName: evt.Item.Name,
 				Index:        evt.OutputIndex,
@@ -193,7 +193,7 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 				if !state.textBlockStarted {
 					state.textBlockStarted = true
 					out <- agent.ApiStreamEvent{
-						EventType: "content_block_start",
+						EventType: agent.EventContentBlockStart,
 						Index:     evt.OutputIndex,
 					}
 				}
@@ -202,7 +202,7 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 					state.thinkingOpen = true
 					state.thinkingIndex = evt.OutputIndex
 					out <- agent.ApiStreamEvent{
-						EventType:  "content_block_start",
+						EventType:  agent.EventContentBlockStart,
 						Index:      evt.OutputIndex,
 						IsThinking: true,
 					}
@@ -213,12 +213,12 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 	case "response.output_text.delta":
 		if !state.messageStarted {
 			state.messageStarted = true
-			out <- agent.ApiStreamEvent{EventType: "message_start"}
+			out <- agent.ApiStreamEvent{EventType: agent.EventMessageStart}
 		}
 		// Close thinking block if transitioning to text
 		if state.thinkingOpen {
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_stop",
+				EventType:  agent.EventContentBlockStop,
 				Index:      state.thinkingIndex,
 				IsThinking: true,
 			}
@@ -227,12 +227,12 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 		if !state.textBlockStarted {
 			state.textBlockStarted = true
 			out <- agent.ApiStreamEvent{
-				EventType: "content_block_start",
+				EventType: agent.EventContentBlockStart,
 				Index:     evt.OutputIndex,
 			}
 		}
 		out <- agent.ApiStreamEvent{
-			EventType: "content_block_delta",
+			EventType: agent.EventContentBlockDelta,
 			Detail:    "text_delta",
 			Delta:     evt.Delta,
 		}
@@ -240,19 +240,19 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 	case "response.reasoning_summary_text.delta":
 		if !state.messageStarted {
 			state.messageStarted = true
-			out <- agent.ApiStreamEvent{EventType: "message_start"}
+			out <- agent.ApiStreamEvent{EventType: agent.EventMessageStart}
 		}
 		if !state.thinkingOpen {
 			state.thinkingOpen = true
 			state.thinkingIndex = evt.OutputIndex
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_start",
+				EventType:  agent.EventContentBlockStart,
 				Index:      evt.OutputIndex,
 				IsThinking: true,
 			}
 		}
 		out <- agent.ApiStreamEvent{
-			EventType:     "content_block_delta",
+			EventType:     agent.EventContentBlockDelta,
 			Detail:        "thinking_delta",
 			ThinkingDelta: evt.Delta,
 			Index:         evt.OutputIndex,
@@ -261,10 +261,10 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 	case "response.function_call_arguments.delta":
 		if !state.messageStarted {
 			state.messageStarted = true
-			out <- agent.ApiStreamEvent{EventType: "message_start"}
+			out <- agent.ApiStreamEvent{EventType: agent.EventMessageStart}
 		}
 		out <- agent.ApiStreamEvent{
-			EventType:     "content_block_delta",
+			EventType:     agent.EventContentBlockDelta,
 			Detail:        "input_json_delta",
 			ToolCallInput: evt.Delta,
 			Index:         evt.OutputIndex,
@@ -273,7 +273,7 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 	case "response.function_call_arguments.done":
 		// Arguments complete — emit content_block_stop
 		out <- agent.ApiStreamEvent{
-			EventType: "content_block_stop",
+			EventType: agent.EventContentBlockStop,
 			Index:     evt.OutputIndex,
 		}
 		if state.activeToolIndices != nil {
@@ -299,7 +299,7 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 		}
 
 		out <- agent.ApiStreamEvent{
-			EventType:    "message_delta",
+			EventType:    agent.EventMessageDelta,
 			StopReason:   stopReason,
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,
@@ -326,7 +326,7 @@ func emitResponsesEvent(evt *responsesSSEEvent, out chan<- agent.ApiStreamEvent,
 func closeOpenBlocks(out chan<- agent.ApiStreamEvent, state *responsesStreamState) {
 	if state.thinkingOpen {
 		out <- agent.ApiStreamEvent{
-			EventType:  "content_block_stop",
+			EventType:  agent.EventContentBlockStop,
 			Index:      state.thinkingIndex,
 			IsThinking: true,
 		}
@@ -336,7 +336,7 @@ func closeOpenBlocks(out chan<- agent.ApiStreamEvent, state *responsesStreamStat
 		state.textBlockStarted = false
 	}
 	for idx := range state.activeToolIndices {
-		out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+		out <- agent.ApiStreamEvent{EventType: agent.EventContentBlockStop, Index: idx}
 	}
 	if state.activeToolIndices != nil {
 		state.activeToolIndices = nil

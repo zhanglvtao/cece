@@ -93,14 +93,14 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 				// it entirely, so blocks may still be open at [DONE].
 				if state.thinkingOpen {
 					out <- agent.ApiStreamEvent{
-						EventType:  "content_block_stop",
+						EventType:  agent.EventContentBlockStop,
 						Index:      state.thinkingIndex,
 						IsThinking: true,
 					}
 					state.thinkingOpen = false
 				}
 				for idx := range state.activeToolIndices {
-					out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+					out <- agent.ApiStreamEvent{EventType: agent.EventContentBlockStop, Index: idx}
 				}
 				if !state.terminalChunkSeen && state.messageStarted {
 					state.terminalChunkSeen = true
@@ -109,7 +109,7 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 						stopReason = "tool_use"
 					}
 					out <- agent.ApiStreamEvent{
-						EventType:  "message_delta",
+						EventType:  agent.EventMessageDelta,
 						StopReason: stopReason,
 					}
 				}
@@ -138,13 +138,13 @@ func DecodeStreamEvent(body io.ReadCloser) <-chan agent.ApiStreamEvent {
 		logger.Warn("aiden stream ended without [DONE]", "total_lines", lineCount, "message_started", state.messageStarted, "terminal_chunk_seen", state.terminalChunkSeen)
 		if state.thinkingOpen {
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_stop",
+				EventType:  agent.EventContentBlockStop,
 				Index:      state.thinkingIndex,
 				IsThinking: true,
 			}
 		}
 		for idx := range state.activeToolIndices {
-			out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+			out <- agent.ApiStreamEvent{EventType: agent.EventContentBlockStop, Index: idx}
 		}
 		if !state.doneEmitted {
 			state.doneEmitted = true
@@ -168,7 +168,7 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 	if !state.messageStarted {
 		state.messageStarted = true
 		out <- agent.ApiStreamEvent{
-			EventType:   "message_start",
+			EventType:   agent.EventMessageStart,
 			InputTokens: chunk.Usage.PromptTokens,
 		}
 	}
@@ -178,13 +178,13 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 			state.thinkingOpen = true
 			state.thinkingIndex = 0
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_start",
+				EventType:  agent.EventContentBlockStart,
 				Index:      0,
 				IsThinking: true,
 			}
 		}
 		out <- agent.ApiStreamEvent{
-			EventType:     "content_block_delta",
+			EventType:     agent.EventContentBlockDelta,
 			Detail:        "thinking_delta",
 			ThinkingDelta: delta.ReasoningContent,
 			Index:         state.thinkingIndex,
@@ -193,7 +193,7 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 
 	if state.thinkingOpen && delta.Content != "" {
 		out <- agent.ApiStreamEvent{
-			EventType:  "content_block_stop",
+			EventType:  agent.EventContentBlockStop,
 			Index:      state.thinkingIndex,
 			IsThinking: true,
 		}
@@ -208,13 +208,13 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 				textIndex = state.thinkingIndex + 1
 			}
 			out <- agent.ApiStreamEvent{
-				EventType: "content_block_start",
+				EventType: agent.EventContentBlockStart,
 				Index:     textIndex,
 			}
 		}
 		out <- agent.ApiStreamEvent{
 			Delta:     delta.Content,
-			EventType: "content_block_delta",
+			EventType: agent.EventContentBlockDelta,
 			Detail:    "text_delta",
 		}
 	}
@@ -227,7 +227,7 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 		if tc.ID != "" && tc.Function.Name != "" && !state.activeToolIndices[tc.Index] {
 			state.activeToolIndices[tc.Index] = true
 			out <- agent.ApiStreamEvent{
-				EventType:    "content_block_start",
+				EventType:    agent.EventContentBlockStart,
 				ToolCallID:   tc.ID,
 				ToolCallName: tc.Function.Name,
 				Index:        tc.Index,
@@ -236,7 +236,7 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 
 		if tc.Function.Arguments != "" {
 			out <- agent.ApiStreamEvent{
-				EventType:     "content_block_delta",
+				EventType:     agent.EventContentBlockDelta,
 				Detail:        "input_json_delta",
 				ToolCallInput: tc.Function.Arguments,
 				Index:         tc.Index,
@@ -253,7 +253,7 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 
 		if state.thinkingOpen {
 			out <- agent.ApiStreamEvent{
-				EventType:  "content_block_stop",
+				EventType:  agent.EventContentBlockStop,
 				Index:      state.thinkingIndex,
 				IsThinking: true,
 			}
@@ -261,11 +261,11 @@ func emitChunk(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *parserState
 		}
 
 		for idx := range state.activeToolIndices {
-			out <- agent.ApiStreamEvent{EventType: "content_block_stop", Index: idx}
+			out <- agent.ApiStreamEvent{EventType: agent.EventContentBlockStop, Index: idx}
 		}
 
 		out <- agent.ApiStreamEvent{
-			EventType:       "message_delta",
+			EventType:       agent.EventMessageDelta,
 			StopReason:      stopReason,
 			InputTokens:     chunk.Usage.PromptTokens,
 			OutputTokens:    chunk.Usage.CompletionTokens,
@@ -297,7 +297,7 @@ func emitUsageIfPresent(chunk *Chunk, out chan<- agent.ApiStreamEvent, state *pa
 		return
 	}
 	out <- agent.ApiStreamEvent{
-		EventType:       "message_delta",
+		EventType:       agent.EventMessageDelta,
 		StopReason:      "", // leave empty — usage-only chunk must not overwrite the real stop reason
 		InputTokens:     chunk.Usage.PromptTokens,
 		OutputTokens:    chunk.Usage.CompletionTokens,
