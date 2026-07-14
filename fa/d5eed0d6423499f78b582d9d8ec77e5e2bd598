@@ -1,0 +1,54 @@
+internal/prompt/system.md
+  s_1855c0b29304cc::t_d0ad1b8c621a72 9-37,39-40,43,51-65,67-105,116,119-120,136,139-141,145
+internal/prompt/system_test.go
+  s_1855c0b29304cc::t_8e4db84be74ce6 44,50,108-131,146,184,202
+internal/runtime/profile.go
+  s_bb7fb7e11bd80a::t_66ceb95f8a20b7 9,77,80-82
+internal/runtime/profile_test.go
+  s_bb7fb7e11bd80a::t_bb1627ab6dda10 25,39,82-87
+internal/tool/agent_tool_test.go
+  s_bb7fb7e11bd80a::t_92826b1c177583 16,57
+internal/tool/plan_mode.go
+  s_bb7fb7e11bd80a::t_72e3862a1dc098 65-84,87-94,119-121
+issues/005-use-official-swebench-scoring.md
+  s_bbde7ffd8fa785::t_d8a93e8d1c26c8 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fad5eed0d6423499f78b582d9d8ec77e5e2bd598",
+  "prompts": {},
+  "humans": {
+    "h_d8fa1d07740b86": {
+      "author": "zhanglvtao <zhanglyutao@bytedance.com>"
+    }
+  },
+  "sessions": {
+    "s_1855c0b29304cc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9c7ed46-9b4a-4e86-8d8d-2632816fad3d",
+        "model": "unknown"
+      },
+      "human_author": "zhanglvtao <zhanglyutao@bytedance.com>"
+    },
+    "s_bb7fb7e11bd80a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3bd8738-2ff2-4f6c-829f-0f7827611cca",
+        "model": "unknown"
+      },
+      "human_author": "zhanglvtao <zhanglyutao@bytedance.com>"
+    },
+    "s_bbde7ffd8fa785": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a25c1d2b6e8a59c16",
+        "model": "unknown"
+      },
+      "human_author": "zhanglvtao <zhanglyutao@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
