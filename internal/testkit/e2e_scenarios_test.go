@@ -14,6 +14,41 @@ import (
 	"github.com/zhanglvtao/cece/internal/ui"
 )
 
+// validPlanMarkdown is a plan-file body that satisfies
+// tool.ValidatePlanContentForExit: it is well over 300 runes, contains every
+// required section (Context, File Structure, Reuse, Implementation Tasks,
+// Verification, Risks, Non-goals) and has no placeholder text. It keeps the
+// "# Plan" heading and a "Do it" task line so approval-continuation assertions
+// that look for those substrings still hold.
+const validPlanMarkdown = `# Plan
+
+## Context
+We need a small, well-scoped change and this plan captures the intended
+outcome so the reviewer can approve execution with confidence.
+
+## File Structure
+- internal/example/foo.go — primary change site
+- internal/example/foo_test.go — coverage for the new behavior
+
+## Reuse
+Reuse the existing helpers in internal/example rather than adding new ones.
+
+## Implementation Tasks
+- Do it: implement the new behavior in foo.go
+- Wire the behavior through the existing entry point
+- Add focused unit tests alongside the change
+
+## Verification
+Run go test ./internal/example/ and confirm the new tests pass.
+
+## Risks
+Low risk; the change is additive and covered by tests.
+
+## Non-goals
+No public API changes and no refactoring beyond the change site.
+`
+
+
 // ── ConfirmTools modal ─────────────────────────────────────────────────────
 
 func TestE2E_ConfirmTools_Approve(t *testing.T) {
@@ -87,7 +122,7 @@ func TestE2E_PlanApproval_Reject(t *testing.T) {
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan\n\n- Do it\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte(validPlanMarkdown), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -220,7 +255,7 @@ func TestE2E_AgentCancelStopsRunningWorker(t *testing.T) {
 	gate := make(chan struct{})
 	workerLLM := testkit.NewScriptedClient(testkit.ScriptedTurn{Text: "worker response", Block: gate})
 	parentLLM := testkit.NewScriptedClient(
-		testkit.ToolUseTurn("call-agent-start", "Agent", `{"operation":"start","prompt":"slow work","description":"slow work"}`),
+		testkit.ToolUseTurn("call-agent-start", "Agent", `{"operation":"start","agent_type":"coding","prompt":"slow work","description":"slow work"}`),
 		testkit.ToolUseTurn("call-agent-cancel", "Agent", `{"operation":"cancel","agent_id":"agent-1"}`),
 		testkit.TextTurn("worker cancelled"),
 	)
@@ -435,7 +470,7 @@ func TestE2E_PlanApproval_Approve(t *testing.T) {
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan\n\n- Do it\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte(validPlanMarkdown), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -487,7 +522,7 @@ func TestE2E_PlanApproval_ApproveAuto(t *testing.T) {
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan\n\n- Do it\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(planDir, "plan.md"), []byte(validPlanMarkdown), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

@@ -137,8 +137,8 @@ func (t agentTool) Info() Definition {
 				},
 				"agent_type": map[string]any{
 					"type":        "string",
-					"enum":        []string{"research", "coding", "review", "execution"},
-					"description": "Required for operation=start. Choose the task-specific profile: research (search/read/summarize), coding (implement/fix/test), review (inspect/verify/risk-check), or execution (run/follow up/wait).",
+					"enum":        []string{"explore", "coding", "review", "execution"},
+					"description": "Required for operation=start. Choose the task-specific profile: explore (search/read/summarize), coding (implement/fix/test), review (inspect/verify/risk-check), or execution (run/follow up/wait).",
 				},
 				"model": modelSchema,
 				"tools": map[string]any{

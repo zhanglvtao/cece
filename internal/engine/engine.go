@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"regexp"
+
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zhanglvtao/cece/internal/agent"
 	"github.com/zhanglvtao/cece/internal/effort"
@@ -397,6 +399,69 @@ func (e *Engine) PruneHandler() *tool.PruneHandler {
 	return &tool.PruneHandler{
 		Prune: e.compactPrune,
 	}
+}
+
+// SearchHistoryHandler returns a tool.SearchHistoryHandler backed by this engine.
+func (e *Engine) SearchHistoryHandler() *tool.SearchHistoryHandler {
+	return &tool.SearchHistoryHandler{
+		Search: e.searchHistory,
+	}
+}
+
+func (e *Engine) searchHistory(query string, maxResults int, isRegex bool) ([]tool.SearchMatch, error) {
+	e.mu.Lock()
+	history := make([]agent.Message, len(e.history))
+	copy(history, e.history)
+	e.mu.Unlock()
+
+	boundaries := agent.TurnBoundaries(history)
+	turnIndex := 0
+	boundaryIdx := 0
+
+	var matches []tool.SearchMatch
+	for i, msg := range history {
+		for boundaryIdx < len(boundaries) && i >= boundaries[boundaryIdx] {
+			turnIndex++
+			boundaryIdx++
+		}
+
+		text := msg.TextContent()
+		if text == "" {
+			continue
+		}
+
+		var matched bool
+		if isRegex {
+			re, err := regexp.Compile(query)
+			if err != nil {
+				return nil, err
+			}
+			matched = re.MatchString(text)
+		} else {
+			matched = strings.Contains(strings.ToLower(text), strings.ToLower(query))
+		}
+
+		if !matched {
+			continue
+		}
+
+		snippet := text
+		if len(snippet) > 200 {
+			snippet = snippet[:200] + "..."
+		}
+
+		matches = append(matches, tool.SearchMatch{
+			Turn:    turnIndex,
+			Role:    string(msg.Role),
+			Content: snippet,
+		})
+
+		if len(matches) >= maxResults {
+			break
+		}
+	}
+
+	return matches, nil
 }
 
 func resolveCompactTurnBoundary(messages []agent.Message, keepTurn int) (splitIdx, normalizedTurn, totalTurns int, err error) {
@@ -1175,6 +1240,41 @@ func (e *Engine) StatusBarSnapshot() session.StatusBarSnapshot {
 	return e.statusBarSnapshotLocked()
 }
 
+// apiCallsAndContextWindow returns the cumulative API call count and the
+// current context window size under the lock. Used by the event-bridge
+// goroutine, which must not read these fields without synchronization.
+func (e *Engine) apiCallsAndContextWindow() (apiCalls, contextWindow int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.apiCalls, e.contextWindow
+}
+
+// bridgeTokenSnapshot bundles the counters the event bridge injects into
+// TurnCompleted, read together under the lock to avoid data races with the
+// turn-runner goroutines that update them.
+type bridgeTokenSnapshot struct {
+	lastInputTokens   int
+	totalInputTokens  int
+	totalOutputTokens int
+	contextWindow     int
+	turnCount         int
+}
+
+// incrementTurnAndSnapshot increments the turn counter and returns the token
+// counters needed to emit TurnCompleted, all under a single lock.
+func (e *Engine) incrementTurnAndSnapshot() bridgeTokenSnapshot {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.turnCount++
+	return bridgeTokenSnapshot{
+		lastInputTokens:   e.lastInputTokens,
+		totalInputTokens:  e.totalInputTokens,
+		totalOutputTokens: e.totalOutputTokens,
+		contextWindow:     e.contextWindow,
+		turnCount:         e.turnCount,
+	}
+}
+
 // statusBarSnapshotLocked returns a snapshot assuming the mutex is already held.
 func (e *Engine) statusBarSnapshotLocked() session.StatusBarSnapshot {
 	tc := make(map[string]int, len(e.toolCounts))
@@ -1646,8 +1746,7 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 			// Inject Engine-managed cumulative counters into protocol events.
 			switch v := d.(type) {
 			case protocol.ModelRequestStarted:
-				v.APICalls = e.apiCalls
-				v.ContextWindow = e.contextWindow
+				v.APICalls, v.ContextWindow = e.apiCallsAndContextWindow()
 				d = v
 			case protocol.ToolExecCompleted:
 				v.ToolCounts = e.toolCountsSnapshot()
@@ -1656,17 +1755,15 @@ func (e *Engine) Input(ctx context.Context, input string) error {
 			e.emitEvent(d)
 		}
 		sb := e.StatusBarSnapshot()
-		e.mu.Lock()
-		e.turnCount++
-		e.mu.Unlock()
+		tokens := e.incrementTurnAndSnapshot()
 		e.emitEvent(protocol.TurnCompleted{
-			LastInputTokens:     e.lastInputTokens,
-			TotalInputTokens:    e.totalInputTokens,
-			TotalOutputTokens:   e.totalOutputTokens,
+			LastInputTokens:     tokens.lastInputTokens,
+			TotalInputTokens:    tokens.totalInputTokens,
+			TotalOutputTokens:   tokens.totalOutputTokens,
 			CacheReadTokens:     sb.CacheReadTokens,
 			CacheCreationTokens: sb.CacheCreationTokens,
-			ContextWindow:       e.contextWindow,
-			TurnCount:           e.turnCount,
+			ContextWindow:       tokens.contextWindow,
+			TurnCount:           tokens.turnCount,
 		})
 		e.finishAgentInboxPumpTurn()
 	}()

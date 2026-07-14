@@ -13,7 +13,7 @@ func TestAgentToolStartReturnsRunningStatusWithoutError(t *testing.T) {
 			return AgentSubAgentResult{AgentID: "agent-1", SessionID: "session-1", Status: "running", Content: "Agent agent-1 started asynchronously."}, nil
 		},
 	})
-	input, _ := json.Marshal(map[string]any{"operation": "start", "prompt": "inspect code", "description": "inspect code", "agent_type": "research"})
+	input, _ := json.Marshal(map[string]any{"operation": "start", "prompt": "inspect code", "description": "inspect code", "agent_type": "explore"})
 	result := agentTool.Run(context.Background(), input, nil)
 	if result.IsError {
 		t.Fatalf("IsError = true, content = %q", result.Content)
@@ -54,7 +54,7 @@ func TestAgentToolModelSchemaUsesProvider(t *testing.T) {
 	}
 	agentType := props["agent_type"].(map[string]any)
 	types := agentType["enum"].([]string)
-	want := []string{"research", "coding", "review", "execution"}
+	want := []string{"explore", "coding", "review", "execution"}
 	if len(types) != len(want) {
 		t.Fatalf("agent_type enum = %#v", types)
 	}

@@ -185,7 +185,7 @@ func TestBuilderBuildsInteractiveAndTaskAgentProfiles(t *testing.T) {
 		t.Fatal("interactive registry should hide UpdateTaskClosure")
 	}
 	interactivePrompt := interactive.Assembler.Assemble(prompt.TurnContext{})
-	for _, want := range []string{"built-in agents", "research", "coding", "review", "execution"} {
+	for _, want := range []string{"built-in agents", "explore", "coding", "review", "execution"} {
 		if !strings.Contains(interactivePrompt.FullText, want) {
 			t.Fatalf("interactive prompt missing %q:\n%s", want, interactivePrompt.FullText)
 		}
@@ -260,16 +260,16 @@ func TestSubAgentFactoryFallsBackToDefaultModel(t *testing.T) {
 		Model:         "default-model",
 		ContextWindow: 64000,
 		ModelClient:   llm,
-		Profile:       MustProfile(ProfileResearch),
+		Profile:       MustProfile(ProfileExplore),
 	})
 	if err != nil {
-		t.Fatalf("Build(research) error = %v", err)
+		t.Fatalf("Build(explore) error = %v", err)
 	}
 	if !strings.Contains(built.Assembler.Assemble(prompt.TurnContext{}).FullText, "Collect evidence before concluding") {
-		t.Fatalf("research prompt missing profile guidance")
+		t.Fatalf("explore prompt missing profile guidance")
 	}
 
-	rt, err := factory.NewSubAgentRuntime(context.Background(), engine.SubAgentBuildConfig{AgentID: "agent-1", Description: "A", Profile: string(ProfileResearch)})
+	rt, err := factory.NewSubAgentRuntime(context.Background(), engine.SubAgentBuildConfig{AgentID: "agent-1", Description: "A", Profile: string(ProfileExplore)})
 	if err != nil {
 		t.Fatalf("NewSubAgentRuntime error = %v", err)
 	}

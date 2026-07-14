@@ -62,14 +62,36 @@ func BuildFullPlanReminder(plansDir string, allowedWritePaths ...string) string 
 		"You are not just writing notes. You are writing an implementation plan another engineer can execute without this conversation.\n" +
 		"\n" +
 		"### Phase 1: Initial Understanding\n" +
-		"- Read the user's request and inspect the relevant code before designing.\n" +
-		"- Search for existing functions, utilities, tests, and patterns to reuse.\n" +
-		"- Do not ask questions whose answers are available in the code.\n" +
+		"Goal: Gain a comprehensive understanding of the user's request by reading\n" +
+		"through code and asking them questions.\n" +
+		"\n" +
+		"1. Focus on understanding the user's request and the code associated with\n" +
+		"   their request. Actively search for existing functions, utilities, tests,\n" +
+		"   and patterns to reuse — avoid proposing new code when suitable\n" +
+		"   implementations already exist.\n" +
+		"\n" +
+		"2. **Launch up to 3 Agent tool calls IN PARALLEL** (single message, multiple\n" +
+		"   tool calls) with agent_type=\"explore\" to efficiently explore the codebase.\n" +
+		"   - Use 1 agent when the task is isolated to known files, the user provided\n" +
+		"     specific file paths, or you're making a small targeted change.\n" +
+		"   - Use multiple agents when the scope is uncertain, multiple areas of the\n" +
+		"     codebase are involved, or you need to understand existing patterns.\n" +
+		"   - Quality over quantity — 3 agents maximum, prefer the minimum (usually 1).\n" +
+		"   - If using multiple agents: give each agent a specific search focus.\n" +
+		"     Example: one agent searches for existing implementations, another\n" +
+		"     explores related components, a third investigates testing patterns.\n" +
+		"\n" +
+		"3. Do not ask questions whose answers are available in the code.\n" +
 		"\n" +
 		"### Phase 2: Design\n" +
-		"- Choose one recommended implementation approach.\n" +
-		"- Prefer minimal, elegant, reusable, testable, decoupled changes.\n" +
-		"- Do not introduce a planner agent, new subsystem, or abstraction unless the task requires it.\n" +
+		"Goal: Design an implementation approach.\n" +
+		"\n" +
+		"1. Launch a Plan agent via Agent tool (agent_type=\"explore\") to design the\n" +
+		"   implementation based on your Phase 1 exploration results.\n" +
+		"2. In the agent prompt, provide comprehensive context from Phase 1 exploration\n" +
+		"   including filenames and code path traces.\n" +
+		"3. Choose one recommended implementation approach.\n" +
+		"4. Prefer minimal, elegant, reusable, testable, decoupled changes.\n" +
 		"\n" +
 		"### Phase 3: Review\n" +
 		"- Re-read the critical files that will change.\n" +
@@ -94,7 +116,9 @@ func BuildFullPlanReminder(plansDir string, allowedWritePaths ...string) string 
 		"hit decisions you can't make alone, and write findings into the plan file.\n" +
 		"\n" +
 		"### The Loop\n" +
-		"1. **Explore** — Use Read, Grep, Glob, and read-only Bash to understand the code.\n" +
+		"1. **Explore** — Use Read, Grep, Glob, read-only Bash, or Agent tool with\n" +
+			"   agent_type=\"explore\" to understand the code. For complex searches, prefer\n" +
+			"   Agent tool to parallelize exploration without filling your context.\n" +
 		"2. **Update the plan file** — After each discovery, immediately write what you\n" +
 		"   learned. Don't wait until the end.\n" +
 		"3. **Ask the user** — When you hit an ambiguity only the user can resolve, use\n" +

@@ -9,6 +9,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/PuerkitoBio/goquery v1.12.0
+	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/charmbracelet/ultraviolet v0.0.0-20260416155717-489999b90468
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/google/uuid v1.3.0

@@ -174,8 +174,8 @@ type subAgentFactory struct {
 
 func profileForAgentType(agentType string) (AgentProfile, error) {
 	switch strings.TrimSpace(agentType) {
-	case string(ProfileResearch):
-		return MustProfile(ProfileResearch), nil
+	case string(ProfileExplore):
+		return MustProfile(ProfileExplore), nil
 	case string(ProfileCoding):
 		return MustProfile(ProfileCoding), nil
 	case string(ProfileReview):

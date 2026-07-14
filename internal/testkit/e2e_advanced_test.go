@@ -301,6 +301,7 @@ func TestE2E_AgentStartThenStatusCompletesTask(t *testing.T) {
 	llm := testkit.NewScriptedClient(
 		testkit.ToolUseTurn("call-agent-start", "Agent", `{
 			"operation": "start",
+			"agent_type": "coding",
 			"prompt": "analyze files",
 			"description": "file analysis",
 			"max_turns": 5,

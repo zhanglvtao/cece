@@ -41,14 +41,13 @@ func TestFormatStableSystemPromptContainsAllSections(t *testing.T) {
 
 	expectedSections := []string{
 		"# Identity",
+		"# How the System Works",
 		"# Constraints",
-		"# Coding Workflow",
 		"# Architecture Mindset",
 		"# Output Style",
-		"# Tool Usage",
-		"# Runtime Signals",
 		"# Safety",
 		"# Decision Making",
+		"# Autonomy",
 		"# Meta-Cognition",
 	}
 
@@ -106,7 +105,30 @@ func TestFormatStableSystemPromptContainsArchitectureMindset(t *testing.T) {
 	}
 }
 
-func TestFormatStableSystemPromptContainsCodingWorkflow(t *testing.T) {
+func TestFormatStableSystemPromptContainsHowTheSystemWorks(t *testing.T) {
+	got := FormatStableSystemPrompt("")
+
+	expected := []string{
+		"# How the System Works",
+		"Permission Modes",
+		"default",
+		"auto-accept",
+		"require_confirmation",
+		"Core tools",
+		"Mode tools",
+		"Context tools",
+		"Auto-Compression",
+		"system-reminder",
+	}
+
+	for _, value := range expected {
+		if !strings.Contains(got, value) {
+			t.Fatalf("missing How the System Works phrase %q", value)
+		}
+	}
+}
+
+func TestFormatStableSystemPromptContainsBugFixWorkflow(t *testing.T) {
 	got := FormatStableSystemPrompt("")
 
 	expected := []string{
@@ -121,7 +143,7 @@ func TestFormatStableSystemPromptContainsCodingWorkflow(t *testing.T) {
 
 	for _, value := range expected {
 		if !strings.Contains(strings.ToLower(got), strings.ToLower(value)) {
-			t.Fatalf("missing coding workflow phrase %q", value)
+			t.Fatalf("missing bug fix workflow phrase %q", value)
 		}
 	}
 }
@@ -159,7 +181,7 @@ func TestFormatInteractiveSystemPromptIncludesBuiltInAgentGuidance(t *testing.T)
 	prompt := FormatInteractiveSystemPrompt("/repo")
 	for _, want := range []string{
 		"built-in agents",
-		"research",
+		"explore",
 		"coding",
 		"review",
 		"execution",
@@ -177,7 +199,7 @@ func TestFormatSubAgentSystemPromptIncludesProfileGuidance(t *testing.T) {
 		profile string
 		want    string
 	}{
-		{profile: "research", want: "collect evidence before concluding"},
+		{profile: "explore", want: "collect evidence before concluding"},
 		{profile: "coding", want: "keep code changes focused"},
 		{profile: "review", want: "inspect for risks and omissions"},
 		{profile: "execution", want: "drive progress and report status"},

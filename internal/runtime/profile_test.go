@@ -22,7 +22,7 @@ func TestProfileByName_Defaults(t *testing.T) {
 	if interactive.Execution.DefaultMaxTurns != 0 {
 		t.Fatalf("interactive DefaultMaxTurns = %d, want 0", interactive.Execution.DefaultMaxTurns)
 	}
-	wantAllowed := []ProfileName{ProfileResearch, ProfileCoding, ProfileReview, ProfileExecution}
+	wantAllowed := []ProfileName{ProfileExplore, ProfileCoding, ProfileReview, ProfileExecution}
 	if len(interactive.Spawn.AllowedProfiles) != len(wantAllowed) {
 		t.Fatalf("interactive AllowedProfiles = %#v", interactive.Spawn.AllowedProfiles)
 	}
@@ -36,7 +36,7 @@ func TestProfileByName_Defaults(t *testing.T) {
 		name   ProfileName
 		effort string
 	}{
-		{ProfileResearch, "high"},
+		{ProfileExplore, "high"},
 		{ProfileCoding, "medium"},
 		{ProfileReview, "high"},
 		{ProfileExecution, "medium"},
@@ -76,6 +76,12 @@ func TestProfileByName_Defaults(t *testing.T) {
 func TestProfileByName_UnknownProfile(t *testing.T) {
 	if _, err := ProfileByName(ProfileName("reviewer")); err == nil {
 		t.Fatal("expected unknown profile error")
+	}
+}
+
+func TestProfileForAgentTypeRejectsResearch(t *testing.T) {
+	if _, err := profileForAgentType("research"); err == nil {
+		t.Fatal("expected unknown agent_type error for research")
 	}
 }
 

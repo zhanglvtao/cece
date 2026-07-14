@@ -203,6 +203,10 @@ func (r *TurnRunner) Run(ctx context.Context, plan TurnPlan, events chan<- Event
 				toolResultNames = nil
 				continue
 			}
+			// Run end-of-turn context management even when the turn ends with a
+			// plain-text answer (no tool calls). Without this, a turn that finishes
+			// via text skips the compaction that every tool-execution path performs.
+			r.tryAutoCompact(ctx)
 			events <- AssistantCompleted{Duration: time.Since(turnStart)}
 			return
 		}

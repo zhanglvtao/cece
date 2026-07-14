@@ -164,6 +164,7 @@ func (b *Builder) Build(ctx context.Context, req BuildRequest) (*BuiltRuntime, e
 	registry.Register(tool.NewCompact(eng.CompactHandler()))
 	registry.Register(tool.NewTrimToolResults(eng.TrimToolResultsHandler()))
 	registry.Register(tool.NewPrune(eng.PruneHandler()))
+	registry.Register(tool.NewSearchHistory(eng.SearchHistoryHandler()))
 	if req.Profile.Tools.AllowAgentTool {
 		registry.Register(tool.NewAgent(eng.AgentHandler(), tool.WithAgentModelProvider(func() []string {
 			return append([]string{eng.SessionMetaModel()}, b.shared.AgentModelChoices...)
@@ -257,6 +258,7 @@ func (b *Builder) buildRegistry(profile AgentProfile, toolNames []string, planSt
 		"Compact":                {},
 		"TrimToolResults":        {},
 		"Prune":                  {},
+		"SearchHistory":          {},
 		tool.TaskClosureToolName: {},
 	}
 	if !profile.Tools.AllowAgentTool {

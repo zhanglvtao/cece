@@ -12,7 +12,7 @@ const interactiveBuiltInAgentsGuidance = `# Multi-Agent Orchestration
 You are the root agent in a multi-agent system. Use the Agent tool to spawn task agents for independent subtasks, parallelizable work, long-running investigations, code changes, reviews, or background execution.
 
 built-in agents (pick one via agent_type):
-- research: search, read, summarize, investigate
+- explore: search, read, summarize, investigate
 - coding: implement, fix, update code, add focused tests
 - review: inspect changes, verify behavior, find risks
 - execution: run, wait, follow up, drive background progress
@@ -39,10 +39,10 @@ func FormatInteractiveSystemPrompt(repoRoot string) string {
 
 func subAgentProfileGuidance(profile string) string {
 	switch strings.TrimSpace(profile) {
-	case "research":
+	case "explore":
 		return "Focus on searching, reading, and summarizing. Collect evidence before concluding."
 	case "coding":
-		return "Focus on implementation work. Keep code changes focused and avoid drifting into open-ended research."
+		return "Focus on implementation work. Keep code changes focused and avoid drifting into open-ended exploration."
 	case "review":
 		return "Focus on inspection and verification. Inspect for risks and omissions before approving conclusions."
 	case "execution":

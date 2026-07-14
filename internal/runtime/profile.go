@@ -6,7 +6,7 @@ type ProfileName string
 
 const (
 	ProfileInteractive ProfileName = "interactive"
-	ProfileResearch    ProfileName = "research"
+	ProfileExplore     ProfileName = "explore"
 	ProfileCoding      ProfileName = "coding"
 	ProfileReview      ProfileName = "review"
 	ProfileExecution   ProfileName = "execution"
@@ -74,12 +74,12 @@ func defaultProfiles() map[ProfileName]AgentProfile {
 			},
 			Spawn: SpawnPolicy{
 				AllowChildAgents: true,
-				AllowedProfiles:  []ProfileName{ProfileResearch, ProfileCoding, ProfileReview, ProfileExecution},
+				AllowedProfiles:  []ProfileName{ProfileExplore, ProfileCoding, ProfileReview, ProfileExecution},
 			},
 		},
-		ProfileResearch: taskProfile(ProfileResearch, "high"),
-		ProfileCoding:   taskProfile(ProfileCoding, "medium"),
-		ProfileReview:   taskProfile(ProfileReview, "high"),
+		ProfileExplore:   taskProfile(ProfileExplore, "high"),
+		ProfileCoding:    taskProfile(ProfileCoding, "medium"),
+		ProfileReview:    taskProfile(ProfileReview, "high"),
 		ProfileExecution: taskProfile(ProfileExecution, "medium"),
 	}
 }

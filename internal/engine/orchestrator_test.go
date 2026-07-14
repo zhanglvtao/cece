@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,47 @@ import (
 	"github.com/zhanglvtao/cece/internal/session"
 	"github.com/zhanglvtao/cece/internal/tool"
 )
+
+// eventRecorder is a concurrency-safe sink for protocol events emitted by the
+// orchestrator from background goroutines. Tests that read the captured events
+// while the orchestrator may still be emitting must go through Snapshot so the
+// race detector stays quiet.
+type eventRecorder struct {
+	mu     sync.Mutex
+	events []protocol.Event
+}
+
+func (r *eventRecorder) emit(ev protocol.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, ev)
+}
+
+func (r *eventRecorder) Snapshot() []protocol.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]protocol.Event(nil), r.events...)
+}
+
+// syncBuffer is a concurrency-safe bytes.Buffer wrapper for capturing slog
+// output written from orchestrator worker goroutines while a test reads it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 
 type fakeRuntimeFactory struct {
 	rt      *AgentRuntime
@@ -330,15 +372,15 @@ func TestOrchestratorBridgeConsumesBestEffortProgress(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rt.Context = ctx
-	var events []protocol.Event
-	orch := NewOrchestrator(&fakeRuntimeFactory{rt: rt}, nil, func(ev protocol.Event) { events = append(events, ev) })
+	rec := &eventRecorder{}
+	orch := NewOrchestrator(&fakeRuntimeFactory{rt: rt}, nil, rec.emit)
 
 	go orch.bridgeRuntime(parent, rt, "parent-session")
 	rt.record(AgentMessage{AgentID: "agent-1", Kind: AgentMessageProgress, Status: AgentStatusRunning, Payload: map[string]any{"activity": "reading files"}})
 
 	deadline := time.After(time.Second)
 	for {
-		if bus, ok := findAgentBusEvent(events, "agent-1", "outbox", "progress"); ok {
+		if bus, ok := findAgentBusEvent(rec.Snapshot(), "agent-1", "outbox", "progress"); ok {
 			if bus.Payload["activity"] != "reading files" {
 				t.Fatalf("progress payload = %+v", bus.Payload)
 			}
@@ -346,13 +388,13 @@ func TestOrchestratorBridgeConsumesBestEffortProgress(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("missing best-effort progress AgentBusEvent: %+v", events)
+			t.Fatalf("missing best-effort progress AgentBusEvent: %+v", rec.Snapshot())
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	if !hasSubAgentActivity(events, "agent-1", "reading files") {
-		t.Fatalf("missing SubAgentActivityEvent: %+v", events)
+	if !hasSubAgentActivity(rec.Snapshot(), "agent-1", "reading files") {
+		t.Fatalf("missing SubAgentActivityEvent: %+v", rec.Snapshot())
 	}
 }
 
@@ -401,8 +443,8 @@ func hasSubAgentActivity(events []protocol.Event, agentID, activity string) bool
 }
 
 func TestOrchestratorLogsWorkerLifecycle(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	buf := &syncBuffer{}
+	logger := slog.New(slog.NewTextHandler(buf, nil))
 	orig := slog.Default()
 	slog.SetDefault(logger)
 	t.Cleanup(func() { slog.SetDefault(orig) })
@@ -411,8 +453,8 @@ func TestOrchestratorLogsWorkerLifecycle(t *testing.T) {
 	rt := NewAgentRuntime("agent-1", "A", "worker-model", "parent-session", worker, nil, context.Background(), func() {}, 8)
 	parent := NewEngine(&recordingClient{}, tool.NewRegistry(), true, 1024, nil, t.TempDir())
 	parent.LoadHistory(context.Background(), "parent-session", nil)
-	var events []protocol.Event
-	orch := NewOrchestrator(&fakeRuntimeFactory{rt: rt}, nil, func(ev protocol.Event) { events = append(events, ev) })
+	rec := &eventRecorder{}
+	orch := NewOrchestrator(&fakeRuntimeFactory{rt: rt}, nil, rec.emit)
 
 	if _, err := orch.Run(context.Background(), parent, tool.AgentSubAgentConfig{Operation: "start", Prompt: "analyze", Description: "A"}, nil); err != nil {
 		t.Fatalf("Run(start) error = %v", err)
